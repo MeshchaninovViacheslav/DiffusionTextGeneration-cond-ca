@@ -1,0 +1,154 @@
+{
+  "data": {
+    "c4": {
+      "size": 364868892
+    },
+    "wiki_dpr": {
+      "size": 21015300
+    },
+    "cola": {
+      "feature_keys": [
+        "sentence"
+      ],
+      "label_classes": [
+        "unacceptable",
+        "acceptable"
+      ]
+    },
+    "sst2": {
+      "feature_keys": [
+        "sentence"
+      ],
+      "label_classes": [
+        "negative",
+        "positive"
+      ]
+    },
+    "mrpc": {
+      "feature_keys": [
+        "sentence1",
+        "sentence2"
+      ],
+      "label_classes": [
+        "not_equivalent",
+        "equivalent"
+      ]
+    },
+    "qqp": {
+      "feature_keys": [
+        "question1",
+        "question2"
+      ],
+      "label_classes": [
+        "not_duplicate",
+        "duplicate"
+      ]
+    },
+    "stsb": {
+      "feature_keys": [
+        "sentence1",
+        "sentence2"
+      ]
+    },
+    "mnli": {
+      "feature_keys": [
+        "hypothesis",
+        "premise"
+      ],
+      "label_classes": [
+        "entailment",
+        "neutral",
+        "contradiction"
+      ]
+    },
+    "qnli": {
+      "feature_keys": [
+        "question",
+        "sentence"
+      ],
+      "label_classes": [
+        "entailment",
+        "not_entailment"
+      ]
+    },
+    "rte": {
+      "feature_keys": [
+        "sentence1",
+        "sentence2"
+      ],
+      "label_classes": [
+        "entailment",
+        "not_entailment"
+      ]
+    },
+    "copa": {
+      "feature_keys": [
+        "choice1",
+        "choice2",
+        "premise",
+        "question"
+      ],
+      "label_classes": [
+        "choice1",
+        "choice2"
+      ]
+    },
+    "cb": {
+      "feature_keys": [
+        "hypothesis",
+        "premise"
+      ],
+      "label_classes": [
+        "entailment",
+        "neutral",
+        "contradiction"
+      ]
+    },
+    "boolq": {
+      "feature_keys": [
+        "question",
+        "passage"
+      ],
+      "label_classes": [
+        "False",
+        "True"
+      ]
+    },
+    "wic": {
+      "feature_keys": [
+        "sentence1",
+        "sentence2",
+        "word"
+      ],
+      "label_classes": [
+        "False",
+        "True"
+      ]
+    },
+    "multirc": {
+      "feature_keys": [
+        "question",
+        "answer",
+        "paragraph"
+      ],
+      "label_classes": [
+        "False",
+        "True"
+      ]
+    },
+    "record": {
+      "feature_keys": [
+        "query",
+        "entities",
+        "passage",
+        "answers"
+      ]
+    }
+  },
+  "train": {
+    "seed": 0
+  },
+  "model": {
+    "max_length": 128
+  }
+}

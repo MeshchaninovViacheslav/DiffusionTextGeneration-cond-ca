@@ -31,16 +31,19 @@ def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
-    optim.linear_warmup = 5_000
-    optim.lr = 1e-4
-    optim.min_lr = 1e-4
+    optim.linear_warmup = 10_000
+    optim.lr = 2e-4
+    optim.min_lr = 2e-4
     optim.warmup_lr = 1e-6
-    optim.weight_decay = 0.
+    optim.weight_decay = 0.01
+    optim.beta_1 = 0.9
+    optim.beta_2 = 0.98
+    optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 1_000_000
-    training.checkpoint_freq = 200_000
-    training.eval_freq = 50_000
+    training.training_iters = 500_000
+    training.checkpoint_freq = 100_000
+    training.eval_freq = 100_000
     training.batch_size = 512
 
     training.ode_sampling = False
@@ -51,9 +54,8 @@ def create_config():
     loss.ce_coef = 0.
 
     refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = False
-    # refresh.prefix = "./checkpoints/rocstory--encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=32-clipgrad=0.2-lr=0.0002-min_lr=0.0002-new_net_v1.3.4-woinputproj_1000000_.pth"
-    refresh.prefix = "./checkpoints/rocstory--encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=32-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.0-new_net-time_t_800000_.pth"
+    refresh.true = True
+    refresh.prefix = "./checkpoints/wikipedia--encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=64-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-t5-model-ln_100000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -65,11 +67,11 @@ def create_config():
     sde = config.sde = ml_collections.ConfigDict()
     sde.typename = 'vp-sde'
     sde.solver = 'euler'
-    sde.N = 2000
+    sde.N = 1000
     sde.beta_min = 0.1
     sde.beta_max = 20
     sde.ode_sampling = False
-    sde.scheduler = schedulers.Cosine(sde.beta_min, sde.beta_max) #schedulers.Exponential(a=10)
+    sde.scheduler = schedulers.CosineSD(d=10)
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
@@ -77,28 +79,24 @@ def create_config():
     model.embeddings_type = "encodings"
     model.dif_enc_type = "base"
     model.downstream_task = ""  # "qqp"
-    model.dataset = "rocstory"  # "glue"
+    model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
 
     data = config.data = ml_collections.ConfigDict()
-    data.max_sequence_len = 32
+    data.max_sequence_len = 64
 
     config.lin_input = True
     config.seed = 0
     config.ddp = True
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
 
-    args = parse_option(config)
-    if config.ddp:
-        config.local_rank = args.local_rank
-
     return config
 
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "cond_launch-v1.0"
+    suffix = "t5-model-ln"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"{config.model.embeddings_type}-" \
@@ -127,6 +125,8 @@ if __name__ == '__main__':
     else:
         rank = -1
         world_size = -1
+
+    config.local_rank = rank
     torch.cuda.set_device(rank)
     torch.distributed.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
     torch.distributed.barrier()
@@ -141,4 +141,7 @@ if __name__ == '__main__':
 
     seed = config.seed + dist.get_rank()
     set_seed(seed)
-    diffusion.train(experiment_name=config.checkpoints_prefix)
+    diffusion.train(
+        project_name="bert-conditional-exps",
+        experiment_name=config.checkpoints_prefix
+    )

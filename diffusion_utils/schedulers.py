@@ -86,106 +86,20 @@ class Cosine(Scheduler):
                     1 / 2 * (self.beta_1 - self.beta_0))
         return t
 
-
-class Cosine_lin(Scheduler):
-    def __init__(self, beta_0, beta_1):
-        self.beta_0 = beta_0
-        self.beta_1 = beta_1
-        self.eps_t = 1e-3
+class CosineSD(Scheduler):
+    def __init__(self, d=1):
+        self.d = d
+        self.t_thr = 0.95
 
     def beta_t(self, t):
-        return self.beta_0 + (self.beta_1 - self.beta_0) * t
-
-    def alpha_std(self, t):
-        t = t[:, None, None]
-        alpha_sqrt = 1 - t
-        std = torch.sqrt(1 - torch.square(alpha_sqrt))
-        return alpha_sqrt, std
-
-    def reverse(self, alpha):
-        t = (-1 / 2 * self.beta_0 + np.sqrt(
-            (1 / 2 * self.beta_0) ** 2 - (self.beta_1 - self.beta_0) * np.log(alpha))) / (
-                    1 / 2 * (self.beta_1 - self.beta_0))
-        return t
-
-    def clip(self, t):
-        return torch.clip(t, min=self.eps_t, max=1 - self.eps_t)
-
-
-class Linear(Scheduler):
-    def __init__(self, eps_t=1e-4):
-        self.eps_t = eps_t
-
-    def beta_t(self, t):
-        t = self.clip(t)
-        beta_t = 1 / (1 - t)
-        beta_t = torch.clip(beta_t, min=0, max=20)
+        t = torch.clip(t, 0, self.t_thr)
+        tan = torch.tan(np.pi * t / 2)
+        beta_t = np.pi * self.d ** 2 * tan * (1 + tan ** 2) / (1 + self.d ** 2 * tan ** 2)
         return beta_t
 
     def alpha_std(self, t):
-        t = self.clip(t)
         t = t[:, None, None]
-        alpha_sqrt = 1 - t
-        std = torch.sqrt(1 - torch.square(alpha_sqrt))
-        return alpha_sqrt, std
-
-    def reverse(self, alpha):
-        return 1 - alpha
-
-    def clip(self, t):
-        return torch.clip(t, min=self.eps_t, max=1 - self.eps_t)
-
-
-class Quadratic(Scheduler):
-    def __init__(self, a=2, eps_t=1e-4):
-        self.eps_t = eps_t
-        self.a = a
-
-    def beta_t(self, t):
-        t = self.clip(t)
-        beta_t = self.a / (1 - t)
-        # beta_t = torch.clip(beta_t, min=0, max=20)
-        return beta_t
-
-    def alpha_std(self, t):
-        t = self.clip(t)
-        t = t[:, None, None]
-        alpha_sqrt = (1 - t) ** 2
-        std = torch.sqrt(1 - torch.square(alpha_sqrt))
-        return alpha_sqrt, std
-
-    def reverse(self, alpha):
-        return 1 - torch.sqrt(alpha)
-
-    def clip(self, t):
-        return torch.clip(t, min=self.eps_t, max=1 - self.eps_t)
-
-
-class Exponential(Scheduler):
-    def __init__(self, a, eps_t=1e-4):
-        self.eps_t = eps_t
-        self.clip_coef = 20.
-        self.a = a
-
-    def beta_t(self, t):
-        t = self.clip(t)
-        beta_t = self.a / (1 - t)
-        return beta_t
-
-    def alpha_std(self, t):
-        t = self.clip(t)
-        t = t[:, None, None]
-        t_thr = 1 - self.a / self.clip_coef
-        indicator = (t < t_thr).int()
-        alpha_sqrt = (1 - t) ** self.a
-        # alpha_sqrt = indicator * ((1 - t) ** self.a) + \
-        #              (1 - indicator) * ((1 - t_thr) ** self.a * torch.exp((t_thr - t) * self.clip_coef))
-        # alpha_sqrt = torch.clip(alpha_sqrt, 0, 1)
-        std = torch.sqrt(1 - torch.square(alpha_sqrt))
-        return alpha_sqrt, std
-
-    def reverse(self, alpha):
-        pass
-
-    def clip(self, t):
-        return torch.clip(t, min=self.eps_t, max=1 - self.eps_t)
+        tan = torch.tan(np.pi * t / 2)
+        alpha_t = 1 / torch.sqrt(1 + tan ** 2 * self.d ** 2)
+        std_t = torch.sqrt(1 - alpha_t ** 2)
+        return torch.clip(alpha_t, 0, 1), torch.clip(std_t, 0, 1)

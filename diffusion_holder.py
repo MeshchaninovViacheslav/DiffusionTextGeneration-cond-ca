@@ -12,21 +12,21 @@ from torch.utils.data import DataLoader
 from transformers import BertTokenizerFast, BertConfig
 from transformers.models.bert.modeling_bert import BertEncoder
 from tqdm import tqdm
-from torch.nn.functional import cross_entropy
+from torch.nn.functional import cross_entropy, normalize
 from copy import deepcopy
 from timm.scheduler.cosine_lr import CosineLRScheduler
 from collections import defaultdict
+from torch.cuda.amp import GradScaler
+from time import time
 
 from diffusion_utils.diffusion_dynamic_sde import create_sde, create_solver
 from utils.ema_model import ExponentialMovingAverage
-from data.create_dataset import create_unsupervised_dataset, create_glue_unsupervised_dataset, \
-    create_wikipedia_dataset, create_rocstory_dataset, create_conditional_dataset, create_unconditional_dataset
 from bert_model.modelling_bert import BertLMHeadModel
-from utils.util import dict_to_cuda, reduce_tensor, dict_to_tensors, masked_mean, \
-    masked_std, make_mask_wo_SEP_CLS, get_ravel_grad, get_ravel_weights, set_seed
-from data.dataset import C4BatchDataset, RocStoryDataset
-
 from bert_model.score_estimator_cond import ScoreEstimatorEMB
+from utils.util import dict_to_cuda, reduce_tensor, dict_to_tensors, masked_mean, \
+    masked_std, make_mask_wo_SEP_CLS, get_ravel_grad, get_ravel_weights, set_seed, dict_to_tensor_cuda
+from data.dataset import WikipediaDataset
+
 from estimation_utils.util import estimate_model, gather_texts, reduce_metrics
 from estimation_utils.metrics import BloomMetric, GPTMetric
 
@@ -100,6 +100,20 @@ class DiffusionRunner:
             self.score_estimator.eval()
 
         self.grad_expl_dict = defaultdict(list)
+
+        self.train_datasets_iter = WikipediaDataset(
+            split="train",
+            tokenizer=self.tokenizer,
+            max_sequence_len=self.config.data.max_sequence_len,
+            p_uncond=0
+        ).get_data()
+        self.train_dataset = None
+        self.valid_dataset = next(WikipediaDataset(
+            split="test",
+            tokenizer=self.tokenizer,
+            max_sequence_len=self.config.data.max_sequence_len,
+            p_uncond=0
+        ).get_data())
 
     @torch.no_grad()
     def sampler_emb_impl(self, X):
@@ -184,6 +198,8 @@ class DiffusionRunner:
             decoder_path = "decoder-v1.1-pad.pth"
         if self.config.model.dataset == "c4":
             decoder_path = "decoder-c4-pad-64.pth"
+        if self.config.model.dataset == "wikipedia":
+            decoder_path = "decoder-wikipedia-128.pth"
         self.decoder.load_state_dict(torch.load(os.path.join(self.checkpoints_folder, decoder_path))["decoder"])
 
     def switch_to_ema(self) -> None:
@@ -201,7 +217,9 @@ class DiffusionRunner:
         optimizer = torch.optim.AdamW(
             self.score_estimator.parameters(),
             lr=self.config.optim.lr,
-            weight_decay=self.config.optim.weight_decay
+            weight_decay=self.config.optim.weight_decay,
+            betas=(self.config.optim.beta_1, self.config.optim.beta_2),
+            eps=self.config.optim.eps,
         )
         self.warmup = self.config.optim.linear_warmup
         self.grad_clip_norm = self.config.optim.grad_clip_norm
@@ -218,16 +236,15 @@ class DiffusionRunner:
             t_in_epochs=False,
         )
 
+    def set_grad_scaler(self) -> None:
+        self.grad_scaler = GradScaler()
+
     def set_train_data_generator(self) -> None:
         num_tasks = 1
-        self.train_dataset = create_conditional_dataset(
-            dataset=self.config.model.dataset,
-            split="train",
-            tokenizer=self.tokenizer,
-            max_sequence_len=self.config.data.max_sequence_len,
-        )
-
+        del self.train_dataset
+        self.train_dataset = next(self.train_datasets_iter)
         print("Dataset length:", len(self.train_dataset))
+
         if self.config.ddp:
             num_tasks = dist.get_world_size()
             global_rank = dist.get_rank()
@@ -245,19 +262,13 @@ class DiffusionRunner:
             self.train_dataset,
             sampler=sampler_train,
             batch_size=self.config.training.batch_size // num_tasks,
-            num_workers=16,
-            pin_memory=True,
+            num_workers=80,
+            pin_memory=False,
         )
 
     def set_valid_data_generator(self) -> None:
         num_tasks = 1
-        self.valid_dataset = create_conditional_dataset(
-            dataset=self.config.model.dataset,
-            split="validation",
-            tokenizer=self.tokenizer,
-            max_sequence_len=self.config.data.max_sequence_len,
-            p_uncond=self.config.validation.p_uncond,
-        )
+
         if self.config.ddp:
             num_tasks = dist.get_world_size()
             sampler_valid = torch.utils.data.distributed.DistributedSampler(
@@ -270,9 +281,9 @@ class DiffusionRunner:
         self.valid_loader = DataLoader(
             self.valid_dataset,
             sampler=sampler_valid,
-            batch_size=self.config.validation.batch_size // num_tasks,
-            num_workers=16,
-            pin_memory=True,
+            batch_size=self.config.validation.batch_size,
+            num_workers=8,
+            pin_memory=False,
         )
 
     def log_metric(self, metric_name: str, loader_name: str, value: Union[float, torch.Tensor, wandb.Image]):
@@ -281,7 +292,10 @@ class DiffusionRunner:
 
     def optimizer_step(self, loss: torch.Tensor):
         self.optimizer.zero_grad()
-        loss.backward()
+        self.grad_scaler.scale(loss).backward()
+
+        self.grad_scaler.unscale_(self.optimizer)
+
         grad_norm = torch.sqrt(sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters()]))
 
         if self.grad_clip_norm is not None:
@@ -293,14 +307,15 @@ class DiffusionRunner:
         clipped_grad_norm = torch.sqrt(sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters()]))
 
         self.log_metric('lr', 'train', self.optimizer.param_groups[0]['lr'])
-        self.optimizer.step()
+        self.grad_scaler.step(self.optimizer)
+        self.grad_scaler.update()
         self.ema.update(self.score_estimator.parameters())
         self.scheduler.step_update(self.step)
         return grad_norm, clipped_grad_norm
 
     def sample_time(self, batch_size: int, eps: float = 1e-5):
-        # return torch.rand(batch_size) * (0.1 - eps) + eps
-        return torch.rand(batch_size) * (self.sde.T - eps) + eps
+        # return torch.rand(batch_size) * (0.05 - eps) + eps
+        return torch.cuda.FloatTensor(batch_size).uniform_() * (self.sde.T - eps) + eps
 
     def get_dict_to_emb(self, X: Dict) -> Dict:
         keys = [
@@ -318,6 +333,10 @@ class DiffusionRunner:
 
     def bert_acc(self, targets, outputs, mask):
         pred_tokens = outputs.argmax(dim=-1)
+
+        mask = deepcopy(mask)
+        mask.scatter_(dim=1, index=(mask.sum(dim=1) - 1).reshape(-1, 1), src=torch.zeros_like(mask))
+        mask[:, 0] = 0
         return torch.sum(mask * (targets == pred_tokens)) / torch.sum(mask)
 
     def mse_loss(self, inputs, targets, mask):
@@ -337,9 +356,10 @@ class DiffusionRunner:
         return loss
 
     def get_stat(self, z, mask):
-        mean = masked_mean(z, mask)
-        std = masked_std(z, mask)
-        norm = torch.sum(torch.norm(z, dim=2) * mask) / torch.sum(mask)
+        mask_SEP_CLS = make_mask_wo_SEP_CLS(mask)
+        mean = masked_mean(z, mask_SEP_CLS)
+        std = masked_std(z, mask_SEP_CLS)
+        norm = torch.sum(torch.norm(z, dim=2) * mask_SEP_CLS) / torch.sum(mask_SEP_CLS)
         return torch.mean(mean), torch.mean(std), norm
 
     def calc_loss(
@@ -348,15 +368,18 @@ class DiffusionRunner:
             cond=None,
             X=None,
             eps: float = 1e-5,
-    ):
+    ) -> Dict[str, torch.Tensor]:
+        # Noizing
         batch_size = clean_x.size(0)
-        t = self.sample_time(batch_size, eps=eps).to(clean_x.device)
 
+        t = self.sample_time(batch_size, eps=eps)
         marg_forward = self.sde.marginal_forward(clean_x, t)
         x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
-        params = self.sde.marginal_params_tensor(clean_x, t)
 
-        scores = self.sde.calc_score(self.ddp_score_estimator, x_t, t, cond, **X)
+        # bert_model prediction
+        scores = self.sde.calc_score(self.ddp_score_estimator, x_t, t, cond, mask=X["input_mask"])
+
+        # MSE losses
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
         mask = X["input_mask"]
 
@@ -364,8 +387,13 @@ class DiffusionRunner:
         loss_eps = self.mse_loss(noise, eps_theta, mask)
         loss_score = self.mse_loss(score_clean, score, mask)
 
+        # Decoder reconstruction
+
         logits = self.pred_logits(pred_embeddings=x_0, input_ids=X["input_ids"])
         ce_loss = self.recon_loss(logits, X["input_ids"], mask)
+
+        # Statistics
+
         if self.config.model.loss == "L_x_0":
             loss = loss_x_0
         elif self.config.model.loss == "L_eps":
@@ -393,7 +421,6 @@ class DiffusionRunner:
             "x_0_std": x_0_std,
             "x_0_norm": x_0_norm,
         }
-
         return loss_dict, stat_dict
 
     def train(
@@ -402,11 +429,13 @@ class DiffusionRunner:
             experiment_name: str = 'bert_emb'
     ) -> None:
         if dist.get_rank() == 0:
-            wandb.init(project=project_name, name=experiment_name, config=dict(self.config), mode="online")
+            wandb.init(project=project_name, name=experiment_name, config=dict(self.config), mode="offline")
 
         self.tracker = Loss_ema_tracker()
         self.set_optimizer()
         self.set_scheduler()
+        self.set_grad_scaler()
+
         self.step = 0
         self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
         self.refresh_checkpoint()
@@ -414,12 +443,17 @@ class DiffusionRunner:
         self.train_range = trange(self.step + 1, self.config.training.training_iters + 1)
         self.train_range_iter = iter(self.train_range)
 
-        self.set_train_data_generator()
         self.set_valid_data_generator()
 
+        self.file = open("log.txt", "w")
+
         while True:
+            self.set_train_data_generator()
             self.ddp_score_estimator.train()
             self.train_epoch()
+
+            if self.step >= self.config.training.training_iters:
+                break
 
         self.score_estimator.eval()
         self.save_checkpoint(last=True)
@@ -427,20 +461,21 @@ class DiffusionRunner:
 
     def train_epoch(self):
         for _, X in enumerate(self.train_loader):
-            if self.step >= self.config.training.training_iters:
+            if self.step > self.config.training.training_iters:
                 return
             _ = next(self.train_range_iter)
+
             loss_dict, stat_dict = self.train_step(X)
             loss = loss_dict["loss"]
 
+            if self.step % self.config.training.checkpoint_freq == 0:
+                self.save_checkpoint()
+                self.estimate()
+
             if self.step % self.config.training.eval_freq == 0:
                 self.validate()
-                self.compute_restoration_loss(suffix="train")
-                self.compute_restoration_loss(suffix="valid")
-
-            if self.step % self.config.training.checkpoint_freq == 0:
-                #self.estimate()
-                self.save_checkpoint()
+                # self.compute_restoration_loss(suffix="train")
+                # self.compute_restoration_loss(suffix="valid")
 
             self.tracker.update(loss.item())
             self.train_range.set_description(
@@ -450,21 +485,31 @@ class DiffusionRunner:
                 f"grad_norm: {stat_dict['grad_norm'].item():0.4f}, "
                 f"accuracy: {loss_dict['accuracy'].item():0.4f}"
             )
-            # torch.cuda.synchronize()
+
+        # torch.cuda.synchronize()
 
     def train_step(self, X):
         self.step += 1
+
         X = dict_to_cuda(X)
         clean_X = self.sampler_emb({"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
         cond = self.sampler_emb({"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
 
-        loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
-        for k, v in loss_dict.items():
-            self.log_metric(k, 'train', v.item())
-        stat_dict["weight_norm"] = torch.sqrt(sum([torch.sum(t.data ** 2) for t in self.score_estimator.parameters()]))
+        with torch.autocast(device_type='cuda', dtype=torch.float16):
+            loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
+
         stat_dict["grad_norm"], stat_dict["clipped_grad_norm"] = self.optimizer_step(loss_dict['total_loss'])
-        for k, v in stat_dict.items():
-            self.log_metric(k, 'train', v.item())
+
+        if self.step % 10 == 0:
+            stat_dict["weight_norm"] = torch.sqrt(
+                sum([torch.sum(t.data ** 2) for t in self.score_estimator.parameters()]))
+
+            for k, v in loss_dict.items():
+                self.log_metric(k, 'train', v.item())
+
+            for k, v in stat_dict.items():
+                self.log_metric(k, 'train', v.item())
+
         return loss_dict, stat_dict
 
     def validate(self) -> None:
@@ -518,7 +563,7 @@ class DiffusionRunner:
 
             torch.save(
                 {
-                    "model": self.score_estimator.state_dict(),
+                    "bert_model": self.score_estimator.state_dict(),
                     "ema": self.ema.state_dict(),
                     "optimizer": self.optimizer.state_dict(),
                     "scheduler": self.scheduler.state_dict(),
@@ -526,7 +571,7 @@ class DiffusionRunner:
                 },
                 os.path.join(self.checkpoints_folder, prefix + ".pth")
             )
-            print(f"Save model to: {os.path.join(self.checkpoints_folder, prefix + f'model.pth')}")
+            print(f"Save bert_model to: {os.path.join(self.checkpoints_folder, prefix + f'bert_model.pth')}")
 
     def refresh_checkpoint(self):
         if not self.config.refresh.true:
@@ -534,17 +579,26 @@ class DiffusionRunner:
         load = torch.load(f'{self.config.refresh.prefix}', map_location="cpu")
         self.ema.load_state_dict(load["ema"])
         self.ema.cuda()
-        self.score_estimator.load_state_dict(load["model"])
+        self.score_estimator.load_state_dict(load["bert_model"])
         self.score_estimator.cuda()
         self.optimizer.load_state_dict(load["optimizer"])
         self.scheduler.load_state_dict(load["scheduler"])
         self.step = load["step"]
         print(f"Checkpoint refreshed {self.config.refresh.prefix}")
 
-    def generate_text(self, batch_size, cond=None):
+    def generate_text(self, batch_size, cond=None, way="sde"):
         cond = dict_to_cuda(cond)
         cond_X = self.sampler_emb({"input_ids": cond["cond"], "attention_mask": cond["cond_mask"]})
-        pred_embeddings = self.pred_embeddings(batch_size, cond=cond_X, cond_mask=cond["cond_mask"])
+
+        if way == "sde":
+            pred_embeddings = self.pred_embeddings(batch_size, cond=cond_X, cond_mask=cond["cond_mask"])
+        elif way == "ddpm":
+            pred_embeddings = self.pred_embeddings_DDPM(batch_size)
+        elif way == "ddim":
+            pred_embeddings = self.pred_embeddings_DDIM(batch_size)
+        else:
+            raise Exception("way of sampling doesn't exist")
+        # pred_embeddings = normalize(pred_embeddings, dim=-1) * np.sqrt(pred_embeddings.shape[-1])
         output = self.pred_logits(pred_embeddings)
         tokens = output.argmax(dim=-1)
         text = self.tokenizer.batch_decode(tokens, skip_special_tokens=True)
@@ -569,7 +623,6 @@ class DiffusionRunner:
             eps: float = 1e-5,
             **kwargs,
     ) -> torch.Tensor:
-        # print("Changed", flush=True)
         shape = (
             batch_size,
             self.config.data.max_sequence_len,
@@ -577,7 +630,7 @@ class DiffusionRunner:
         )
         with torch.no_grad():
             x = self.sde.prior_sampling(shape).to(self.device)
-            eps_t = 1 / self.diff_eq_solver.sde.N
+            eps_t = 3 / self.diff_eq_solver.sde.N
             timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N, device=self.device)
             for i in tqdm(range(self.sde.N)):
                 t = timesteps[i]
@@ -588,21 +641,16 @@ class DiffusionRunner:
 
         return pred_embeddings
 
-    def __pred_embeddings_ddpm(self, batch_size):  # TODO
-        def q_x_t_1(x_t, x_0, t):
-            ind = int(t * 1000)
+    def pred_embeddings_DDPM(self, batch_size):
+        def q_x_t_rev(x_t, x_0, t):
+            dt = 1 / self.diff_eq_solver.sde.N
+            alpha_t = self.sde.scheduler.alpha_std(t)[0] ** 2
+            alpha_t_1 = self.sde.scheduler.alpha_std(t - dt)[0] ** 2
+            beta_t = self.sde.scheduler.beta_t(t)[:, None, None] * dt
 
-            alpha_over = self.sde.marginal_params_tensor(x_0, timesteps)["alpha"].reshape(-1).flip(
-                dims=[0]) ** (1 / 2)
-            beta = 1 - alpha_over[1:] / alpha_over[:-1]
-            beta = torch.concat([torch.Tensor([0]).cuda(), beta])
-
-            alpha_over_t = alpha_over[ind]
-            alpha_over_t_1 = alpha_over[ind - 1]
-            beta_t = beta[ind]
-            mu = (alpha_over_t_1 ** (1 / 2) * beta_t) / (1 - alpha_over_t) * x_0 + (
-                    (1 - beta_t) ** (1 / 2) * (1 - alpha_over_t_1)) / (1 - alpha_over_t) * x_t
-            std = (beta_t * (1 - alpha_over_t_1)) / (1 - alpha_over_t)
+            mu = torch.sqrt(alpha_t_1) * beta_t / (1 - alpha_t) * x_0 + \
+                 torch.sqrt(1 - beta_t) * (1 - alpha_t_1) / (1 - alpha_t) * x_t
+            std = torch.sqrt((1 - alpha_t_1) / (1 - alpha_t) * beta_t)
             return mu, std
 
         shape = (
@@ -611,24 +659,70 @@ class DiffusionRunner:
             self.encoder.config.hidden_size
         )
         with torch.no_grad():
-            x = self.sde.prior_sampling(shape).to(self.device)
-            eps_t = 1 / self.diff_eq_solver.sde.N
-            timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N, device=self.device)
-            for i in tqdm(range(self.sde.N)):
+            x_t = self.sde.prior_sampling(shape).to(self.device)
+            n = 4
+            eps_t = n / self.diff_eq_solver.sde.N
+            timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N - n + 1, device=self.device)
+            for i in tqdm(range(self.sde.N - n + 1)):
                 t = timesteps[i]
                 vec_t = torch.ones(shape[0], device=t.device) * t
+                # print(f"{t:0.3f}: {torch.mean(torch.norm(x_t, dim=-1)):0.3f}")
 
-                scores = self.sde.calc_score(self.score_estimator, x, vec_t)
+                scores = self.sde.calc_score(self.score_estimator, x_t, vec_t)
                 x_0 = scores.pop("x_0")
-                mu, std = q_x_t_1(x, x_0, t)
-                x = mu + std * torch.rand_like(x)
-            pred_embeddings = x
+                mu, std = q_x_t_rev(x_t, x_0, vec_t)
+                x_t = mu + std * torch.randn_like(x_t)
+
+            pred_embeddings = mu
+        return pred_embeddings
+
+    def pred_embeddings_DDIM(self, batch_size):
+        def q_x_t_rev(x_t, x_0, t, sigma_t):
+            dt = 1 / self.diff_eq_solver.sde.N
+            alpha_t = self.sde.scheduler.alpha_std(t)[0] ** 2
+            alpha_t_1 = self.sde.scheduler.alpha_std(t - dt)[0] ** 2
+
+            sigma_t = torch.sqrt((1 - alpha_t_1) / (1 - alpha_t)) * torch.sqrt(1 - alpha_t / alpha_t_1) * 0.1
+
+            noise_t = (x_t - torch.sqrt(alpha_t) * x_0) / torch.sqrt(1 - alpha_t)
+            mu = torch.sqrt(alpha_t_1) * x_0 + \
+                 torch.sqrt(1 - alpha_t_1 - sigma_t ** 2) * noise_t
+            std = sigma_t
+            return mu, std
+
+        sigma_t = 0
+        shape = (
+            batch_size,
+            self.config.data.max_sequence_len,
+            self.encoder.config.hidden_size
+        )
+        with torch.no_grad():
+            x_t = self.sde.prior_sampling(shape).to(self.device)
+            n = 50
+            eps_t = n / self.diff_eq_solver.sde.N
+            timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N - n + 1, device=self.device)
+            for i in tqdm(range(self.sde.N - n + 1)):
+                t = timesteps[i]
+
+                # sigma_t = torch.sqrt(30 * t ** 2 / 1000)
+                vec_t = torch.ones(shape[0], device=t.device) * t
+                # print(f"{t:0.3f}: {torch.mean(torch.norm(x_t, dim=-1)):0.3f}")
+
+                scores = self.sde.calc_score(self.score_estimator, x_t, vec_t)
+                x_0 = scores.pop("x_0")
+                mu, std = q_x_t_rev(x_t, x_0, vec_t, sigma_t)
+                x_t = mu + std * torch.randn_like(x_t)
+
+            pred_embeddings = mu
         return pred_embeddings
 
     @torch.no_grad()
     def restore_text(self, X, mask):
         X = dict_to_cuda(X)
         mask = mask.cuda()
+        # mask = deepcopy(X["attention_mask"])
+        # mask.scatter_(dim=1, index=(mask.sum(dim=1) - 1).reshape(-1, 1), src=torch.zeros_like(mask))
+        # X["attention_mask"] = mask
 
         clean_X = self.sampler_emb(dict({key: X[key] for key in ["input_ids", "attention_mask"]}))
         mask = mask[:, :, None]
@@ -655,34 +749,46 @@ class DiffusionRunner:
         device = torch.device(self.config.device)
         eps_t = 1 / self.diff_eq_solver.sde.N
         gamma = 1
+        dt = -1. / self.sde.N
 
         with torch.no_grad():
             x = x_mean = self.sde.prior_sampling(shape).to(device)
 
             timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N, device=self.device)
             rang = tqdm(range(self.sde.N))
+            #
+            # for idx in rang:
+            #     t = timesteps[idx]
+            #     input_t = t * torch.ones(shape[0], device=device)
+            #
+            #     y_t = self.sde.marginal_forward(masked_x, input_t)['x_t']
+            #
+            #     t = input_t
+            #     x_t = x
+            #
+            #     z = torch.randn_like(x_t)
+            #     rsde_params = self.diff_eq_solver.rsde.sde(self.score_estimator, x_t, t)
+            #     drift, dif = rsde_params['drift'], rsde_params['diffusion']
+            #
+            #     x_mean = gamma * mask * y_t + (1 - gamma) * mask * x_t + (1 - mask) * x_t
+            #     x_mean = x_mean + drift * dt
+            #
+            #     if not self.diff_eq_solver.ode_sampling:
+            #         x = x_mean + dif[:, None, None] * np.sqrt(-dt) * z
+            #     else:
+            #         x = x_mean
+            # x = normalize(x, dim=-1) * np.sqrt(x.shape[-1])
 
             for idx in rang:
                 t = timesteps[idx]
-                input_t = t * torch.ones(shape[0], device=device)
+                vec_t = t * torch.ones(shape[0], device=device)
 
-                y_t = self.sde.marginal_forward(masked_x, input_t)['x_t']
-
-                t = input_t
+                y_t = self.sde.marginal_forward(masked_x, vec_t)['x_t']
                 x_t = x
-
-                dt = -1. / self.sde.N
-                z = torch.randn_like(x_t)
-                rsde_params = self.diff_eq_solver.rsde.sde(self.score_estimator, x_t, t)
-                drift, dif = rsde_params['drift'], rsde_params['diffusion']
-
-                x_mean = gamma * mask * y_t + (1 - gamma) * mask * x_t + (1 - mask) * x_t
-                x_mean = x_mean + drift * dt
-
-                if not self.diff_eq_solver.ode_sampling:
-                    x = x_mean + dif[:, None, None] * np.sqrt(-dt) * z
-                else:
-                    x = x_mean
+                input_t = gamma * mask * y_t + (1 - gamma) * mask * x_t + (1 - mask) * x_t
+                output = self.diff_eq_solver.step(model=self.score_estimator, x_t=input_t, t=vec_t)
+                x, x_mean = output["x"], output["x_mean"]
+                # x = normalize(x, dim=-1) * np.sqrt(x.shape[-1])
 
         return x_mean
 
@@ -797,7 +903,7 @@ class DiffusionRunner:
             x_t = marg_forward['x_t']
             noise, score_clean = marg_forward['noise'], marg_forward['score']
 
-            scores = self.sde.calc_score(model=self.score_estimator, x_t=x_t, t=vec_t, cond=cond)
+            scores = self.sde.calc_score(self.score_estimator, x_t=x_t, t=vec_t, cond=cond)
             x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
 
             loss_x_0 = self.mse_loss(clean_X, x_0, mask)
@@ -828,30 +934,25 @@ class DiffusionRunner:
 
         if not hasattr(self, 'metric_bloom_fn'):
             self.metric_bloom_fn = BloomMetric(device=f"cuda:{dist.get_rank()}")
-            self.metric_gpt_fn = GPTMetric(device=f"cuda:{dist.get_rank()}")
 
         self.metric_bloom_fn.model.cuda()
-        self.metric_gpt_fn.model.cuda()
 
         num_texts = int(self.config.validation.num_gen_texts / dist.get_world_size())
         seed = self.config.seed + dist.get_rank()
         set_seed(seed)
         metrics, texts = estimate_model(self, num_texts, self.config.validation.batch_size,
-                                        self.metric_bloom_fn, self.metric_gpt_fn)
+                                        self.metric_bloom_fn, None, type_="cond")
         texts = gather_texts(texts)
         metrics = reduce_metrics(metrics)
         if dist.get_rank() == 0:
             texts_path = "./generated_texts"
             print(f"Bloom metric: {metrics['Bloom metric']:0.5f}")
-            print(f"GPT2 metric: {metrics['GPT2 metric']:0.5f}")
             with open(f"{texts_path}/{self.config.checkpoints_prefix}-{self.step}.txt", "w") as file:
                 for text in texts:
                     print(text, file=file)
 
         self.log_metric(metric_name="bloom loss", loader_name="", value=metrics['Bloom metric'])
-        self.log_metric(metric_name="gpt2 loss", loader_name="", value=metrics['GPT2 metric'])
 
         self.metric_bloom_fn.model.cpu()
-        self.metric_gpt_fn.model.cpu()
         self.score_estimator.train()
         self.switch_back_from_ema()

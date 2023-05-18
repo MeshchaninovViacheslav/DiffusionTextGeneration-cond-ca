@@ -68,6 +68,7 @@ def generate_text_unconditional(diffusion, num_texts, batch_size):
 
 
 def generate_text_conditional(diffusion, num_texts, batch_size):
+    print(batch_size)
     diffusion.config.validation.batch_size = batch_size
     diffusion.set_valid_data_generator()
     loader = iter(diffusion.valid_loader)
@@ -101,10 +102,15 @@ def estimate_model(diffusion, num_texts, batch_size, metric_bloom_fn, metric_gpt
         texts = generate_text_conditional(diffusion, num_texts, batch_size)
     else:
         texts = generate_text(diffusion, num_texts, batch_size)
-    metric_bloom = compute_metric(metric_bloom_fn, texts)
-    # print(f"Bloom metric: {metric_bloom:0.5f}")
-    metric_gpt = compute_metric(metric_gpt_fn, texts)
-    # print(f"GPT2 metric: {metric_gpt:0.5f}")
+
+    if metric_bloom_fn:
+        metric_bloom = compute_metric(metric_bloom_fn, texts)
+    else:
+        metric_bloom = np.nan
+    if metric_gpt_fn:
+        metric_gpt = compute_metric(metric_gpt_fn, texts)
+    else:
+        metric_gpt = np.nan
     return {"Bloom metric": metric_bloom, "GPT2 metric": metric_gpt}, texts
 
 

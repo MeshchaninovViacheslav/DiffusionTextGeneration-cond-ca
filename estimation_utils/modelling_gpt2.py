@@ -105,7 +105,7 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
     ) -> Union[Tuple, CausalLMOutputWithCrossAttentions]:
         r"""
         labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
-            Labels for language modeling. Note that the labels **are shifted** inside the model, i.e. you can set
+            Labels for language modeling. Note that the labels **are shifted** inside the bert_model, i.e. you can set
             `labels = input_ids` Indices are selected in `[-100, 0, ..., config.vocab_size]` All labels set to `-100`
             are ignored (masked), the loss is only computed for labels in `[0, ..., config.vocab_size]`
         """
@@ -128,7 +128,7 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
         )
         hidden_states = transformer_outputs[0]
 
-        # Set device for model parallelism
+        # Set device for bert_model parallelism
         if self.model_parallel:
             torch.cuda.set_device(self.transformer.first_device)
             hidden_states = hidden_states.to(self.lm_head.weight.device)

@@ -1,152 +1,83 @@
-import json
-import torch
-import shutil
-from itertools import cycle
-import torch.distributed as dist
-from copy import copy
-import numpy as np
-from datasets import load_dataset, disable_progress_bar
+from datasets import Dataset, disable_progress_bar
 from datasets.utils.logging import set_verbosity_error
-
-from .preprocessing import text_preprocessor
+from itertools import cycle
+import gc
+import torch
+import numpy as np
 
 disable_progress_bar()
 set_verbosity_error()
 
 
-class IterableDataset(torch.utils.data.IterableDataset):
-    def __init__(self, ex_iterables: dict, max_length, config, weights_sampling_mode="size"):
-        self.ex_iterables: list = []
-        self.weights: list = []
-        for benchmark_name, dt in ex_iterables.items():
-            if weights_sampling_mode == "size":
-                if hasattr(dt, "num_rows"):
-                    self.weights.append(dt.num_rows)
-                else:
-                    self.weights.append(config["data"][benchmark_name]["size"])
-            else:
-                self.weights.append(1)
-            self.ex_iterables.append(dt)
-        self.config = config
-        self.max_length = max_length
-
-    def __iter__(self):
-        self.iterators = self._make_iters()
-        self.current_weights = copy(self.weights)
-        while True:
-            index = torch.multinomial(input=torch.Tensor([self.current_weights]), num_samples=1).item()
-            try:
-                x = next(self.iterators[index])['inputs']
-                yield x
-            except StopIteration:
-                self.current_weights[index] = 0
-                if np.sum(self.current_weights) == 0:
-                    self.iterators = self._make_iters()
-                    self.current_weights = copy(self.weights)
-                    return
-
-    def _make_iters(self):
-        return [iter(ex_iterable.shuffle()) for ex_iterable in self.ex_iterables]
-
-
-class C4BatchDataset:
-    def __init__(self, num_batch_data_files, tokenizer, max_sequence_len, project_config):
-        self.num_batch_data_files = num_batch_data_files
-        self.base_path = "/home/vmeshchaninov/nlp_models/data/c4/en"
-        self.data_files = [f"{self.base_path}/c4-train.{idx:05d}-of-01024.json.gz" for idx in range(1024)]
-        self.tokenizer = tokenizer
-        self.max_sequence_len = max_sequence_len
-        self.config = self._set_config()
-        if project_config.ddp:
-            self.cache_dir = f"/home/vmeshchaninov/.cache/diffusion/{project_config.checkpoints_prefix}-{dist.get_rank()}"
-        else:
-            self.cache_dir = f"/home/vmeshchaninov/.cache/diffusion/{project_config.checkpoints_prefix}-{0}"
-        self.batches_files = self._batch_data(self.data_files)
-
-    def _batch_data(self, data_files, shuffle=True):
-        new_len = len(data_files) // self.num_batch_data_files * self.num_batch_data_files
-        data_files = data_files[:new_len]
-        if shuffle:
-            data_files = np.random.permutation(data_files[:new_len])
-        return np.reshape(data_files, newshape=(-1, self.num_batch_data_files))
-
-    def _prepare_dataset(self, data_files):
-        self._clean_cache()
-
-        dt = load_dataset(
-            path=self.base_path,
-            name="c4",
-            data_files=data_files,
-            ignore_verifications=True,
-            split="train",
-            cache_dir=self.cache_dir
-        )
-        dt = text_preprocessor(
-            dt=dt,
-            config=self.config,
-            benchmark_name="c4"
-        )
-        dt.set_transform(lambda x: self.tokenizer(x["inputs"],
-                                                  max_length=self.max_sequence_len,
-                                                  padding="max_length",
-                                                  truncation=True,
-                                                  return_tensors="pt"))
-
-        return dt
-
-    def _set_config(self):
-        config_path = "/home/vmeshchaninov/DiffusionTextGeneration/data/config.json"
-        with open(config_path, "rb") as file:
-            config = json.load(file)
-        return config
-
-    def __iter__(self):
-        for data_files in self.batches_files:
-            dt = self._prepare_dataset(data_files)
-            yield dt
-
-    def __len__(self):
-        return len(self.batches_files)
-
-    def _clean_cache(self):
-        try:
-            shutil.rmtree(self.cache_dir)
-            print(f"Successfuly deleted {self.cache_dir}")
-        except OSError:
-            return
-        pass
-
-
-def roc_story_prep(x):
-    return {"inputs": " ".join([x[f"sentence{i}"] for i in range(1, 6)])}
-
-
-class RocStoryDataset:
-    def __init__(self, tokenizer, max_sequence_len, split):
-        self.tokenizer = tokenizer
-        self.max_sequence_len = max_sequence_len
+class WikipediaDataset:
+    def __init__(self, split, tokenizer, max_sequence_len, p_uncond=0):
         self.split = split
-        self.dt = self._prepare_dataset(split)
+        self.tokenizer = tokenizer
+        self.max_sequence_len = max_sequence_len
+        self.p_uncond = p_uncond
 
-
-    def _prepare_dataset(self, split):
-        self.dt = load_dataset(
-            path="adamlin/roc_story",
-            ignore_verifications=True,
-            split=split,
+    def load_data(self, path):
+        self.dt = Dataset.from_file(path)
+        self.dt = self.dt.map(
+            lambda element: conditional_preprocessing_wiki(
+                element,
+                self.tokenizer,
+                self.max_sequence_len,
+                self.p_uncond
+            ),
+            num_proc=30,
         )
-        self.dt = self.dt.map(roc_story_prep, num_proc=32, remove_columns=self.dt.column_names)
-        self.dt.set_transform(lambda x: self.tokenizer(x["inputs"],
-                                                       max_length=self.max_sequence_len,
-                                                       padding="max_length",
-                                                       truncation=True,
-                                                       return_tensors="pt"))
-
+        self.dt.set_format("pt", columns=["input_ids", "cond_ids", "input_mask", "cond_mask"])
         return self.dt
 
-    def __iter__(self):
-        while True:
-            yield self.dt
+    def clear_data(self):
+        del self.dt
+        gc.collect()
 
-    def __len__(self):
-        return 10_000
+    def get_data(self):
+        if self.split == "test":
+            test_path = "/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128/test/data-00000-of-00001.arrow"
+            yield self.load_data(test_path)
+
+        list_of_datasets = [f"/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128/train/data-{i:05d}-of-00008.arrow"
+                            for i in range(8)]
+        for name_dt in cycle(list_of_datasets):
+            yield self.load_data(name_dt)
+            self.clear_data()
+
+
+def conditional_preprocessing_wiki(element, tokenizer, max_sequence_len, p_uncond=0):
+    element["input_ids"] = element["input_ids"]
+    element["length"] = sum(element["attention_mask"])
+
+    n = min(max_sequence_len, element["length"])
+    if np.random.rand() < p_uncond:
+        ind = 0
+    else:
+        ind = np.random.randint(0, n)
+    cond_ids = element["input_ids"][:ind]
+    input_ids = element["input_ids"][ind:]
+
+    cond_ = tokenizer.encode_plus(
+        text=tokenizer.decode(cond_ids, skip_special_tokens=True),
+        add_special_tokens=True,
+        padding="max_length",
+        truncation=True,
+        max_length=max_sequence_len,
+    )
+
+    input_ = tokenizer.encode_plus(
+        text=tokenizer.decode(input_ids, skip_special_tokens=True),
+        add_special_tokens=True,
+        padding="max_length",
+        truncation=True,
+        max_length=max_sequence_len,
+    )
+
+    output = {
+        "input_ids": input_["input_ids"],
+        "cond_ids": cond_["input_ids"],
+        "input_mask": input_["attention_mask"],
+        "cond_mask": cond_["attention_mask"],
+    }
+    return output

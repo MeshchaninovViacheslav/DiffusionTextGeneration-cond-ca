@@ -22,6 +22,14 @@ def dict_to_cuda(d):
     return d
 
 
+def dict_to_tensor_cuda(d):
+    for key in ["input_ids", "attention_mask", "token_type_ids"]:
+        if key not in d:
+            continue
+        d[key] = torch.Tensor(d[key]).cuda(non_blocking=True)
+    return d
+
+
 def dict_to_tensors(d):
     for key in ["input_ids", "attention_mask", "token_type_ids"]:
         d[key] = torch.tensor(d[key])
@@ -56,6 +64,7 @@ def parse_checkpoint_name(checkpoint_name):
         params[key] = value
     return params
 
+
 def make_mask_wo_SEP_CLS(mask):
     mask = deepcopy(mask)
     mask.scatter_(dim=1, index=(mask.sum(dim=1) - 1).reshape(-1, 1), src=torch.zeros_like(mask))
@@ -68,6 +77,7 @@ def get_ravel_weights(model):
     for par in model.parameters():
         ww.append(par.detach().cpu().data.numpy().ravel())
     return np.concatenate(ww)
+
 
 def get_ravel_grad(model):
     ww = []

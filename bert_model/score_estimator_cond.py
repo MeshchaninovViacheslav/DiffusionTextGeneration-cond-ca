@@ -3,148 +3,139 @@ import torch.nn as nn
 import math
 from typing import List, Optional, Tuple, Union
 
-from transformers.models.bert.modeling_bert import BaseModelOutputWithPastAndCrossAttentions, BertAttention, \
-    ACT2FN, apply_chunking_to_forward
+from transformers.models.t5.modeling_t5 import T5LayerSelfAttention, T5LayerCrossAttention, T5LayerFF, T5Config
+
+t5_config = T5Config(**{
+    "d_ff": 3072,
+    "d_kv": 64,
+    "d_model": 768,
+    "decoder_start_token_id": 0,
+    "dense_act_fn": "relu",  # "gelu", #"relu",
+    "dropout_rate": 0.1,
+    "eos_token_id": 1,
+    "feed_forward_proj": "relu",
+    "initializer_factor": 1.0,  # 0.02, #1.0,
+    "layer_norm_epsilon": 1e-6,  # 1e-12, #1e-6,
+    "model_type": "t5",
+    "n_positions": 512,
+    "num_decoder_layers": 12,
+    "num_heads": 12,
+    "num_layers": 12,
+    "pad_token_id": 0,
+    "relative_attention_max_distance": 128,
+    "relative_attention_num_buckets": 32,
+    "is_decoder": True,
+})
 
 
-class BertIntermediate(nn.Module):
-    def __init__(self, config):
+class T5Block(nn.Module):
+    def __init__(self, config, has_relative_attention_bias=False):
         super().__init__()
-        self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
-        if isinstance(config.hidden_act, str):
-            self.intermediate_act_fn = ACT2FN[config.hidden_act]
-        else:
-            self.intermediate_act_fn = config.hidden_act
+        config = t5_config
+        self.is_decoder = config.is_decoder
+        self.layer = nn.ModuleList()
+        self.layer.append(T5LayerSelfAttention(config, has_relative_attention_bias=has_relative_attention_bias))
+        if self.is_decoder:
+            self.layer.append(T5LayerCrossAttention(config))
 
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.intermediate_act_fn(hidden_states)
-        return hidden_states
-
-
-class BertOutput(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
-        self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-
-    def forward(self, hidden_states: torch.Tensor, input_tensor: torch.Tensor) -> torch.Tensor:
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.dropout(hidden_states)
-        hidden_states = self.LayerNorm(hidden_states + input_tensor)
-        return hidden_states
-
-
-class BertLayer(nn.Module):
-    def __init__(self, config, add_cross_attention):
-        super().__init__()
-        self.chunk_size_feed_forward = config.chunk_size_feed_forward
-        self.seq_len_dim = 1
-        self.attention = BertAttention(config)
-        self.intermediate = BertIntermediate(config)
-        self.output = BertOutput(config)
-        self.crossattention = None
-        if add_cross_attention:
-            self.crossattention = BertAttention(config, position_embedding_type="absolute")
+        self.layer.append(T5LayerFF(config))
 
     def forward(
             self,
-            hidden_states: torch.Tensor,
-            attention_mask: Optional[torch.FloatTensor] = None,
+            hidden_states,
+            attention_mask=None,
             encoder_hidden_states=None,
             encoder_attention_mask=None,
-    ) -> Tuple[torch.Tensor]:
-        self_attention_outputs = self.attention(
+    ):
+        self_attention_outputs = self.layer[0](
             hidden_states,
-            attention_mask,
-        )
-        attention_output = self_attention_outputs[0]
-        if self.crossattention:
-            cross_attention_outputs = self.crossattention(
-                hidden_states=attention_output,
-                attention_mask=attention_mask,
-                encoder_hidden_states=encoder_hidden_states,
-                encoder_attention_mask=encoder_attention_mask,
-            )
-            attention_output = cross_attention_outputs[0]
-        layer_output = apply_chunking_to_forward(
-            self.feed_forward_chunk, self.chunk_size_feed_forward, self.seq_len_dim, attention_output
-        )
-        return layer_output
-
-    def feed_forward_chunk(self, attention_output):
-        intermediate_output = self.intermediate(attention_output)
-        layer_output = self.output(intermediate_output, attention_output)
-        return layer_output
-
-
-class BertBlock(torch.nn.Module):
-    def __init__(self, config, is_input=False, is_output=False, is_middle=False):
-        super().__init__()
-        self.config = config
-        if is_input or is_middle:
-            self.norm = nn.LayerNorm(self.config.hidden_size, eps=self.config.layer_norm_eps)
-            self.x_proj = nn.Linear(self.config.hidden_size, self.config.hidden_size)
-        if is_output:
-            self.norm = nn.LayerNorm(self.config.hidden_size * 2, eps=self.config.layer_norm_eps)
-            self.x_proj = nn.Linear(self.config.hidden_size * 2, self.config.hidden_size)
-        self.x_act_fn = ACT2FN[config.hidden_act]
-
-        self.t_act_fn = torch.nn.SiLU()
-        self.t_proj = nn.Linear(self.config.hidden_size, self.config.hidden_size)
-        self.layer = BertLayer(config, add_cross_attention=is_input or is_output)
-
-    def forward(self, x, t, attention_mask, cond=None, cond_mask=None):
-        x = self.norm(x)
-        x = self.x_act_fn(x)
-        x = self.x_proj(x)
-
-        t = self.t_act_fn(t)
-        t = self.t_proj(t)
-
-        hidden = x + t
-        x = self.layer(
-            hidden_states=hidden,
             attention_mask=attention_mask,
-            encoder_hidden_states=cond,
-            encoder_attention_mask=cond_mask
         )
-        return x
+        hidden_states = self_attention_outputs[0]
+
+        # clamp inf values to enable fp16 training
+        hidden_states = self.clamp_value(hidden_states)
+
+        do_cross_attention = self.is_decoder and encoder_hidden_states is not None
+        if do_cross_attention:
+            cross_attention_outputs = self.layer[1](
+                hidden_states,
+                key_value_states=encoder_hidden_states,
+                attention_mask=encoder_attention_mask,
+            )
+            hidden_states = cross_attention_outputs[0]
+
+            # clamp inf values to enable fp16 training
+            hidden_states = self.clamp_value(hidden_states)
+
+        # Apply Feed Forward layer
+        hidden_states = self.layer[-1](hidden_states)
+
+        # clamp inf values to enable fp16 training
+        hidden_states = self.clamp_value(hidden_states)
+
+        return hidden_states
+
+    def clamp_value(self, hidden_states):
+        if hidden_states.dtype == torch.float16:
+            clamp_value = torch.where(
+                torch.isinf(hidden_states).any(),
+                torch.finfo(hidden_states.dtype).max - 1000,
+                torch.finfo(hidden_states.dtype).max,
+            )
+            hidden_states = torch.clamp(hidden_states, min=-clamp_value, max=clamp_value)
+        return hidden_states
 
 
-class BertEncoder(torch.nn.Module):
+TransformerBlock = T5Block
+
+
+class TransformerEncoder(torch.nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.config = config
-        self.num_hidden_layers = config.num_hidden_layers
-        self.hidden_size = config.hidden_size
+        self.num_hidden_layers = 6
+        self.hidden_size = 768
         self.input_blocks = torch.nn.ModuleList(
-            [BertBlock(config, is_input=True) for _ in range(0, self.num_hidden_layers // 2)])
-        self.middle_block = BertBlock(config, is_middle=True)
+            [TransformerBlock(config) for _ in range(0, self.num_hidden_layers // 2)]
+        )
         self.output_blocks = torch.nn.ModuleList(
-            [BertBlock(config, is_output=True) for _ in range(0, self.num_hidden_layers // 2)])
+            [TransformerBlock(config) for _ in range(0, self.num_hidden_layers // 2)]
+        )
+        self.time_layers = torch.nn.ModuleList(
+            [nn.Linear(self.hidden_size, self.hidden_size) for _ in range(0, self.num_hidden_layers)]
+        )
+        self.LayerNorm = torch.nn.LayerNorm(self.hidden_size, eps=config.layer_norm_eps)
 
     def forward(
             self,
             x: torch.Tensor,
             attention_mask: Optional[torch.FloatTensor] = None,
-            t_emb=None,
+            emb_t=None,
             cond=None,
             cond_mask=None,
-    ) -> Union[Tuple[torch.Tensor], BaseModelOutputWithPastAndCrossAttentions]:
+    ):
 
         x_input_list = []
 
         for i, block in enumerate(self.input_blocks):
-            x = block(x=x, attention_mask=attention_mask, t=t_emb, cond=cond, cond_mask=cond_mask)
             x_input_list.append(x)
+            x = x + self.time_layers[i](emb_t)
+            x = block(
+                hidden_states=x,
+                attention_mask=attention_mask,
+                encoder_hidden_states=cond,
+                encoder_attention_mask=cond_mask
+            )
 
-        x = self.middle_block(x=x, attention_mask=attention_mask, t=t_emb)
-
-        for _, block in enumerate(self.output_blocks):
-            x = torch.cat([x, x_input_list.pop()], dim=2)
-            x = block(x=x, attention_mask=attention_mask, t=t_emb, cond=cond, cond_mask=cond_mask)
+        for i, block in enumerate(self.output_blocks):
+            x = x + x_input_list.pop() + self.time_layers[i + self.num_hidden_layers // 2](emb_t)
+            x = block(
+                hidden_states=x,
+                attention_mask=attention_mask,
+                encoder_hidden_states=cond,
+                encoder_attention_mask=cond_mask
+            )
+        x = self.LayerNorm(x)
 
         return x
 
@@ -183,23 +174,11 @@ class ScoreEstimatorEMB(nn.Module):
             torch.nn.Linear(hidden_layer_dim * 2, hidden_layer_dim)
         )
 
-        self.encoder = BertEncoder(config)
+        self.encoder = TransformerEncoder(config)
 
         self._max_position_embeddings = self.config.max_position_embeddings
         self.register_buffer("position_ids", torch.arange(self._max_position_embeddings).expand((1, -1)))
         self.position_embeddings = torch.nn.Embedding(self._max_position_embeddings, self._hidden_layer_dim)
-
-        self.input_up_proj = torch.nn.Sequential(
-            torch.nn.Linear(input_size, self._hidden_layer_dim),
-            torch.nn.Tanh(),
-            torch.nn.Linear(self._hidden_layer_dim, self._hidden_layer_dim)
-        )
-
-        self.output_down_proj = torch.nn.Sequential(
-            torch.nn.Linear(self._hidden_layer_dim, self._hidden_layer_dim),
-            torch.nn.Tanh(),
-            torch.nn.Linear(self._hidden_layer_dim, input_size)
-        )
 
     def get_extended_attention_mask(self, attention_mask, dtype):
         extended_attention_mask = attention_mask[:, None, None, :]
@@ -214,21 +193,18 @@ class ScoreEstimatorEMB(nn.Module):
             *args, **kwargs
     ):
         assert time_t is not None
-        input_type = x_t.dtype
 
         emb_t = timestep_embedding(time_t, self._hidden_layer_dim)
         hidden_t = self.time_emb(emb_t)
-        #hidden_t = emb_t
+        # hidden_t = emb_t
         hidden_t = hidden_t[:, None, :]
 
         seq_length = x_t.size(1)
         position_ids = self.position_ids[:, : seq_length]
         emb_pos = self.position_embeddings(position_ids)
 
-        emb_x = self.input_up_proj(x_t)
+        emb_x = x_t
         hidden_state = emb_x + emb_pos
-
-        # emb = emb_x + emb_pos + hidden_t
 
         attention_mask = kwargs["input_mask"] if "input_mask" in kwargs else None
         cond_mask = kwargs["cond_mask"] if "cond_mask" in kwargs else None
@@ -247,10 +223,8 @@ class ScoreEstimatorEMB(nn.Module):
         output = self.encoder(
             x=hidden_state,
             attention_mask=attention_mask,
-            t_emb=hidden_t,
+            emb_t=hidden_t,
             cond=cond,
             cond_mask=cond_mask,
         )
-
-        output = self.output_down_proj(output).type(input_type)
         return output

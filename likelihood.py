@@ -70,7 +70,7 @@ def get_likelihood_fn(sde, inverse_scaler, hutchinson_type='Rademacher',
         """Compute an unbiased estimate to the log-likelihood in bits/dim.
 
         Args:
-          model: A score model.
+          model: A score bert_model.
           data: A PyTorch tensor.
 
         Returns:

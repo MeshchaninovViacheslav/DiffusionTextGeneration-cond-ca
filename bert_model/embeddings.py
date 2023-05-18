@@ -14,7 +14,7 @@ class WordBertEmbeddings(nn.Module):
         self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
         self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
 
-        # self.LayerNorm is not snake-cased to stick with TensorFlow model variable name and be able to load
+        # self.LayerNorm is not snake-cased to stick with TensorFlow bert_model variable name and be able to load
         # any TensorFlow checkpoint file
         self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
@@ -48,7 +48,7 @@ class WordBertEmbeddings(nn.Module):
             position_ids = self.position_ids[:, past_key_values_length: seq_length + past_key_values_length]
 
         # Setting the token_type_ids to the registered buffer in constructor where it is all zeros, which usually occurs
-        # when its auto-generated, registered buffer helps users when tracing the model without passing token_type_ids, solves
+        # when its auto-generated, registered buffer helps users when tracing the bert_model without passing token_type_ids, solves
         # issue #5664
         if token_type_ids is None:
             if hasattr(self, "token_type_ids"):

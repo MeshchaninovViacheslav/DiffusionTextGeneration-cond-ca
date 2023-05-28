@@ -26,6 +26,41 @@ class BloomMetric:
         return loss.item(), num_tokens
 
 
+class BloomMetricConditional:
+    def __init__(self, device="cpu"):
+        self.name = "bigscience/bloom-7b1"
+        self.model = BloomForCausalLM.from_pretrained(self.name).eval().to(device)
+        self.tokenizer = BloomTokenizerFast.from_pretrained(self.name)
+        self.device = device
+
+    @torch.no_grad()
+    def __call__(self, text_cond: str, text_gen: str, reduce="mean"):
+        inputs_gen = self.tokenizer(text_gen, return_tensors="pt")
+        inputs_cond = self.tokenizer(f" {text_cond}", return_tensors="pt")
+
+        inputs = {
+            "input_ids": torch.cat([inputs_cond["input_ids"], inputs_gen["input_ids"]], dim=-1).type(torch.long),
+            "attention_mask": torch.cat([inputs_cond["attention_mask"], inputs_gen["attention_mask"]], dim=-1).type(
+                torch.long)
+        }
+        inputs = dict_to_device(inputs, self.device)
+        outputs = self.tokenizer(**inputs, labels=inputs["input_ids"])
+
+        losses = cross_entropy(
+            input=outputs.logits.reshape(-1, outputs.logits.shape[-1])[:-1],
+            target=inputs["input_ids"].reshape(-1)[1:],
+            reduce=False,
+        )
+        losses = losses[torch.sum(inputs_cond["attention_mask"]).item() - 1:]
+
+        loss = torch.mean(losses)
+        num_tokens = losses.shape[0]
+
+        if reduce == "sum":
+            return loss.item() * num_tokens, num_tokens
+        return loss.item(), num_tokens
+
+
 class GPTMetric:
     def __init__(self, device="cpu"):
         self.name = "gpt2-large"

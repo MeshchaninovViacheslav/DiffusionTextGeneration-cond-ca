@@ -377,7 +377,8 @@ class DiffusionRunner:
         x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
 
         # bert_model prediction
-        scores = self.sde.calc_score(self.ddp_score_estimator, x_t, t, cond, mask=X["input_mask"])
+        scores = self.sde.calc_score(self.ddp_score_estimator, x_t, t, cond=cond, attention_mask=X["input_mask"],
+                                     cond_mask=X["cond_mask"])
 
         # MSE losses
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
@@ -641,80 +642,80 @@ class DiffusionRunner:
 
         return pred_embeddings
 
-    def pred_embeddings_DDPM(self, batch_size):
-        def q_x_t_rev(x_t, x_0, t):
-            dt = 1 / self.diff_eq_solver.sde.N
-            alpha_t = self.sde.scheduler.alpha_std(t)[0] ** 2
-            alpha_t_1 = self.sde.scheduler.alpha_std(t - dt)[0] ** 2
-            beta_t = self.sde.scheduler.beta_t(t)[:, None, None] * dt
+    # def pred_embeddings_DDPM(self, batch_size):
+    #     def q_x_t_rev(x_t, x_0, t):
+    #         dt = 1 / self.diff_eq_solver.sde.N
+    #         alpha_t = self.sde.scheduler.alpha_std(t)[0] ** 2
+    #         alpha_t_1 = self.sde.scheduler.alpha_std(t - dt)[0] ** 2
+    #         beta_t = self.sde.scheduler.beta_t(t)[:, None, None] * dt
+    #
+    #         mu = torch.sqrt(alpha_t_1) * beta_t / (1 - alpha_t) * x_0 + \
+    #              torch.sqrt(1 - beta_t) * (1 - alpha_t_1) / (1 - alpha_t) * x_t
+    #         std = torch.sqrt((1 - alpha_t_1) / (1 - alpha_t) * beta_t)
+    #         return mu, std
+    #
+    #     shape = (
+    #         batch_size,
+    #         self.config.data.max_sequence_len,
+    #         self.encoder.config.hidden_size
+    #     )
+    #     with torch.no_grad():
+    #         x_t = self.sde.prior_sampling(shape).to(self.device)
+    #         n = 4
+    #         eps_t = n / self.diff_eq_solver.sde.N
+    #         timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N - n + 1, device=self.device)
+    #         for i in tqdm(range(self.sde.N - n + 1)):
+    #             t = timesteps[i]
+    #             vec_t = torch.ones(shape[0], device=t.device) * t
+    #             # print(f"{t:0.3f}: {torch.mean(torch.norm(x_t, dim=-1)):0.3f}")
+    #
+    #             scores = self.sde.calc_score(self.score_estimator, x_t, vec_t)
+    #             x_0 = scores.pop("x_0")
+    #             mu, std = q_x_t_rev(x_t, x_0, vec_t)
+    #             x_t = mu + std * torch.randn_like(x_t)
+    #
+    #         pred_embeddings = mu
+    #     return pred_embeddings
 
-            mu = torch.sqrt(alpha_t_1) * beta_t / (1 - alpha_t) * x_0 + \
-                 torch.sqrt(1 - beta_t) * (1 - alpha_t_1) / (1 - alpha_t) * x_t
-            std = torch.sqrt((1 - alpha_t_1) / (1 - alpha_t) * beta_t)
-            return mu, std
-
-        shape = (
-            batch_size,
-            self.config.data.max_sequence_len,
-            self.encoder.config.hidden_size
-        )
-        with torch.no_grad():
-            x_t = self.sde.prior_sampling(shape).to(self.device)
-            n = 4
-            eps_t = n / self.diff_eq_solver.sde.N
-            timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N - n + 1, device=self.device)
-            for i in tqdm(range(self.sde.N - n + 1)):
-                t = timesteps[i]
-                vec_t = torch.ones(shape[0], device=t.device) * t
-                # print(f"{t:0.3f}: {torch.mean(torch.norm(x_t, dim=-1)):0.3f}")
-
-                scores = self.sde.calc_score(self.score_estimator, x_t, vec_t)
-                x_0 = scores.pop("x_0")
-                mu, std = q_x_t_rev(x_t, x_0, vec_t)
-                x_t = mu + std * torch.randn_like(x_t)
-
-            pred_embeddings = mu
-        return pred_embeddings
-
-    def pred_embeddings_DDIM(self, batch_size):
-        def q_x_t_rev(x_t, x_0, t, sigma_t):
-            dt = 1 / self.diff_eq_solver.sde.N
-            alpha_t = self.sde.scheduler.alpha_std(t)[0] ** 2
-            alpha_t_1 = self.sde.scheduler.alpha_std(t - dt)[0] ** 2
-
-            sigma_t = torch.sqrt((1 - alpha_t_1) / (1 - alpha_t)) * torch.sqrt(1 - alpha_t / alpha_t_1) * 0.1
-
-            noise_t = (x_t - torch.sqrt(alpha_t) * x_0) / torch.sqrt(1 - alpha_t)
-            mu = torch.sqrt(alpha_t_1) * x_0 + \
-                 torch.sqrt(1 - alpha_t_1 - sigma_t ** 2) * noise_t
-            std = sigma_t
-            return mu, std
-
-        sigma_t = 0
-        shape = (
-            batch_size,
-            self.config.data.max_sequence_len,
-            self.encoder.config.hidden_size
-        )
-        with torch.no_grad():
-            x_t = self.sde.prior_sampling(shape).to(self.device)
-            n = 50
-            eps_t = n / self.diff_eq_solver.sde.N
-            timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N - n + 1, device=self.device)
-            for i in tqdm(range(self.sde.N - n + 1)):
-                t = timesteps[i]
-
-                # sigma_t = torch.sqrt(30 * t ** 2 / 1000)
-                vec_t = torch.ones(shape[0], device=t.device) * t
-                # print(f"{t:0.3f}: {torch.mean(torch.norm(x_t, dim=-1)):0.3f}")
-
-                scores = self.sde.calc_score(self.score_estimator, x_t, vec_t)
-                x_0 = scores.pop("x_0")
-                mu, std = q_x_t_rev(x_t, x_0, vec_t, sigma_t)
-                x_t = mu + std * torch.randn_like(x_t)
-
-            pred_embeddings = mu
-        return pred_embeddings
+    # def pred_embeddings_DDIM(self, batch_size):
+    #     def q_x_t_rev(x_t, x_0, t, sigma_t):
+    #         dt = 1 / self.diff_eq_solver.sde.N
+    #         alpha_t = self.sde.scheduler.alpha_std(t)[0] ** 2
+    #         alpha_t_1 = self.sde.scheduler.alpha_std(t - dt)[0] ** 2
+    #
+    #         sigma_t = torch.sqrt((1 - alpha_t_1) / (1 - alpha_t)) * torch.sqrt(1 - alpha_t / alpha_t_1) * 0.1
+    #
+    #         noise_t = (x_t - torch.sqrt(alpha_t) * x_0) / torch.sqrt(1 - alpha_t)
+    #         mu = torch.sqrt(alpha_t_1) * x_0 + \
+    #              torch.sqrt(1 - alpha_t_1 - sigma_t ** 2) * noise_t
+    #         std = sigma_t
+    #         return mu, std
+    #
+    #     sigma_t = 0
+    #     shape = (
+    #         batch_size,
+    #         self.config.data.max_sequence_len,
+    #         self.encoder.config.hidden_size
+    #     )
+    #     with torch.no_grad():
+    #         x_t = self.sde.prior_sampling(shape).to(self.device)
+    #         n = 50
+    #         eps_t = n / self.diff_eq_solver.sde.N
+    #         timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N - n + 1, device=self.device)
+    #         for i in tqdm(range(self.sde.N - n + 1)):
+    #             t = timesteps[i]
+    #
+    #             # sigma_t = torch.sqrt(30 * t ** 2 / 1000)
+    #             vec_t = torch.ones(shape[0], device=t.device) * t
+    #             # print(f"{t:0.3f}: {torch.mean(torch.norm(x_t, dim=-1)):0.3f}")
+    #
+    #             scores = self.sde.calc_score(self.score_estimator, x_t, vec_t)
+    #             x_0 = scores.pop("x_0")
+    #             mu, std = q_x_t_rev(x_t, x_0, vec_t, sigma_t)
+    #             x_t = mu + std * torch.randn_like(x_t)
+    #
+    #         pred_embeddings = mu
+    #     return pred_embeddings
 
     @torch.no_grad()
     def restore_text(self, X, mask):
@@ -792,86 +793,86 @@ class DiffusionRunner:
 
         return x_mean
 
-    def generate_latent(self, embs, mask):
-        def get_x_t_next(x_t, vec_t, mask):
-            params = self.sde.sde(x_t, vec_t)
-            drift, dif = params["drift"], params["diffusion"]
-            dt = 1. / self.diff_eq_solver.rsde.N
-            if torch.allclose(t, torch.zeros_like(t)):
-                fn = drift
-            else:
-                score = self.sde.calc_score(self.score_estimator, x_t, vec_t, mask)["score"]
-                fn = drift - 0.5 * dif[:, None, None] ** 2 * score
-            x_t_next = x_t + fn * dt
-            return x_t_next
+    # def generate_latent(self, embs, mask):
+    #     def get_x_t_next(x_t, vec_t, mask):
+    #         params = self.sde.sde(x_t, vec_t)
+    #         drift, dif = params["drift"], params["diffusion"]
+    #         dt = 1. / self.diff_eq_solver.rsde.N
+    #         if torch.allclose(t, torch.zeros_like(t)):
+    #             fn = drift
+    #         else:
+    #             score = self.sde.calc_score(self.score_estimator, x_t, vec_t, mask)["score"]
+    #             fn = drift - 0.5 * dif[:, None, None] ** 2 * score
+    #         x_t_next = x_t + fn * dt
+    #         return x_t_next
+    #
+    #     norm_xt = []
+    #     batch_size = embs.shape[0]
+    #     x_t = embs
+    #     timesteps = torch.linspace(0, self.sde.T, self.sde.N + 1, device=self.device)
+    #
+    #     with torch.no_grad():
+    #         for t in tqdm(timesteps):
+    #             vec_t = torch.ones(batch_size, device=t.device) * t
+    #             x_t = get_x_t_next(x_t, vec_t, mask)
+    #             norm_xt.append(torch.mean(torch.norm(x_t, dim=[2])).item())
+    #
+    #     return x_t, norm_xt
 
-        norm_xt = []
-        batch_size = embs.shape[0]
-        x_t = embs
-        timesteps = torch.linspace(0, self.sde.T, self.sde.N + 1, device=self.device)
-
-        with torch.no_grad():
-            for t in tqdm(timesteps):
-                vec_t = torch.ones(batch_size, device=t.device) * t
-                x_t = get_x_t_next(x_t, vec_t, mask)
-                norm_xt.append(torch.mean(torch.norm(x_t, dim=[2])).item())
-
-        return x_t, norm_xt
-
-    def compute_likelihood(self, embs, mask):
-        def get_x_t_next_drift(x_t, vec_t, mask):
-            params = self.sde.sde(x_t, vec_t)
-            drift, dif = params["drift"], params["diffusion"]
-            if torch.allclose(t, torch.zeros_like(t)):
-                fn = drift
-            else:
-                score = self.sde.calc_score(self.score_estimator, x_t, vec_t, mask)["score"]
-                fn = drift - 0.5 * dif[:, None, None] ** 2 * score
-            return fn
-
-        def get_x_t_next(x_t, vec_t, mask):
-            params = self.sde.sde(x_t, vec_t)
-            drift, dif = params["drift"], params["diffusion"]
-            dt = 1. / self.diff_eq_solver.rsde.N
-            if torch.allclose(t, torch.zeros_like(t)):
-                fn = drift
-            else:
-                score = self.sde.calc_score(self.score_estimator, x_t, vec_t, mask)["score"]
-                fn = drift - 0.5 * dif[:, None, None] ** 2 * score
-            x_t_next = x_t + fn * dt
-            return x_t_next
-
-        def compute_trace(x_t, t, mask):
-            eps = torch.randn_like(x_t)
-            with torch.enable_grad():
-                x_t.requires_grad_(True)
-                fn = get_x_t_next_drift(x_t, t, mask)
-                fn_eps = torch.sum(fn * eps)
-                grad_fn_eps = torch.autograd.grad(fn_eps, x_t)[0]
-            x_t.requires_grad_(False)
-            trace = torch.sum(grad_fn_eps * eps, dim=[1, 2])
-            return trace
-
-        def prior_logp(z):
-            shape = z.shape
-            N = np.prod(shape[1:])
-            return -N / 2. * np.log(2 * np.pi) - torch.sum(z ** 2, dim=(1, 2)) / 2.
-
-        x_t = embs
-        batch_size = embs.shape[0]
-        dt = 1 / self.diff_eq_solver.sde.N
-        timesteps = torch.linspace(0, self.sde.T, self.sde.N + 1, device=self.device)
-        probability = torch.zeros(batch_size).to("cuda:0")
-
-        with torch.no_grad():
-            for t in tqdm(timesteps):
-                vec_t = torch.ones(batch_size, device=t.device) * t
-                proba = compute_trace(x_t, vec_t, mask) * dt
-                probability += proba
-                x_t = get_x_t_next(x_t, vec_t, mask)
-
-        probability = probability + prior_logp(x_t)
-        return probability, x_t
+    # def compute_likelihood(self, embs, mask):
+    #     def get_x_t_next_drift(x_t, vec_t, mask):
+    #         params = self.sde.sde(x_t, vec_t)
+    #         drift, dif = params["drift"], params["diffusion"]
+    #         if torch.allclose(t, torch.zeros_like(t)):
+    #             fn = drift
+    #         else:
+    #             score = self.sde.calc_score(self.score_estimator, x_t, vec_t, mask)["score"]
+    #             fn = drift - 0.5 * dif[:, None, None] ** 2 * score
+    #         return fn
+    #
+    #     def get_x_t_next(x_t, vec_t, mask):
+    #         params = self.sde.sde(x_t, vec_t)
+    #         drift, dif = params["drift"], params["diffusion"]
+    #         dt = 1. / self.diff_eq_solver.rsde.N
+    #         if torch.allclose(t, torch.zeros_like(t)):
+    #             fn = drift
+    #         else:
+    #             score = self.sde.calc_score(self.score_estimator, x_t, vec_t, mask)["score"]
+    #             fn = drift - 0.5 * dif[:, None, None] ** 2 * score
+    #         x_t_next = x_t + fn * dt
+    #         return x_t_next
+    #
+    #     def compute_trace(x_t, t, mask):
+    #         eps = torch.randn_like(x_t)
+    #         with torch.enable_grad():
+    #             x_t.requires_grad_(True)
+    #             fn = get_x_t_next_drift(x_t, t, mask)
+    #             fn_eps = torch.sum(fn * eps)
+    #             grad_fn_eps = torch.autograd.grad(fn_eps, x_t)[0]
+    #         x_t.requires_grad_(False)
+    #         trace = torch.sum(grad_fn_eps * eps, dim=[1, 2])
+    #         return trace
+    #
+    #     def prior_logp(z):
+    #         shape = z.shape
+    #         N = np.prod(shape[1:])
+    #         return -N / 2. * np.log(2 * np.pi) - torch.sum(z ** 2, dim=(1, 2)) / 2.
+    #
+    #     x_t = embs
+    #     batch_size = embs.shape[0]
+    #     dt = 1 / self.diff_eq_solver.sde.N
+    #     timesteps = torch.linspace(0, self.sde.T, self.sde.N + 1, device=self.device)
+    #     probability = torch.zeros(batch_size).to("cuda:0")
+    #
+    #     with torch.no_grad():
+    #         for t in tqdm(timesteps):
+    #             vec_t = torch.ones(batch_size, device=t.device) * t
+    #             proba = compute_trace(x_t, vec_t, mask) * dt
+    #             probability += proba
+    #             x_t = get_x_t_next(x_t, vec_t, mask)
+    #
+    #     probability = probability + prior_logp(x_t)
+    #     return probability, x_t
 
     @torch.no_grad()
     def compute_restoration_loss(self, suffix="valid"):
@@ -903,7 +904,8 @@ class DiffusionRunner:
             x_t = marg_forward['x_t']
             noise, score_clean = marg_forward['noise'], marg_forward['score']
 
-            scores = self.sde.calc_score(self.score_estimator, x_t=x_t, t=vec_t, cond=cond)
+            scores = self.sde.calc_score(self.score_estimator, x_t=x_t, t=vec_t, cond=cond,
+                                         attention_mask=X["input_mask"], cond_mask=X["cond_mask"])
             x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
 
             loss_x_0 = self.mse_loss(clean_X, x_0, mask)

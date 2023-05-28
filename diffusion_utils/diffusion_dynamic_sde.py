@@ -126,7 +126,7 @@ class DDPM_SDE:
             def T(self):
                 return T
 
-            def sde(self, model, x_t, t, **kwargs) -> Dict[str, torch.Tensor]:
+            def sde(self, model, x_t, t, cond=None, attention_mask=None, cond_mask=None) -> Dict[str, torch.Tensor]:
                 """Create the drift and diffusion functions for the reverse SDE/ODE.
                 SDE:
                     dx = (-1/2 * beta * x_t - beta * score) * dt + sqrt(beta) * dw
@@ -136,7 +136,8 @@ class DDPM_SDE:
                 sde_params = sde_cls.sde(x_t, t)
                 drift_par, diffusion = sde_params['drift'], sde_params['diffusion']  # -1/2 * beta * x_t, sqrt(beta)
 
-                scores = sde_cls.calc_score(model, x_t, t, **kwargs)
+                scores = sde_cls.calc_score(model, x_t, t, cond=cond, attention_mask=attention_mask,
+                                            cond_mask=cond_mask)
                 score = scores['score']
                 drift = drift_par - diffusion[:, None, None] ** 2 * score * (0.5 if self.ode_sampling else 1.)
                 # Set the diffusion function to zero for ODEs.
@@ -151,14 +152,14 @@ class DDPM_SDE:
 
         return RSDE()
 
-    def calc_score(self, model, x_t, t, cond=None, **kwargs) -> Dict[str, torch.Tensor]:
+    def calc_score(self, model, x_t, t, cond=None, attention_mask=None, cond_mask=None) -> Dict[str, torch.Tensor]:
         """
         x_0 - prediction x_0(x_t, t)
         eps = (x_t - sqrt(alpha_t) * x_0) / std
         score = (-x_t + sqrt(alpha_t) * x_0) / std**2
         """
         params = self.marginal_params_tensor(x_t, t)
-        x_0 = model(x_t=x_t, time_t=t, cond=cond, **kwargs)
+        x_0 = model(x_t=x_t, time_t=t, cond=cond, attention_mask=attention_mask, cond_mask=cond_mask)
         eps_theta = (x_t - params["alpha"] * x_0) / params["std"]
         score = -eps_theta / params["std"]
         return {

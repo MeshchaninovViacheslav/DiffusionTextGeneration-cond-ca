@@ -55,7 +55,7 @@ def create_config():
 
     refresh = config.refresh = ml_collections.ConfigDict()
     refresh.true = True
-    refresh.prefix = "./checkpoints/wikipedia--encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=64-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-t5-model-ln_100000_.pth"
+    refresh.prefix = "./checkpoints/wikipedia--encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=64-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-t5-model-ln_200000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -96,7 +96,7 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "t5-model-ln"
+    suffix = "cond-bert"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"{config.model.embeddings_type}-" \

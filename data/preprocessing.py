@@ -1,5 +1,6 @@
 import functools
 from collections import defaultdict
+import numpy as np
 
 
 def text_preprocessor(dt, benchmark_name, config):
@@ -194,6 +195,7 @@ def unsupervised_preprocessor(dt, benchmark_name):
         return dt.map(prep_fn, num_proc=32, remove_columns=["idx", "targets"])
     return dt
 
+
 def supervised_preprocessor(dt, benchmark_name):
     def prep_fn(x):
         inputs = f"{x['inputs']} answer: "
@@ -202,3 +204,64 @@ def supervised_preprocessor(dt, benchmark_name):
     if "idx" in dt.column_names:
         return dt.map(prep_fn, num_proc=32, remove_columns=["idx"])
     return dt
+
+
+def conditional_preprocessing_wiki(element, tokenizer, max_sequence_len, p_uncond=0):
+    element["input_ids"] = element["input_ids"]
+    element["length"] = sum(element["attention_mask"])
+
+    n = min(max_sequence_len, element["length"])
+    if np.random.rand() < p_uncond:
+        ind = 0
+    else:
+        ind = np.random.randint(0, n)
+    cond_ids = element["input_ids"][:ind]
+    input_ids = element["input_ids"][ind:]
+
+    cond_ = tokenizer.encode_plus(
+        text=tokenizer.decode(cond_ids, skip_special_tokens=True),
+        add_special_tokens=True,
+        padding="max_length",
+        truncation=True,
+        max_length=max_sequence_len,
+    )
+
+    input_ = tokenizer.encode_plus(
+        text=tokenizer.decode(input_ids, skip_special_tokens=True),
+        add_special_tokens=True,
+        padding="max_length",
+        truncation=True,
+        max_length=max_sequence_len,
+    )
+
+    output = {
+        "input_ids": input_["input_ids"],
+        "cond_ids": cond_["input_ids"],
+        "input_mask": input_["attention_mask"],
+        "cond_mask": cond_["attention_mask"],
+    }
+    return output
+
+def glue_tokenize(element, tokenizer, max_sequence_len):
+    cond_ = tokenizer.encode_plus(
+        text=element["inputs"],
+        add_special_tokens=True,
+        padding="max_length",
+        truncation=True,
+        max_length=max_sequence_len,
+    )
+
+    input_ = tokenizer.encode_plus(
+        text=element["targets"],
+        add_special_tokens=True,
+        padding="max_length",
+        truncation=True,
+        max_length=max_sequence_len,
+    )
+    output = {
+        "input_ids": input_["input_ids"],
+        "cond_ids": cond_["input_ids"],
+        "input_mask": input_["attention_mask"],
+        "cond_mask": cond_["attention_mask"],
+    }
+    return output

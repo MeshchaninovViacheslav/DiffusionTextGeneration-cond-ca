@@ -31,20 +31,22 @@ def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
-    optim.linear_warmup = 10_000
-    optim.lr = 2e-4
-    optim.min_lr = 2e-4
+    optim.linear_warmup = 100
+    optim.lr = 1e-6
+    optim.min_lr = 1e-6
     optim.warmup_lr = 1e-6
-    optim.weight_decay = 0.01
+    optim.weight_decay = 0.1
     optim.beta_1 = 0.9
     optim.beta_2 = 0.98
     optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 500_000
-    training.checkpoint_freq = 100_000
-    training.eval_freq = 100_000
-    training.batch_size = 512
+    training.training_iters = 400_000
+    training.finetuning_iters = 1_000
+    training.training_iters = training.training_iters + training.finetuning_iters
+    training.checkpoint_freq = 1_000
+    training.eval_freq = 100
+    training.batch_size = 32
 
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
@@ -55,7 +57,7 @@ def create_config():
 
     refresh = config.refresh = ml_collections.ConfigDict()
     refresh.true = True
-    refresh.prefix = "./checkpoints/wikipedia--encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=64-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-t5-model-ln_200000_.pth"
+    refresh.prefix = "./checkpoints/wikipedia--encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=64-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-cond-bert_400000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -78,8 +80,8 @@ def create_config():
     model.enc_type = "base"
     model.embeddings_type = "encodings"
     model.dif_enc_type = "base"
-    model.downstream_task = ""  # "qqp"
-    model.dataset = "wikipedia"  # "glue"
+    model.downstream_task = "sst2"  # "qqp"
+    model.dataset = "glue"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
 
@@ -96,7 +98,7 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "cond-bert"
+    suffix = "glue-sst2"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"{config.model.embeddings_type}-" \

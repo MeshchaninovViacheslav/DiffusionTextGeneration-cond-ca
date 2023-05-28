@@ -23,9 +23,9 @@ from diffusion_utils.diffusion_dynamic_sde import create_sde, create_solver
 from utils.ema_model import ExponentialMovingAverage
 from bert_model.modelling_bert import BertLMHeadModel
 from bert_model.score_estimator_cond import ScoreEstimatorEMB
-from utils.util import dict_to_cuda, reduce_tensor, dict_to_tensors, masked_mean, \
-    masked_std, make_mask_wo_SEP_CLS, get_ravel_grad, get_ravel_weights, set_seed, dict_to_tensor_cuda
-from data.dataset import WikipediaDataset
+from utils.util import dict_to_cuda, reduce_tensor, masked_mean, \
+    masked_std, make_mask_wo_SEP_CLS, set_seed
+from data.dataset import create_dataset
 
 from estimation_utils.util import estimate_model, gather_texts, reduce_metrics
 from estimation_utils.metrics import BloomMetric, GPTMetric
@@ -101,19 +101,23 @@ class DiffusionRunner:
 
         self.grad_expl_dict = defaultdict(list)
 
-        self.train_datasets_iter = WikipediaDataset(
+        self.train_datasets_iter = create_dataset(dataset_name=config.model.dataset,
+                                                  downstream_task=config.model.downstream_task)(
             split="train",
             tokenizer=self.tokenizer,
             max_sequence_len=self.config.data.max_sequence_len,
             p_uncond=0
         ).get_data()
         self.train_dataset = None
-        self.valid_dataset = next(WikipediaDataset(
+
+        self.valid_datasets_iter = create_dataset(dataset_name=config.model.dataset,
+                                                  downstream_task=config.model.downstream_task)(
             split="test",
             tokenizer=self.tokenizer,
             max_sequence_len=self.config.data.max_sequence_len,
             p_uncond=0
-        ).get_data())
+        ).get_data()
+        self.valid_dataset = next(self.valid_datasets_iter)
 
     @torch.no_grad()
     def sampler_emb_impl(self, X):
@@ -129,7 +133,7 @@ class DiffusionRunner:
 
     @torch.no_grad()
     def get_mean_std_data(self):
-        suffix = self.config.model.dataset
+        suffix = "wikipedia"  # self.config.model.dataset
 
         if self.latent_mode == "embeddings":
             if not hasattr(self, 'emb_mean'):
@@ -196,9 +200,11 @@ class DiffusionRunner:
         decoder_path = ""
         if self.config.model.dataset == "rocstory":
             decoder_path = "decoder-v1.1-pad.pth"
-        if self.config.model.dataset == "c4":
+        elif self.config.model.dataset == "c4":
             decoder_path = "decoder-c4-pad-64.pth"
-        if self.config.model.dataset == "wikipedia":
+        elif self.config.model.dataset == "wikipedia":
+            decoder_path = "decoder-wikipedia-128.pth"
+        else:
             decoder_path = "decoder-wikipedia-128.pth"
         self.decoder.load_state_dict(torch.load(os.path.join(self.checkpoints_folder, decoder_path))["decoder"])
 
@@ -462,7 +468,7 @@ class DiffusionRunner:
 
     def train_epoch(self):
         for _, X in enumerate(self.train_loader):
-            if self.step > self.config.training.training_iters:
+            if self.step >= self.config.training.training_iters:
                 return
             _ = next(self.train_range_iter)
 
@@ -471,7 +477,7 @@ class DiffusionRunner:
 
             if self.step % self.config.training.checkpoint_freq == 0:
                 self.save_checkpoint()
-                self.estimate()
+                #self.estimate()
 
             if self.step % self.config.training.eval_freq == 0:
                 self.validate()
@@ -578,8 +584,6 @@ class DiffusionRunner:
         if not self.config.refresh.true:
             return
         load = torch.load(f'{self.config.refresh.prefix}', map_location="cpu")
-        self.ema.load_state_dict(load["ema"])
-        self.ema.cuda()
         self.score_estimator.load_state_dict(load["bert_model"])
         self.score_estimator.cuda()
         self.optimizer.load_state_dict(load["optimizer"])

@@ -4,7 +4,7 @@ from tqdm import tqdm
 import numpy as np
 import torch.distributed as dist
 
-from utils.util import reduce_tensor
+from utils.util import reduce_tensor, reduce_sum_tensor
 
 
 def clear_text(text):
@@ -121,6 +121,14 @@ def reduce_metrics(metrics):
         metric = reduce_tensor(metric).item()
         metrics[key] = metric
         # print(f"{dist.get_rank()}, {key}, {metric}", flush=True)
+    return metrics
+
+
+def reduce_sum_metrics(metrics):
+    for key, metric in metrics.items():
+        metric = torch.Tensor([metric]).cuda()
+        metric = reduce_sum_tensor(metric).item()
+        metrics[key] = metric
     return metrics
 
 

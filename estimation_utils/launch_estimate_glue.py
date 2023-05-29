@@ -11,20 +11,15 @@ from transformers import BertConfig
 
 datasets.config.IN_MEMORY_MAX_SIZE = psutil.virtual_memory().available
 
+import sys
+sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
+
 from diffusion_holder import DiffusionRunner
-from utils.util import set_seed, _BERT_SMALL, _BERT_BASE_FOR_LARGE_ENC
+from utils.util import set_seed
 from diffusion_utils import schedulers
 
 disable_progress_bar()
 set_verbosity_error()
-
-
-def parse_option(config):
-    parser = argparse.ArgumentParser("MMTD")
-    if config.ddp:
-        parser.add_argument('--local_rank', type=int, required=True)
-    args, unparsed = parser.parse_known_args()
-    return args
 
 
 def create_config():
@@ -49,7 +44,7 @@ def create_config():
     training.batch_size = 512
 
     training.ode_sampling = False
-    training.checkpoints_folder = './checkpoints/'
+    training.checkpoints_folder = '../checkpoints/'
     config.checkpoints_prefix = ''
 
     loss = config.loss = ml_collections.ConfigDict()
@@ -69,7 +64,7 @@ def create_config():
     sde = config.sde = ml_collections.ConfigDict()
     sde.typename = 'vp-sde'
     sde.solver = 'euler'
-    sde.N = 1000
+    sde.N = 100
     sde.beta_min = 0.1
     sde.beta_max = 20
     sde.ode_sampling = False
@@ -92,7 +87,6 @@ def create_config():
     config.seed = 0
     config.ddp = True
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
-
     config.project_name = "bert-conditional-exps"
 
     return config
@@ -101,26 +95,7 @@ def create_config():
 if __name__ == '__main__':
     config = create_config()
     suffix = "glue-sst2"
-    config.checkpoints_prefix = f"{config.model.dataset}-" \
-                                f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
-                                f"{config.model.embeddings_type}-" \
-                                f"prediction={config.model.prediction}-" \
-                                f"loss={config.model.loss}-" \
-                                f"enc={config.model.enc_type}-" \
-                                f"bert={config.model.dif_enc_type}-" \
-                                f"kl_cf={config.loss.ce_coef}-" \
-                                f"seq_len={config.data.max_sequence_len}-" \
-                                f"clipgrad={config.optim.grad_clip_norm}-" \
-                                f"lr={config.optim.lr}-" \
-                                f"min_lr={config.optim.min_lr}-" \
-                                f"lin_input={config.lin_input}-" \
-                                f"seed={config.seed}-" \
-                                f"wd={config.optim.weight_decay}-" \
-                                f"{suffix}"  # "end2end-enc-base-seqlen32-v.5"  # 'emb_bert_x0_bs=512_lr=2e-4'
-    if "base" in config.model.dif_enc_type:
-        config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
-    else:
-        config.bert_config = BertConfig(**_BERT_SMALL)
+    config.checkpoints_prefix = "glue-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=64-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-glue-sst2_405000_"
 
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
         rank = int(os.environ["RANK"])
@@ -141,11 +116,11 @@ if __name__ == '__main__':
     if dist.get_rank() == 0:
         print(config)
 
-    diffusion = DiffusionRunner(config, latent_mode=config.model.embeddings_type)
+    diffusion = DiffusionRunner(config, latent_mode=config.model.embeddings_type, eval=True)
 
     seed = config.seed + dist.get_rank()
     set_seed(seed)
-    diffusion.train(
-        project_name=config.project_name,
-        experiment_name=config.checkpoints_prefix
-    )
+
+    accuracy = diffusion.estimate_finetuning()
+    if dist.get_rank() == 0:
+        print(f"accuracy: {accuracy}")

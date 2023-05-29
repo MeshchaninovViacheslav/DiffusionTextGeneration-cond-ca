@@ -46,6 +46,11 @@ def reduce_tensor(tensor):
     rt /= dist.get_world_size()
     return rt
 
+def reduce_sum_tensor(tensor):
+    rt = tensor.clone()
+    dist.all_reduce(rt, op=dist.ReduceOp.SUM)
+    return rt
+
 
 def masked_mean(tensor, mask):
     return torch.sum(tensor * mask[:, :, None], dim=[0, 1]) / torch.sum(mask)

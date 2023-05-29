@@ -20,8 +20,8 @@
         "sentence"
       ],
       "label_classes": [
-        "negative",
-        "positive"
+        "no",
+        "yes"
       ]
     },
     "mrpc": {

@@ -61,7 +61,7 @@ class SST2Dataset:
         self.tokenizer = tokenizer
         self.max_sequence_len = max_sequence_len
         self.p_uncond = p_uncond
-        self.config = json.load(open("data/config.json", "rb"))
+        self.config = json.load(open("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/config.json", "rb"))
 
     def load_data(self, path):
         self.dt = Dataset.from_file(path)

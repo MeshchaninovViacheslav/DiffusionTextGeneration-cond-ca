@@ -31,22 +31,22 @@ def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
-    optim.linear_warmup = 0
+    optim.linear_warmup = 100
     optim.lr = 2e-4
     optim.min_lr = 2e-4
-    optim.warmup_lr = 2e-4
-    optim.weight_decay = 0.01
+    optim.warmup_lr = 1e-6
+    optim.weight_decay = 0.001
     optim.beta_1 = 0.9
     optim.beta_2 = 0.98
     optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 400_000
+    training.training_iters = 0
     training.finetuning_iters = 10_000
     training.training_iters = training.training_iters + training.finetuning_iters
-    training.checkpoint_freq = 1_000
-    training.eval_freq = 1_000
-    training.batch_size = 512
+    training.checkpoint_freq = 50_000
+    training.eval_freq = 200
+    training.batch_size = 128
 
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
@@ -69,7 +69,7 @@ def create_config():
     sde = config.sde = ml_collections.ConfigDict()
     sde.typename = 'vp-sde'
     sde.solver = 'euler'
-    sde.N = 1000
+    sde.N = 100
     sde.beta_min = 0.1
     sde.beta_max = 20
     sde.ode_sampling = False
@@ -100,7 +100,7 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "glue-sst2"
+    suffix = "finetune-glue-sst2-sd=10"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"{config.model.embeddings_type}-" \
@@ -145,7 +145,4 @@ if __name__ == '__main__':
 
     seed = config.seed + dist.get_rank()
     set_seed(seed)
-    diffusion.train(
-        project_name=config.project_name,
-        experiment_name=config.checkpoints_prefix
-    )
+    diffusion.finetune()

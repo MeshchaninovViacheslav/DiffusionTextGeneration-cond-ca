@@ -31,7 +31,7 @@ def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
-    optim.linear_warmup = 100
+    optim.linear_warmup = 5_000
     optim.lr = 2e-4
     optim.min_lr = 2e-4
     optim.warmup_lr = 1e-6
@@ -45,8 +45,8 @@ def create_config():
     training.finetuning_iters = 10_000
     training.training_iters = training.training_iters + training.finetuning_iters
     training.checkpoint_freq = 50_000
-    training.eval_freq = 200
-    training.batch_size = 128
+    training.eval_freq = 500
+    training.batch_size = 512
 
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
@@ -86,8 +86,9 @@ def create_config():
     model.loss = "L_x_0"
 
     data = config.data = ml_collections.ConfigDict()
-    data.max_sequence_len = 64
+    data.max_sequence_len = 96
 
+    config.finetuning = True
     config.lin_input = True
     config.seed = 0
     config.ddp = True

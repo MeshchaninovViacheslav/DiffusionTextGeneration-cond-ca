@@ -111,7 +111,6 @@ class DiffusionRunner:
             split="train",
             tokenizer=self.tokenizer,
             max_sequence_len=self.config.data.max_sequence_len,
-            p_uncond=0
         ).get_data()
         self.train_dataset = None
 
@@ -120,7 +119,6 @@ class DiffusionRunner:
             split="test",
             tokenizer=self.tokenizer,
             max_sequence_len=self.config.data.max_sequence_len,
-            p_uncond=0
         ).get_data()
         self.valid_dataset = next(self.valid_datasets_iter)
 
@@ -286,7 +284,7 @@ class DiffusionRunner:
             self.train_dataset,
             sampler=sampler_train,
             batch_size=self.config.training.batch_size // num_tasks,
-            num_workers=8,
+            num_workers=40,
             pin_memory=False,
         )
 
@@ -525,10 +523,12 @@ class DiffusionRunner:
 
             if self.step % self.config.training.checkpoint_freq == 0:
                 self.save_checkpoint()
-                # self.estimate()
 
             if self.step % self.config.training.eval_freq == 0:
-                self.estimate_finetuning()
+                if self.config.finetuning:
+                    self.estimate_finetuning()
+                else:
+                    self.estimate()
                 self.validate()
                 # self.compute_restoration_loss(suffix="train")
                 # self.compute_restoration_loss(suffix="valid")
@@ -653,7 +653,7 @@ class DiffusionRunner:
         cond_X = self.sampler_emb({"input_ids": cond["cond"], "attention_mask": cond["cond_mask"]})
 
         if way == "sde":
-            pred_embeddings = self.pred_embeddings(batch_size, cond=cond_X, cond_mask=cond["cond_mask"])
+            pred_embeddings = self.pred_embeddings(batch_size, cond_X=cond_X, cond_mask=cond["cond_mask"])
         elif way == "ddpm":
             pred_embeddings = self.pred_embeddings_DDPM(batch_size)
         elif way == "ddim":

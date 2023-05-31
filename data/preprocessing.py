@@ -206,17 +206,22 @@ def supervised_preprocessor(dt, benchmark_name):
     return dt
 
 
-def conditional_preprocessing_wiki(element, tokenizer, max_sequence_len, p_uncond=0):
-    element["input_ids"] = element["input_ids"]
-    element["length"] = sum(element["attention_mask"])
+def conditional_preprocessing_wiki(
+        element,
+        tokenizer,
+        max_sequence_len: int = 96,
+        pos_begin: float = 0.33,
+        pos_end: float = 0.67,
+):
+    elem_count = sum(element["attention_mask"])
+    delimeter_pos = int(
+        (
+            np.random.rand() * (pos_end - pos_begin) + pos_begin
+        ) * elem_count
+    )
 
-    n = min(max_sequence_len, element["length"])
-    if np.random.rand() < p_uncond:
-        ind = 0
-    else:
-        ind = np.random.randint(0, n)
-    cond_ids = element["input_ids"][:ind]
-    input_ids = element["input_ids"][ind:]
+    cond_ids = element["input_ids"][:delimeter_pos]
+    input_ids = element["input_ids"][delimeter_pos:]
 
     cond_ = tokenizer.encode_plus(
         text=tokenizer.decode(cond_ids, skip_special_tokens=True),

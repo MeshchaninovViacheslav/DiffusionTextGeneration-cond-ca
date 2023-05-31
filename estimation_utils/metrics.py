@@ -44,7 +44,7 @@ class BloomMetricConditional:
                 torch.long)
         }
         inputs = dict_to_device(inputs, self.device)
-        outputs = self.tokenizer(**inputs, labels=inputs["input_ids"])
+        outputs = self.model(**inputs, labels=inputs["input_ids"])
 
         losses = cross_entropy(
             input=outputs.logits.reshape(-1, outputs.logits.shape[-1])[:-1],

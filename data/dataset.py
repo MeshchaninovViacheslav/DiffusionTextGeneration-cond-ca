@@ -19,20 +19,22 @@ def create_dataset(dataset_name, downstream_task=None):
 
 
 class WikipediaDataset:
-    def __init__(self, split, tokenizer, max_sequence_len, p_uncond=0):
+    def __init__(self, split, tokenizer, max_sequence_len, pos_begin: float = 0.33, pos_end: float = 0.67):
         self.split = split
         self.tokenizer = tokenizer
         self.max_sequence_len = max_sequence_len
-        self.p_uncond = p_uncond
+        self.pos_begin = pos_begin
+        self.pos_end = pos_end
 
     def load_data(self, path):
         self.dt = Dataset.from_file(path)
         self.dt = self.dt.map(
             lambda element: conditional_preprocessing_wiki(
-                element,
-                self.tokenizer,
-                self.max_sequence_len,
-                self.p_uncond
+                element=element,
+                tokenizer=self.tokenizer,
+                max_sequence_len=self.max_sequence_len,
+                pos_begin=self.pos_begin,
+                pos_end=self.pos_end,
             ),
             num_proc=30,
         )
@@ -56,11 +58,10 @@ class WikipediaDataset:
 
 
 class SST2Dataset:
-    def __init__(self, split, tokenizer, max_sequence_len, p_uncond=0):
+    def __init__(self, split, tokenizer, max_sequence_len):
         self.split = split
         self.tokenizer = tokenizer
         self.max_sequence_len = max_sequence_len
-        self.p_uncond = p_uncond
         self.config = json.load(open("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/config.json", "rb"))
 
     def load_data(self, path):
@@ -69,10 +70,10 @@ class SST2Dataset:
         self.dt = self.dt.map(
             lambda element: glue_tokenize(
                 element,
-                self.tokenizer,
-                self.max_sequence_len,
+                tokenizer=self.tokenizer,
+                max_sequence_len=self.max_sequence_len,
             ),
-            num_proc=1,
+            num_proc=30,
         )
         self.dt.set_format("pt", columns=["input_ids", "cond_ids", "input_mask", "cond_mask"])
         return self.dt

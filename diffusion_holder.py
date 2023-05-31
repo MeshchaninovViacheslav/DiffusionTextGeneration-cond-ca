@@ -21,8 +21,8 @@ from time import time
 
 from diffusion_utils.diffusion_dynamic_sde import create_sde, create_solver
 from utils.ema_model import ExponentialMovingAverage
-from bert_model.modelling_bert import BertLMHeadModel
-from bert_model.score_estimator_cond import ScoreEstimatorEMB
+from model.modelling_bert import BertLMHeadModel
+from model.score_estimator_cond import ScoreEstimatorEMB
 from utils.util import dict_to_cuda, reduce_tensor, masked_mean, \
     masked_std, make_mask_wo_SEP_CLS, set_seed
 from data.dataset import create_dataset
@@ -398,7 +398,7 @@ class DiffusionRunner:
         marg_forward = self.sde.marginal_forward(clean_x, t)
         x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
 
-        # bert_model prediction
+        # model prediction
         scores = self.sde.calc_score(self.ddp_score_estimator, x_t, t, cond=cond, attention_mask=X["input_mask"],
                                      cond_mask=X["cond_mask"])
 
@@ -619,7 +619,7 @@ class DiffusionRunner:
 
             torch.save(
                 {
-                    "bert_model": self.score_estimator.state_dict(),
+                    "model": self.score_estimator.state_dict(),
                     "ema": self.ema.state_dict(),
                     "optimizer": self.optimizer.state_dict(),
                     "scheduler": self.scheduler.state_dict(),
@@ -627,13 +627,13 @@ class DiffusionRunner:
                 },
                 os.path.join(self.checkpoints_folder, prefix + ".pth")
             )
-            print(f"Save bert_model to: {os.path.join(self.checkpoints_folder, prefix + f'bert_model.pth')}")
+            print(f"Save model to: {os.path.join(self.checkpoints_folder, prefix + f'model.pth')}")
 
     def refresh_checkpoint(self):
         if not self.config.refresh.true:
             return
         load = torch.load(f'{self.config.refresh.prefix}', map_location="cpu")
-        self.score_estimator.load_state_dict(load["bert_model"])
+        self.score_estimator.load_state_dict(load["model"])
         self.score_estimator.cuda()
         self.optimizer.load_state_dict(load["optimizer"])
         self.scheduler.load_state_dict(load["scheduler"])
@@ -644,7 +644,7 @@ class DiffusionRunner:
         if not self.config.refresh.true:
             return
         load = torch.load(f'{self.config.refresh.prefix}', map_location="cpu")
-        self.score_estimator.load_state_dict(load["bert_model"])
+        self.score_estimator.load_state_dict(load["model"])
         self.score_estimator.cuda()
         print(f"Checkpoint refreshed {self.config.refresh.prefix}")
 

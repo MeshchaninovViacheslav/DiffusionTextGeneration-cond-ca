@@ -109,7 +109,7 @@ class DDPM_SDE:
     def reverse(self, ode_sampling=False) -> "RSDE Class":
         """Create the reverse-time SDE/ODE.
         Args:
-          score_fn: A time-dependent score-based bert_model that takes x and t and returns the score.
+          score_fn: A time-dependent score-based model that takes x and t and returns the score.
           ode_sampling: If `True`, create the reverse-time ODE used for probability flow sampling.
         """
         N = self.N

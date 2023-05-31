@@ -16,7 +16,7 @@ class ExponentialMovingAverage:
         """
         Args:
           parameters: Iterable of `torch.nn.Parameter`; usually the result of
-            `bert_model.parameters()`.
+            `model.parameters()`.
           decay: The exponential decay.
           use_num_updates: Whether to use number of updates when computing
             averages.
@@ -74,9 +74,9 @@ class ExponentialMovingAverage:
     def restore(self, parameters):
         """
         Restore the parameters stored with the `store` method.
-        Useful to validate the bert_model with EMA parameters without affecting the
+        Useful to validate the model with EMA parameters without affecting the
         original optimization process. Store the parameters before the
-        `copy_to` method. After validation (or bert_model saving), use this to
+        `copy_to` method. After validation (or model saving), use this to
         restore the former parameters.
         Args:
           parameters: Iterable of `torch.nn.Parameter`; the parameters to be

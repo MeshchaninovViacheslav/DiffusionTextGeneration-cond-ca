@@ -208,7 +208,7 @@ def supervised_preprocessor(dt, benchmark_name):
 
 def conditional_preprocessing_wiki(
         element,
-        tokenizer,
+        tokenizer_cond, tokenizer_gen,
         max_sequence_len: int = 96,
         pos_begin: float = 0.33,
         pos_end: float = 0.67,
@@ -216,23 +216,23 @@ def conditional_preprocessing_wiki(
     elem_count = sum(element["attention_mask"])
     delimeter_pos = int(
         (
-            np.random.rand() * (pos_end - pos_begin) + pos_begin
+                np.random.rand() * (pos_end - pos_begin) + pos_begin
         ) * elem_count
     )
 
     cond_ids = element["input_ids"][:delimeter_pos]
     input_ids = element["input_ids"][delimeter_pos:]
 
-    cond_ = tokenizer.encode_plus(
-        text=tokenizer.decode(cond_ids, skip_special_tokens=True),
+    cond_ = tokenizer_cond.encode_plus(
+        text=tokenizer_gen.decode(cond_ids, skip_special_tokens=True),
         add_special_tokens=True,
         padding="max_length",
         truncation=True,
         max_length=max_sequence_len,
     )
 
-    input_ = tokenizer.encode_plus(
-        text=tokenizer.decode(input_ids, skip_special_tokens=True),
+    input_ = tokenizer_gen.encode_plus(
+        text=tokenizer_gen.decode(input_ids, skip_special_tokens=True),
         add_special_tokens=True,
         padding="max_length",
         truncation=True,
@@ -247,8 +247,9 @@ def conditional_preprocessing_wiki(
     }
     return output
 
-def glue_tokenize(element, tokenizer, max_sequence_len):
-    cond_ = tokenizer.encode_plus(
+
+def glue_tokenize(element, tokenizer_cond, tokenizer_gen, max_sequence_len):
+    cond_ = tokenizer_cond.encode_plus(
         text=element["inputs"],
         add_special_tokens=True,
         padding="max_length",
@@ -256,7 +257,7 @@ def glue_tokenize(element, tokenizer, max_sequence_len):
         max_length=max_sequence_len,
     )
 
-    input_ = tokenizer.encode_plus(
+    input_ = tokenizer_gen.encode_plus(
         text=element["targets"],
         add_special_tokens=True,
         padding="max_length",

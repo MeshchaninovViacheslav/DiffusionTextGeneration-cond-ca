@@ -2,33 +2,32 @@ import os
 import torch
 import wandb
 import numpy as np
-import pandas as pd
 import torch.distributed as dist
 from ml_collections import ConfigDict
-from collections import defaultdict
 from typing import Optional, Union, Dict
 from tqdm.auto import trange
 from torch.utils.data import DataLoader
-from transformers import BertTokenizerFast, BertConfig
-from transformers.models.bert.modeling_bert import BertEncoder
+from transformers import BertTokenizerFast, T5TokenizerFast
 from tqdm import tqdm
-from torch.nn.functional import cross_entropy, normalize
+from torch.nn.functional import cross_entropy
 from copy import deepcopy
 from timm.scheduler.cosine_lr import CosineLRScheduler
 from collections import defaultdict
 from torch.cuda.amp import GradScaler
-from time import time
 
 from diffusion_utils.diffusion_dynamic_sde import create_sde, create_solver
 from utils.ema_model import ExponentialMovingAverage
-from model.modelling_bert import BertLMHeadModel
 from model.score_estimator_cond import ScoreEstimatorEMB
 from utils.util import dict_to_cuda, reduce_tensor, masked_mean, \
     masked_std, make_mask_wo_SEP_CLS, set_seed
 from data.dataset import create_dataset
 
+from model.t5_encoder import T5EncoderModel
+from model.bert_encoder import BertEncoderModel
+from model.enc_normalizer import EncNormalizer
+
 from estimation_utils.util import estimate_model, gather_texts, reduce_metrics, reduce_sum_metrics
-from estimation_utils.metrics import BloomMetric, GPTMetric
+from estimation_utils.metrics import BloomMetric
 from estimation_utils.estimate_glue import estimate_sst2
 
 
@@ -62,17 +61,29 @@ class DiffusionRunner:
         self.latent_mode = latent_mode
         self.eval = eval
 
-        if self.config.model.enc_type == "base":
-            pretrained_enc_type = "bert-base-uncased"
-        elif self.config.model.enc_type == "large":
-            pretrained_enc_type = "bert-large-uncased"
-        else:
-            raise Exception("Unknown embedding type")
-
         self.checkpoints_folder = config.training.checkpoints_folder
-        self.tokenizer = BertTokenizerFast.from_pretrained(pretrained_enc_type)
-        self.encoder = BertLMHeadModel.from_pretrained(pretrained_enc_type).cuda().eval()
-        self.decoder = self.encoder.cls.cpu()
+
+        t5_cfg = "t5-base"
+        self.tokenizer_cond = T5TokenizerFast.from_pretrained(t5_cfg)
+        self.t5_enc_normalizer = EncNormalizer(
+            enc_mean_path=self.config.data.enc_t5_mean,
+            enc_std_path=self.config.data.enc_t5_std,
+        )
+        self.encoder_cond = T5EncoderModel.from_pretrained(
+            t5_cfg, enc_normalizer=self.t5_enc_normalizer
+        ).eval().cuda()
+
+        bert_cfg = "bert-base-uncased"
+        self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
+        self.bert_enc_normalizer = EncNormalizer(
+            enc_mean_path=self.config.data.enc_bert_mean,
+            enc_std_path=self.config.data.enc_bert_std,
+        )
+        self.encoder_gen = BertEncoderModel.from_pretrained(
+            bert_cfg, enc_normalizer=self.bert_enc_normalizer
+        ).eval().cuda()
+
+        self.decoder = self.encoder_gen.cls.cpu()
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 
@@ -82,8 +93,10 @@ class DiffusionRunner:
 
         # self.load_sde()
         self.bert_config = config.bert_config
-        self.score_estimator = ScoreEstimatorEMB(input_size=self.encoder.config.hidden_size,
-                                                 config=self.bert_config).cuda()
+        self.score_estimator = ScoreEstimatorEMB(
+            input_size=self.encoder_gen.config.hidden_size,
+            config=self.bert_config
+        ).cuda().train()
         self.ddp_score_estimator = self.score_estimator
         if self.config.ddp:
             self.ddp_score_estimator = torch.nn.parallel.DistributedDataParallel(
@@ -109,7 +122,8 @@ class DiffusionRunner:
         self.train_datasets_iter = create_dataset(dataset_name=config.model.dataset,
                                                   downstream_task=config.model.downstream_task)(
             split="train",
-            tokenizer=self.tokenizer,
+            tokenizer_cond=self.tokenizer_cond,
+            tokenizer_gen=self.tokenizer_gen,
             max_sequence_len=self.config.data.max_sequence_len,
         ).get_data()
         self.train_dataset = None
@@ -117,7 +131,8 @@ class DiffusionRunner:
         self.valid_datasets_iter = create_dataset(dataset_name=config.model.dataset,
                                                   downstream_task=config.model.downstream_task)(
             split="test",
-            tokenizer=self.tokenizer,
+            tokenizer_cond=self.tokenizer_cond,
+            tokenizer_gen=self.tokenizer_gen,
             max_sequence_len=self.config.data.max_sequence_len,
         ).get_data()
         self.valid_dataset = next(self.valid_datasets_iter)
@@ -129,72 +144,6 @@ class DiffusionRunner:
                 config=dict(self.config),
                 mode="offline"
             )
-
-    @torch.no_grad()
-    def sampler_emb_impl(self, X):
-        if self.latent_mode == "embeddings":
-            return self.encoder.bert.embeddings.get_word_emb(
-                **self.get_dict_to_emb(X))  # get input_ids [batch_size; num_tokens; emb_dim]
-        elif self.latent_mode == "encodings":
-            return self.encoder(**X, return_encoding=True)
-        elif self.latent_mode == "mid_embeddings":
-            return self.encoder(**X, return_mid_embs=True)
-        else:
-            raise Exception("Unknown latent mode")
-
-    @torch.no_grad()
-    def get_mean_std_data(self):
-        suffix = "wikipedia"  # self.config.model.dataset
-
-        if self.latent_mode == "embeddings":
-            if not hasattr(self, 'emb_mean'):
-                self.emb_mean = torch.load(
-                    f"/home/vmeshchaninov/DiffusionTextGeneration/data/{self.config.model.embeddings_type}"
-                    f"-bert_base-{suffix}-mean.pt")
-                self.emb_std = torch.load(
-                    f"/home/vmeshchaninov/DiffusionTextGeneration/data/{self.config.model.embeddings_type}"
-                    f"-bert_base-{suffix}-std.pt")
-
-            return self.emb_mean[None, None, :], self.emb_std[None, None, :]
-        if self.latent_mode == "encodings":
-            if not hasattr(self, 'emb_mean'):
-                if self.config.model.enc_type == "base":
-                    self.emb_mean = torch.load(
-                        f"/home/vmeshchaninov/DiffusionTextGeneration/data/encodings-bert_base-{suffix}-mean.pt")
-                    self.emb_std = torch.load(
-                        f"/home/vmeshchaninov/DiffusionTextGeneration/data/encodings-bert_base-{suffix}-std.pt")
-                elif self.config.model.enc_type == "large":
-                    self.emb_mean = torch.load(
-                        f"/home/vmeshchaninov/DiffusionTextGeneration/data/encodings-bert_large-mean.pt")
-                    self.emb_std = torch.load(
-                        f"/home/vmeshchaninov/DiffusionTextGeneration/data/encodings-bert_large-std.pt")
-                else:
-                    raise Exception("Unknown embedding type")
-            return self.emb_mean[None, None, :], self.emb_std[None, None, :]
-        if self.latent_mode == "mid_embeddings":
-            if not hasattr(self, 'emb_mean'):
-                self.emb_mean = torch.load("/home/vmeshchaninov/DiffusionTextGeneration/data/mid_embeddings_mean.pt")
-                self.emb_std = torch.load("/home/vmeshchaninov/DiffusionTextGeneration/data/mid_embeddings_std.pt")
-            return self.emb_mean[None, None, :], self.emb_std[None, None, :]
-        raise Exception("Not implemented yet")
-
-    @torch.no_grad()
-    def sampler_emb(self, X):
-        codes = self.sampler_emb_impl(X)
-        # [-1; 1]
-        mean, std = self.get_mean_std_data()
-        device = codes.device
-        mean = mean.to(device)
-        std = std.to(device)
-        norm_codes = (codes - mean) / std
-        return norm_codes
-
-    def denormalize(self, X):
-        mean, std = self.get_mean_std_data()
-        device = X.device
-        mean = mean.to(device)
-        std = std.to(device)
-        return X * std + mean
 
     def restore_parameters(self, device: Optional[torch.device] = None) -> None:
         checkpoints_folder: str = self.checkpoints_folder
@@ -284,7 +233,7 @@ class DiffusionRunner:
             self.train_dataset,
             sampler=sampler_train,
             batch_size=self.config.training.batch_size // num_tasks,
-            num_workers=40,
+            num_workers=60,
             pin_memory=False,
         )
 
@@ -455,20 +404,24 @@ class DiffusionRunner:
         self.set_optimizer()
         self.set_scheduler()
         self.set_grad_scaler()
-
         self.step = 0
-        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
-        if self.config.refresh.true:
-            self.refresh_checkpoint()
-            # self.set_optimizer()
-            # self.set_scheduler()
-
         self.train_range = trange(self.step + 1, self.config.training.training_iters + 1)
         self.train_range_iter = iter(self.train_range)
-
         self.set_valid_data_generator()
-
         self.file = open("log.txt", "w")
+        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
+
+        if self.config.refresh.true:
+            self.refresh_checkpoint()
+
+        if self.config.refresh.true:
+            if self.config.finetuning:
+                self.estimate_finetuning()
+            else:
+                self.estimate()
+            self.validate()
+
+
 
         while True:
             self.set_train_data_generator()
@@ -482,7 +435,6 @@ class DiffusionRunner:
         self.save_checkpoint(last=True)
         self.switch_to_ema()
 
-
     def finetune(self):
         self.tracker = Loss_ema_tracker()
         self.set_optimizer()
@@ -490,8 +442,6 @@ class DiffusionRunner:
         self.set_grad_scaler()
 
         self.step = 0
-        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
-        self.refresh_finetune_checkpoint()
 
         self.train_range = trange(self.step + 1, self.config.training.training_iters + 1)
         self.train_range_iter = iter(self.train_range)
@@ -499,6 +449,15 @@ class DiffusionRunner:
         self.set_valid_data_generator()
 
         self.file = open("log.txt", "w")
+
+        if self.config.refresh.true:
+            self.refresh_finetune_checkpoint()
+            if self.config.finetuning:
+                self.estimate_finetuning()
+            else:
+                self.estimate()
+            self.validate()
+        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
 
         while True:
             self.set_train_data_generator()
@@ -548,10 +507,10 @@ class DiffusionRunner:
         self.step += 1
 
         X = dict_to_cuda(X)
-        clean_X = self.sampler_emb({"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
-        cond = self.sampler_emb({"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
-
         with torch.autocast(device_type='cuda', dtype=torch.float16):
+            with torch.no_grad():
+                clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
+                cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
             loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
 
         stat_dict["grad_norm"], stat_dict["clipped_grad_norm"] = self.optimizer_step(loss_dict['total_loss'])
@@ -581,8 +540,8 @@ class DiffusionRunner:
             for text in self.valid_loader:
                 X = text
                 X = dict_to_cuda(X)
-                clean_X = self.sampler_emb({"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
-                cond = self.sampler_emb({"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
+                clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
+                cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
 
                 loss_dict, _ = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
                 for k, v in loss_dict.items():
@@ -633,8 +592,12 @@ class DiffusionRunner:
         if not self.config.refresh.true:
             return
         load = torch.load(f'{self.config.refresh.prefix}', map_location="cpu")
-        self.score_estimator.load_state_dict(load["model"])
-        self.score_estimator.cuda()
+
+        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
+        self.ema.load_state_dict(load["ema"])
+        self.ema.cuda()
+        self.switch_to_ema()
+
         self.optimizer.load_state_dict(load["optimizer"])
         self.scheduler.load_state_dict(load["scheduler"])
         self.step = load["step"]
@@ -644,39 +607,34 @@ class DiffusionRunner:
         if not self.config.refresh.true:
             return
         load = torch.load(f'{self.config.refresh.prefix}', map_location="cpu")
-        self.score_estimator.load_state_dict(load["model"])
-        self.score_estimator.cuda()
+        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
+        self.ema.load_state_dict(load["ema"])
+        self.ema.cuda()
+        self.switch_to_ema()
         print(f"Checkpoint refreshed {self.config.refresh.prefix}")
 
     def generate_text(self, batch_size, cond=None, way="sde"):
-        cond = dict_to_cuda(cond)
-        cond_X = self.sampler_emb({"input_ids": cond["cond"], "attention_mask": cond["cond_mask"]})
+        with torch.no_grad():
+            cond = dict_to_cuda(cond)
+            cond_X = self.encoder_cond(**{"input_ids": cond["cond"], "attention_mask": cond["cond_mask"]})
 
-        if way == "sde":
-            pred_embeddings = self.pred_embeddings(batch_size, cond_X=cond_X, cond_mask=cond["cond_mask"])
-        elif way == "ddpm":
-            pred_embeddings = self.pred_embeddings_DDPM(batch_size)
-        elif way == "ddim":
-            pred_embeddings = self.pred_embeddings_DDIM(batch_size)
-        else:
-            raise Exception("way of sampling doesn't exist")
-        # pred_embeddings = normalize(pred_embeddings, dim=-1) * np.sqrt(pred_embeddings.shape[-1])
-        output = self.pred_logits(pred_embeddings)
-        tokens = output.argmax(dim=-1)
-        text = self.tokenizer.batch_decode(tokens, skip_special_tokens=True)
+            if way == "sde":
+                pred_embeddings = self.pred_embeddings(batch_size, cond_X=cond_X, cond_mask=cond["cond_mask"])
+            elif way == "ddpm":
+                pred_embeddings = self.pred_embeddings_DDPM(batch_size)
+            elif way == "ddim":
+                pred_embeddings = self.pred_embeddings_DDIM(batch_size)
+            else:
+                raise Exception("way of sampling doesn't exist")
+            # pred_embeddings = normalize(pred_embeddings, dim=-1) * np.sqrt(pred_embeddings.shape[-1])
+            output = self.pred_logits(pred_embeddings)
+            tokens = output.argmax(dim=-1)
+            text = self.tokenizer_gen.batch_decode(tokens, skip_special_tokens=True)
         return text, pred_embeddings
 
     def pred_logits(self, pred_embeddings, input_ids=None):
-        pred_embeddings = self.denormalize(pred_embeddings)
-        if self.latent_mode == "embeddings":
-            output = self.encoder(input_ids=input_ids, pred_embeddings=pred_embeddings).logits
-        elif self.latent_mode == "encodings":
-            output = self.decoder(
-                pred_embeddings)  # self.encoder(input_ids=input_ids, pred_encodings=pred_embeddings).logits
-        elif self.latent_mode == "mid_embeddings":
-            output = self.encoder(input_ids=input_ids, pred_mid_embs=pred_embeddings).logits
-        else:
-            raise NotImplemented()
+        pred_embeddings = self.bert_enc_normalizer.denormalize(pred_embeddings)
+        output = self.decoder(pred_embeddings)
         return output
 
     @torch.no_grad()
@@ -689,7 +647,7 @@ class DiffusionRunner:
         shape = (
             batch_size,
             self.config.data.max_sequence_len,
-            self.encoder.config.hidden_size
+            self.encoder_gen.config.hidden_size
         )
         with torch.no_grad():
             x = self.sde.prior_sampling(shape).to(self.device)
@@ -732,7 +690,7 @@ class DiffusionRunner:
         shape = (
             batch_size,
             self.config.data.max_sequence_len,
-            self.encoder.config.hidden_size
+            self.encoder_gen.config.hidden_size
         )
         scale = 2
 
@@ -784,7 +742,7 @@ class DiffusionRunner:
         shape = (
             batch_size,
             self.config.data.max_sequence_len,
-            self.encoder.config.hidden_size
+            self.encoder_gen.config.hidden_size
         )
         with torch.no_grad():
             x_t = self.sde.prior_sampling(shape).to(self.device)
@@ -821,7 +779,8 @@ class DiffusionRunner:
             alpha_t = self.sde.scheduler.alpha_std(t)[0] ** 2
             alpha_t_1 = self.sde.scheduler.alpha_std(t - dt)[0] ** 2
 
-            sigma_t = torch.zeros_like(alpha_t) #torch.sqrt((1 - alpha_t_1) / (1 - alpha_t)) * torch.sqrt(1 - alpha_t / alpha_t_1) * 0.1
+            sigma_t = torch.zeros_like(
+                alpha_t)  # torch.sqrt((1 - alpha_t_1) / (1 - alpha_t)) * torch.sqrt(1 - alpha_t / alpha_t_1) * 0.1
 
             noise_t = (x_t - torch.sqrt(alpha_t) * x_0) / torch.sqrt(1 - alpha_t)
             mu = torch.sqrt(alpha_t_1) * x_0 + \
@@ -833,7 +792,7 @@ class DiffusionRunner:
         shape = (
             batch_size,
             self.config.data.max_sequence_len,
-            self.encoder.config.hidden_size
+            self.encoder_gen.config.hidden_size
         )
         with torch.no_grad():
             x_t = self.sde.prior_sampling(shape).to(self.device)
@@ -865,12 +824,12 @@ class DiffusionRunner:
         # mask.scatter_(dim=1, index=(mask.sum(dim=1) - 1).reshape(-1, 1), src=torch.zeros_like(mask))
         # X["attention_mask"] = mask
 
-        clean_X = self.sampler_emb(dict({key: X[key] for key in ["input_ids", "attention_mask"]}))
+        clean_X = self.encoder_gen(**{key: X[key] for key in ["input_ids", "attention_mask"]})
         mask = mask[:, :, None]
         clean_X = clean_X * mask
         pred_embeddings = self.restore_embeddings(mask.shape[0], clean_X, mask)
         tokens = self.pred_logits(pred_embeddings, X["input_ids"]).argmax(dim=-1)
-        text = self.tokenizer.batch_decode(tokens)
+        text = self.tokenizer_gen.batch_decode(tokens)
         return text, tokens
 
     @torch.no_grad()
@@ -1027,8 +986,8 @@ class DiffusionRunner:
         elif suffix == "valid":
             X = next(iter(self.valid_loader))
         X = dict_to_cuda(X)
-        clean_X = self.sampler_emb({"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
-        cond = self.sampler_emb({"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
+        clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
+        cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
         batch_size = clean_X.shape[0]
         mask = X["input_mask"]
 

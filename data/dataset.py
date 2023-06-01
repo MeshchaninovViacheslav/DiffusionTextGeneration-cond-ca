@@ -19,9 +19,12 @@ def create_dataset(dataset_name, downstream_task=None):
 
 
 class WikipediaDataset:
-    def __init__(self, split, tokenizer, max_sequence_len, pos_begin: float = 0.33, pos_end: float = 0.67):
+    def __init__(self,
+                 split, tokenizer_cond, tokenizer_gen, max_sequence_len,
+                 pos_begin: float = 0.33, pos_end: float = 0.67):
         self.split = split
-        self.tokenizer = tokenizer
+        self.tokenizer_cond = tokenizer_cond
+        self.tokenizer_gen = tokenizer_gen
         self.max_sequence_len = max_sequence_len
         self.pos_begin = pos_begin
         self.pos_end = pos_end
@@ -31,7 +34,8 @@ class WikipediaDataset:
         self.dt = self.dt.map(
             lambda element: conditional_preprocessing_wiki(
                 element=element,
-                tokenizer=self.tokenizer,
+                tokenizer_cond=self.tokenizer_cond,
+                tokenizer_gen=self.tokenizer_gen,
                 max_sequence_len=self.max_sequence_len,
                 pos_begin=self.pos_begin,
                 pos_end=self.pos_end,
@@ -58,9 +62,10 @@ class WikipediaDataset:
 
 
 class SST2Dataset:
-    def __init__(self, split, tokenizer, max_sequence_len):
+    def __init__(self, split, tokenizer_cond, tokenizer_gen, max_sequence_len):
         self.split = split
-        self.tokenizer = tokenizer
+        self.tokenizer_cond = tokenizer_cond
+        self.tokenizer_gen = tokenizer_gen
         self.max_sequence_len = max_sequence_len
         self.config = json.load(open("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/config.json", "rb"))
 
@@ -70,7 +75,8 @@ class SST2Dataset:
         self.dt = self.dt.map(
             lambda element: glue_tokenize(
                 element,
-                tokenizer=self.tokenizer,
+                tokenizer_cond=self.tokenizer_cond,
+                tokenizer_gen=self.tokenizer_gen,
                 max_sequence_len=self.max_sequence_len,
             ),
             num_proc=30,

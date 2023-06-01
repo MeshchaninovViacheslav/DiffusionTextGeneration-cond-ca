@@ -86,7 +86,7 @@ def generate_text_conditional(diffusion, num_texts, batch_size):
         text = diffusion.generate_text(batch_size=tmp_batch_size, cond=condition)[0]
 
         joint_text = []
-        cond_text = diffusion.tokenizer.batch_decode(condition["cond"], skip_special_tokens=True)
+        cond_text = diffusion.tokenizer_cond.batch_decode(condition["cond"], skip_special_tokens=True)
         for i, c_t in enumerate(cond_text):
             joint_text.append(f"{c_t} {text[i]}")
 

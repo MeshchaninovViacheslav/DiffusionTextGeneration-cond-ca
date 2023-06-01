@@ -405,8 +405,6 @@ class DiffusionRunner:
         self.set_scheduler()
         self.set_grad_scaler()
         self.step = 0
-        self.train_range = trange(self.step + 1, self.config.training.training_iters + 1)
-        self.train_range_iter = iter(self.train_range)
         self.set_valid_data_generator()
         self.file = open("log.txt", "w")
         self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
@@ -414,14 +412,14 @@ class DiffusionRunner:
         if self.config.refresh.true:
             self.refresh_checkpoint()
 
-        if self.config.refresh.true:
             if self.config.finetuning:
                 self.estimate_finetuning()
             else:
                 self.estimate()
             self.validate()
 
-
+        self.train_range = trange(self.step + 1, self.config.training.training_iters + 1)
+        self.train_range_iter = iter(self.train_range)
 
         while True:
             self.set_train_data_generator()
@@ -440,24 +438,22 @@ class DiffusionRunner:
         self.set_optimizer()
         self.set_scheduler()
         self.set_grad_scaler()
-
         self.step = 0
-
-        self.train_range = trange(self.step + 1, self.config.training.training_iters + 1)
-        self.train_range_iter = iter(self.train_range)
-
         self.set_valid_data_generator()
-
         self.file = open("log.txt", "w")
+        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
 
         if self.config.refresh.true:
             self.refresh_finetune_checkpoint()
+
             if self.config.finetuning:
                 self.estimate_finetuning()
             else:
                 self.estimate()
             self.validate()
-        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
+
+        self.train_range = trange(self.step + 1, self.config.training.training_iters + 1)
+        self.train_range_iter = iter(self.train_range)
 
         while True:
             self.set_train_data_generator()

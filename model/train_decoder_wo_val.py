@@ -10,7 +10,7 @@ import sys
 
 sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration/")
 
-from data.create_dataset import create_rocstory_dataset
+from data.create_dataset import create_rocstory_dataset, create_wiki_dataset
 from utils.util import dict_to_cuda
 
 
@@ -31,26 +31,10 @@ def reconstruction_loss(target, prediction_scores, mask):
     return ce_loss
 
 def train(encoder, decoder, tokenizer):
-    max_sequence_len = 64
     batch_size = 512
-    train_dataset = create_unsupervised_dataset(
-        split="train",
-        tokenizer=tokenizer,
-        max_sequence_len=max_sequence_len,
-    )
+    train_dataset = create_wiki_dataset()
     train_loader = DataLoader(
         train_dataset,
-        batch_size=batch_size,
-        num_workers=16,
-        pin_memory=True,
-    )
-    valid_dataset = create_rocstory_dataset(
-        split="validation",
-        tokenizer=tokenizer,
-        max_sequence_len=max_sequence_len,
-    )
-    valid_loader = DataLoader(
-        valid_dataset,
         batch_size=batch_size,
         num_workers=16,
         pin_memory=True,
@@ -65,7 +49,8 @@ def train(encoder, decoder, tokenizer):
     epochs = 1
     for epoch in range(epochs):
         decoder.train()
-        for X in tqdm(train_loader):
+        T = tqdm(train_loader)
+        for X in T:
             step += 1
             X = dict_to_cuda(X)
             targets = X["input_ids"]
@@ -86,23 +71,13 @@ def train(encoder, decoder, tokenizer):
             wandb.log({f'train loss': loss.item()}, step=step)
             wandb.log({f'train accuracy': acc.item()}, step=step)
 
-        decoder.eval()
-        with torch.no_grad():
-            valid_loss = 0.
-            valid_num = 0.
-            for X in tqdm(valid_loader):
-                X = dict_to_cuda(X)
-                targets = X["input_ids"]
-                mask = X["attention_mask"]
-                emb = encoder(**X).last_hidden_state
-                logits = decoder(emb)
-                loss = reconstruction_loss(targets, logits, mask)
-                valid_loss += loss.item() * emb.shape[0]
-                valid_num += emb.shape[0]
-            wandb.log({f'valid loss': valid_loss / valid_num}, step=step)
+            T.set_description(f"Loss: {loss.item():0.6f}")
+
+            if step > 10000:
+                break
 
     checkpoints_folder = './checkpoints/'
-    name = os.path.join(checkpoints_folder, "decoder-c4-pad-64.pth")
+    name = os.path.join(checkpoints_folder, "decoder-t5_base-wikipedia-128.pth")
     decoder.eval()
     torch.save(
         {

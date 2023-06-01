@@ -94,3 +94,9 @@ def conditional_preprocessing(element, tokenizer, max_sequence_len, p_uncond=0):
         "input_mask": torch.tensor([input_["attention_mask"]], dtype=torch.int64),
         "cond_mask": torch.tensor([cond_["attention_mask"]], dtype=torch.int64),
     }
+
+def create_wiki_dataset():
+    dt = load_dataset("Graphcore/wikipedia-bert-128", split="train")
+    dt = dt.remove_columns(["token_type_ids", "labels", "next_sentence_label"])
+    dt.set_format("pt", columns=["input_ids", "attention_mask"])
+    return dt

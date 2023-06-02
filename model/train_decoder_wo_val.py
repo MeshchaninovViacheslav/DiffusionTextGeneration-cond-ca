@@ -13,6 +13,7 @@ sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
 from data.create_dataset import create_rocstory_dataset, create_wiki_dataset
 from utils.util import dict_to_cuda
 from model.t5_encoder import T5EncoderModel
+from model.decoder import Decoder
 
 
 def reconstruction_loss(target, prediction_scores, mask):
@@ -46,7 +47,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
     optimizer = torch.optim.Adam(
         decoder.parameters(),
         lr=1e-4,
-        #weight_decay=0.01,
+        # weight_decay=0.01,
         eps=1e-6,
         betas=(0.9, 0.98),
     )
@@ -108,25 +109,6 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
     print(f"Save model to: {name}")
 
 
-class T5Decoder(torch.nn.Module):
-    def __init__(self, hidden_size=768, vocab_size=32100, layer_norm_eps=1e-12):
-        super().__init__()
-        self.dense = torch.nn.Linear(hidden_size, hidden_size)
-        self.act_fn = torch.nn.GELU()
-        self.LayerNorm = torch.nn.LayerNorm(hidden_size, eps=layer_norm_eps)
-
-        self.decoder = torch.nn.Linear(hidden_size, vocab_size, bias=False)
-        self.bias = torch.nn.Parameter(torch.zeros(vocab_size))
-        self.decoder.bias = self.bias
-
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.act_fn(hidden_states)
-        hidden_states = self.LayerNorm(hidden_states)
-        hidden_states = self.decoder(hidden_states)
-        return hidden_states
-
-
 def main():
     bert_cfg = "bert-base-uncased"
     tokenizer = BertTokenizerFast.from_pretrained(bert_cfg)
@@ -136,7 +118,7 @@ def main():
     encoder = T5EncoderModel.from_pretrained(
         t5_cfg, enc_normalizer=None
     ).eval().cuda()
-    decoder = T5Decoder().train().cuda()
+    decoder = Decoder().train().cuda()
 
     wandb.init(project="decoders", name="decoder_training_t5_no_wd", mode="online")
     train(encoder, decoder, tokenizer, tokenizer_gen)

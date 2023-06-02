@@ -25,6 +25,7 @@ from data.dataset import create_dataset
 from model.t5_encoder import T5EncoderModel
 from model.bert_encoder import BertEncoderModel
 from model.enc_normalizer import EncNormalizer
+from model.decoder import Decoder
 
 from estimation_utils.util import estimate_model, gather_texts, reduce_metrics, reduce_sum_metrics
 from estimation_utils.metrics import BloomMetric
@@ -73,17 +74,14 @@ class DiffusionRunner:
             t5_cfg, enc_normalizer=self.t5_enc_normalizer
         ).eval().cuda()
 
-        bert_cfg = "bert-base-uncased"
-        self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
-        self.bert_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.enc_bert_mean,
-            enc_std_path=self.config.data.enc_bert_std,
-        )
-        self.encoder_gen = BertEncoderModel.from_pretrained(
-            bert_cfg, enc_normalizer=self.bert_enc_normalizer
-        ).eval().cuda()
+        self.tokenizer_gen = self.tokenizer_cond
+        self.gen_enc_normalizer = self.t5_enc_normalizer
+        self.encoder_gen = self.encoder_cond
 
-        self.decoder = self.encoder_gen.cls.cpu()
+        bert_cfg = "bert-base-uncased"
+        self.tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
+
+        self.decoder = Decoder()
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 
@@ -122,6 +120,7 @@ class DiffusionRunner:
         self.train_datasets_iter = create_dataset(dataset_name=config.model.dataset,
                                                   downstream_task=config.model.downstream_task)(
             split="train",
+            tokenizer_bert=self.tokenizer_bert,
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,
             max_sequence_len=self.config.data.max_sequence_len,
@@ -131,6 +130,7 @@ class DiffusionRunner:
         self.valid_datasets_iter = create_dataset(dataset_name=config.model.dataset,
                                                   downstream_task=config.model.downstream_task)(
             split="test",
+            tokenizer_bert=self.tokenizer_bert,
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,
             max_sequence_len=self.config.data.max_sequence_len,
@@ -157,15 +157,7 @@ class DiffusionRunner:
         self.ema.load_state_dict(ema_ckpt)
 
     def restore_decoder(self):
-        decoder_path = ""
-        if self.config.model.dataset == "rocstory":
-            decoder_path = "decoder-v1.1-pad.pth"
-        elif self.config.model.dataset == "c4":
-            decoder_path = "decoder-c4-pad-64.pth"
-        elif self.config.model.dataset == "wikipedia":
-            decoder_path = "decoder-wikipedia-128.pth"
-        else:
-            decoder_path = "decoder-wikipedia-128.pth"
+        decoder_path = self.config.model.decoder_path
         self.decoder.load_state_dict(torch.load(os.path.join(self.checkpoints_folder, decoder_path))["decoder"])
 
     def switch_to_ema(self) -> None:
@@ -233,7 +225,7 @@ class DiffusionRunner:
             self.train_dataset,
             sampler=sampler_train,
             batch_size=self.config.training.batch_size_per_gpu,
-            num_workers=60,
+            num_workers=80,
             pin_memory=False,
         )
 
@@ -658,7 +650,7 @@ class DiffusionRunner:
         return text, pred_embeddings
 
     def pred_logits(self, pred_embeddings, input_ids=None):
-        pred_embeddings = self.bert_enc_normalizer.denormalize(pred_embeddings)
+        pred_embeddings = self.gen_enc_normalizer.denormalize(pred_embeddings)
         output = self.decoder(pred_embeddings)
         return output
 
@@ -845,9 +837,6 @@ class DiffusionRunner:
     def restore_text(self, X, mask):
         X = dict_to_cuda(X)
         mask = mask.cuda()
-        # mask = deepcopy(X["attention_mask"])
-        # mask.scatter_(dim=1, index=(mask.sum(dim=1) - 1).reshape(-1, 1), src=torch.zeros_like(mask))
-        # X["attention_mask"] = mask
 
         clean_X = self.encoder_gen(**{key: X[key] for key in ["input_ids", "attention_mask"]})
         mask = mask[:, :, None]
@@ -869,40 +858,15 @@ class DiffusionRunner:
             self.config.data.max_sequence_len,
             768
         )
-        import numpy as np
-        eta_value = np.sqrt(1 - eta * eta)
         device = torch.device(self.config.device)
         eps_t = 1 / self.diff_eq_solver.sde.N
         gamma = 1
-        dt = -1. / self.sde.N
 
         with torch.no_grad():
             x = x_mean = self.sde.prior_sampling(shape).to(device)
 
             timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N, device=self.device)
             rang = tqdm(range(self.sde.N))
-            #
-            # for idx in rang:
-            #     t = timesteps[idx]
-            #     input_t = t * torch.ones(shape[0], device=device)
-            #
-            #     y_t = self.sde.marginal_forward(masked_x, input_t)['x_t']
-            #
-            #     t = input_t
-            #     x_t = x
-            #
-            #     z = torch.randn_like(x_t)
-            #     rsde_params = self.diff_eq_solver.rsde.sde(self.score_estimator, x_t, t)
-            #     drift, dif = rsde_params['drift'], rsde_params['diffusion']
-            #
-            #     x_mean = gamma * mask * y_t + (1 - gamma) * mask * x_t + (1 - mask) * x_t
-            #     x_mean = x_mean + drift * dt
-            #
-            #     if not self.diff_eq_solver.ode_sampling:
-            #         x = x_mean + dif[:, None, None] * np.sqrt(-dt) * z
-            #     else:
-            #         x = x_mean
-            # x = normalize(x, dim=-1) * np.sqrt(x.shape[-1])
 
             for idx in rang:
                 t = timesteps[idx]
@@ -913,7 +877,6 @@ class DiffusionRunner:
                 input_t = gamma * mask * y_t + (1 - gamma) * mask * x_t + (1 - mask) * x_t
                 output = self.diff_eq_solver.step(model=self.score_estimator, x_t=input_t, t=vec_t)
                 x, x_mean = output["x"], output["x_mean"]
-                # x = normalize(x, dim=-1) * np.sqrt(x.shape[-1])
 
         return x_mean
 

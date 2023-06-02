@@ -208,7 +208,7 @@ def supervised_preprocessor(dt, benchmark_name):
 
 def conditional_preprocessing_wiki(
         element,
-        tokenizer_cond, tokenizer_gen,
+        tokenizer_bert, tokenizer_cond, tokenizer_gen,
         max_sequence_len: int = 96,
         pos_begin: float = 0.33,
         pos_end: float = 0.67,
@@ -224,7 +224,7 @@ def conditional_preprocessing_wiki(
     input_ids = element["input_ids"][delimeter_pos:]
 
     cond_ = tokenizer_cond.encode_plus(
-        text=tokenizer_gen.decode(cond_ids, skip_special_tokens=True),
+        text=tokenizer_bert.decode(cond_ids, skip_special_tokens=True),
         add_special_tokens=True,
         padding="max_length",
         truncation=True,
@@ -232,7 +232,7 @@ def conditional_preprocessing_wiki(
     )
 
     input_ = tokenizer_gen.encode_plus(
-        text=tokenizer_gen.decode(input_ids, skip_special_tokens=True),
+        text=tokenizer_bert.decode(input_ids, skip_special_tokens=True),
         add_special_tokens=True,
         padding="max_length",
         truncation=True,

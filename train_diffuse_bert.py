@@ -55,7 +55,7 @@ def create_config():
     loss.ce_coef = 0.
 
     refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = True
+    refresh.true = False
     refresh.prefix = "./checkpoints//wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain-t5_100000_.pth"
     refresh.wand_id = "g5fb4af3"
 
@@ -68,7 +68,7 @@ def create_config():
     sde = config.sde = ml_collections.ConfigDict()
     sde.typename = 'vp-sde'
     sde.solver = 'euler'
-    sde.N = 1000
+    sde.N = 10
     sde.beta_min = 0.1
     sde.beta_max = 20
     sde.ode_sampling = False
@@ -83,6 +83,7 @@ def create_config():
     model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
+    model.decoder_path = "decoder-t5_base-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 96
@@ -104,7 +105,7 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "ting-pretrain-t5"
+    suffix = "ting-pretrain-t5-t5_encoder"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"{config.model.embeddings_type}-" \

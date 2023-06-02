@@ -20,9 +20,10 @@ def create_dataset(dataset_name, downstream_task=None):
 
 class WikipediaDataset:
     def __init__(self,
-                 split, tokenizer_cond, tokenizer_gen, max_sequence_len,
+                 split, tokenizer_bert, tokenizer_cond, tokenizer_gen, max_sequence_len,
                  pos_begin: float = 0.33, pos_end: float = 0.67):
         self.split = split
+        self.tokenizer_bert = tokenizer_bert
         self.tokenizer_cond = tokenizer_cond
         self.tokenizer_gen = tokenizer_gen
         self.max_sequence_len = max_sequence_len
@@ -34,6 +35,7 @@ class WikipediaDataset:
         self.dt = self.dt.map(
             lambda element: conditional_preprocessing_wiki(
                 element=element,
+                tokenizer_bert=self.tokenizer_bert,
                 tokenizer_cond=self.tokenizer_cond,
                 tokenizer_gen=self.tokenizer_gen,
                 max_sequence_len=self.max_sequence_len,

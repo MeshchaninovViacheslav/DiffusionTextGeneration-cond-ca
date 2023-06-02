@@ -232,7 +232,7 @@ class DiffusionRunner:
         self.train_loader = DataLoader(
             self.train_dataset,
             sampler=sampler_train,
-            batch_size=self.config.training.batch_size // num_tasks,
+            batch_size=self.config.training.batch_size_per_gpu,
             num_workers=60,
             pin_memory=False,
         )
@@ -303,6 +303,13 @@ class DiffusionRunner:
         return res
 
     def bert_acc(self, targets, outputs, mask):
+        if mask is None:
+            mask = torch.ones(
+                (targets.shape[0], targets.shape[1]),
+                device=f"cuda:{dist.get_rank()}",
+                requires_grad=False,
+                dtype=torch.int64,
+            )
         pred_tokens = outputs.argmax(dim=-1)
 
         mask = deepcopy(mask)
@@ -311,12 +318,26 @@ class DiffusionRunner:
         return torch.sum(mask * (targets == pred_tokens)) / torch.sum(mask)
 
     def mse_loss(self, inputs, targets, mask):
+        if mask is None:
+            mask = torch.ones(
+                (targets.shape[0], targets.shape[1]),
+                device=f"cuda:{dist.get_rank()}",
+                requires_grad=False,
+                dtype=torch.int64,
+            )
         losses = torch.mean(torch.square(inputs - targets), dim=-1)
         losses = losses * mask
         loss = torch.sum(losses) / torch.sum(mask)
         return loss
 
     def recon_loss(self, inputs, outputs, mask):
+        if mask is None:
+            mask = torch.ones(
+                (inputs.shape[0], inputs.shape[1]),
+                device=f"cuda:{dist.get_rank()}",
+                requires_grad=False,
+                dtype=torch.int64,
+            )
         losses = cross_entropy(
             input=inputs.reshape(-1, inputs.shape[-1]),
             target=outputs.reshape(-1),
@@ -327,6 +348,13 @@ class DiffusionRunner:
         return loss
 
     def get_stat(self, z, mask):
+        if mask is None:
+            mask = torch.ones(
+                (z.shape[0], z.shape[1]),
+                device=f"cuda:{dist.get_rank()}",
+                requires_grad=False,
+                dtype=torch.int64,
+            )
         mask_SEP_CLS = make_mask_wo_SEP_CLS(mask)
         mean = masked_mean(z, mask_SEP_CLS)
         std = masked_std(z, mask_SEP_CLS)
@@ -340,6 +368,8 @@ class DiffusionRunner:
             X=None,
             eps: float = 1e-5,
     ) -> Dict[str, torch.Tensor]:
+        mask = None
+
         # Noizing
         batch_size = clean_x.size(0)
 
@@ -348,12 +378,11 @@ class DiffusionRunner:
         x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
 
         # model prediction
-        scores = self.sde.calc_score(self.ddp_score_estimator, x_t, t, cond=cond, attention_mask=X["input_mask"],
-                                     cond_mask=X["cond_mask"])
+        scores = self.sde.calc_score(self.ddp_score_estimator, x_t, t, cond=cond, cond_mask=X["cond_mask"],
+                                     attention_mask=mask)
 
         # MSE losses
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
-        mask = X["input_mask"]
 
         loss_x_0 = self.mse_loss(clean_x, x_0, mask)
         loss_eps = self.mse_loss(noise, eps_theta, mask)

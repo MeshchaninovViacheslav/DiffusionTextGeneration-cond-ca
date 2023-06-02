@@ -3,23 +3,24 @@ import wandb
 from tqdm import tqdm
 from torch.nn.functional import cross_entropy
 from torch.utils.data import DataLoader
-from transformers import BertTokenizerFast, BertLMHeadModel
+from transformers import BertTokenizerFast, BertLMHeadModel, T5TokenizerFast
 
 import os
 import sys
 
-sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration/")
+sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
 
 from data.create_dataset import create_rocstory_dataset, create_wiki_dataset
 from utils.util import dict_to_cuda
+from model.t5_encoder import T5EncoderModel
 
 
 def reconstruction_loss(target, prediction_scores, mask):
     if mask is None:
         return cross_entropy(
-                input=prediction_scores.view(-1, prediction_scores.shape[-1]),
-                target=target.view(-1),
-            )
+            input=prediction_scores.view(-1, prediction_scores.shape[-1]),
+            target=target.view(-1),
+        )
 
     ce_losses = cross_entropy(
         input=prediction_scores.view(-1, prediction_scores.shape[-1]),
@@ -30,7 +31,9 @@ def reconstruction_loss(target, prediction_scores, mask):
     ce_loss = torch.sum(ce_losses) / torch.sum(mask)
     return ce_loss
 
-def train(encoder, decoder, tokenizer):
+
+def train(encoder, decoder, tokenizer, tokenizer_gen):
+    max_sequence_len = 128
     batch_size = 512
     train_dataset = create_wiki_dataset()
     train_loader = DataLoader(
@@ -43,6 +46,9 @@ def train(encoder, decoder, tokenizer):
     optimizer = torch.optim.Adam(
         decoder.parameters(),
         lr=1e-4,
+        #weight_decay=0.01,
+        eps=1e-6,
+        betas=(0.9, 0.98),
     )
 
     step = 0
@@ -52,11 +58,22 @@ def train(encoder, decoder, tokenizer):
         T = tqdm(train_loader)
         for X in T:
             step += 1
+
+            text = tokenizer.batch_decode(X["input_ids"], skip_special_tokens=True)
+            X = tokenizer_gen(
+                text=text,
+                add_special_tokens=True,
+                padding="max_length",
+                truncation=True,
+                max_length=max_sequence_len,
+                return_tensors="pt",
+            )
+
             X = dict_to_cuda(X)
-            targets = X["input_ids"]
+            targets = X["input_ids"].type(torch.LongTensor).cuda()
             mask = X["attention_mask"]
             with torch.no_grad():
-                emb = encoder(**X).last_hidden_state
+                emb = encoder(**X)
 
             sigma = 0.1
             eps = torch.randn_like(emb) * sigma
@@ -64,6 +81,10 @@ def train(encoder, decoder, tokenizer):
             loss = reconstruction_loss(targets, logits, mask=None)
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(
+                decoder.parameters(),
+                max_norm=1.0
+            )
             optimizer.step()
 
             tokens = logits.argmax(dim=-1)
@@ -72,8 +93,7 @@ def train(encoder, decoder, tokenizer):
             wandb.log({f'train accuracy': acc.item()}, step=step)
 
             T.set_description(f"Loss: {loss.item():0.6f}")
-
-            if step > 10000:
+            if step >= 10000:
                 break
 
     checkpoints_folder = './checkpoints/'
@@ -88,15 +108,38 @@ def train(encoder, decoder, tokenizer):
     print(f"Save model to: {name}")
 
 
-def main():
-    pretrained_enc_type = "bert-base-uncased"
-    tokenizer = BertTokenizerFast.from_pretrained(pretrained_enc_type)
-    bert = BertLMHeadModel.from_pretrained(pretrained_enc_type).cuda().eval()
-    encoder = bert.bert.eval()
-    decoder = bert.cls.train()
+class T5Decoder(torch.nn.Module):
+    def __init__(self, hidden_size=768, vocab_size=32100, layer_norm_eps=1e-12):
+        super().__init__()
+        self.dense = torch.nn.Linear(hidden_size, hidden_size)
+        self.act_fn = torch.nn.GELU()
+        self.LayerNorm = torch.nn.LayerNorm(hidden_size, eps=layer_norm_eps)
 
-    wandb.init(project="bert_diffusion", name="decoder_training", mode="online")
-    train(encoder, decoder, tokenizer)
+        self.decoder = torch.nn.Linear(hidden_size, vocab_size, bias=False)
+        self.bias = torch.nn.Parameter(torch.zeros(vocab_size))
+        self.decoder.bias = self.bias
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        hidden_states = self.dense(hidden_states)
+        hidden_states = self.act_fn(hidden_states)
+        hidden_states = self.LayerNorm(hidden_states)
+        hidden_states = self.decoder(hidden_states)
+        return hidden_states
+
+
+def main():
+    bert_cfg = "bert-base-uncased"
+    tokenizer = BertTokenizerFast.from_pretrained(bert_cfg)
+
+    t5_cfg = "t5-base"
+    tokenizer_gen = T5TokenizerFast.from_pretrained(t5_cfg)
+    encoder = T5EncoderModel.from_pretrained(
+        t5_cfg, enc_normalizer=None
+    ).eval().cuda()
+    decoder = T5Decoder().train().cuda()
+
+    wandb.init(project="decoders", name="decoder_training_t5_no_wd", mode="online")
+    train(encoder, decoder, tokenizer, tokenizer_gen)
 
 
 main()

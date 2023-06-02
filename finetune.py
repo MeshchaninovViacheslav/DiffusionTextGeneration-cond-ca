@@ -136,6 +136,7 @@ if __name__ == '__main__':
     torch.distributed.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
     torch.distributed.barrier()
 
+    config.training.batch_size_per_gpu = config.training.batch_size // dist.get_world_size()
     seed = config.seed
     set_seed(seed)
     os.environ['CONFIG_PATH'] = "/home/vmeshchaninov/DiffusionTextGeneration/data/config.json"

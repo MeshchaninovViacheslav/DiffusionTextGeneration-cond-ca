@@ -1,5 +1,4 @@
 from transformers.models.t5.modeling_t5 import (
-    BaseModelOutputWithPastAndCrossAttentions, \
     T5EncoderModel as HuggingFaceT5EncoderModel,
 )
 
@@ -18,6 +17,7 @@ class T5EncoderModel(HuggingFaceT5EncoderModel):
         )
 
         sequence_output = outputs.last_hidden_state
-        normed = self.enc_normalizer.normalize(sequence_output)
+        if self.enc_normalizer is not None:
+            sequence_output = self.enc_normalizer.normalize(sequence_output)
 
-        return normed
+        return sequence_output

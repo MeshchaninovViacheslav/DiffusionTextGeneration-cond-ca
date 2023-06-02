@@ -56,7 +56,7 @@ def create_config():
 
     refresh = config.refresh = ml_collections.ConfigDict()
     refresh.true = True
-    refresh.prefix = "./checkpoints/wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain-t5_100000_.pth"
+    refresh.prefix = "./checkpoints//wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain-t5_100000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -139,6 +139,7 @@ if __name__ == '__main__':
     torch.distributed.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
     torch.distributed.barrier()
 
+    config.training.batch_size_per_gpu = config.training.batch_size // dist.get_world_size()
     seed = config.seed
     set_seed(seed)
     os.environ['CONFIG_PATH'] = "/home/vmeshchaninov/DiffusionTextGeneration/data/config.json"

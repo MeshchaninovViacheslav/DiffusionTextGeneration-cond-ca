@@ -68,8 +68,8 @@ def create_config():
     return config
 
 
-num_texts_ = 512
-batch_size_ = 512 // 4
+num_texts_ = 32
+batch_size_ = 32
 
 metrics_json = dict()
 metrics_path = f"../metrics"
@@ -97,7 +97,7 @@ metric_gpt_fn = None  # GPTMetric(device=f"cuda:{dist.get_rank()}")
 
 model_names = [
     # "rocstory--encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=32-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.0-cond_launch-v1.0_100000_"
-    "wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain-t5-bert_encoder_last_"
+    "wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-ting-pretrain-t5-bert_encoder-wmask_100000_"
 ]
 
 for model_name in model_names:
@@ -110,32 +110,32 @@ for model_name in model_names:
     diffusion_ = DiffusionRunner(config, latent_mode=config.model.embeddings_type, eval=True)
     seed = config.seed + dist.get_rank()
     set_seed(seed)
-    metrics, texts, cond_texts, gen_texts, real_texts = estimate_model(diffusion_, num_texts_, batch_size_,
+    metrics, joint_texts, cond_texts, gen_texts, gt_texts = estimate_model(diffusion_, num_texts_, batch_size_,
                                                                        metric_bloom_fn, metric_gpt_fn,
                                                                        type_="cond")
     metrics_json[model_name] = reduce_metrics(metrics)
-    texts = gather_texts(texts)
+    joint_texts = gather_texts(joint_texts)
     cond_texts = gather_texts(cond_texts)
     gen_texts = gather_texts(gen_texts)
-    real_texts = gather_texts(real_texts)
+    gt_texts = gather_texts(gt_texts)
 
     if dist.get_rank() == 0:
         print(model_name)
         print(f"Bloom metric: {metrics['Bloom metric']:0.5f}")
         print(f"GPT2 metric: {metrics['GPT2 metric']:0.5f}")
-        print(len(texts))
+        print(len(joint_texts))
         prefix = f"seq-len={config.data.max_sequence_len}-ode-{config.training.ode_sampling}-sd=10"
         metrics_file = os.path.join(metrics_path, f"{model_name}-{prefix}.json")
         with open(metrics_file, "w") as file:
             json.dump(metrics_json, file)
 
         text_list = []
-        for i in range(len(texts)):
+        for i in range(len(cond_texts)):
             text_list.append(
                 {
                     "CONDITION": cond_texts[i],
                     "GEN": gen_texts[i],
-                    "GT": real_texts[i]
+                    "GT": gt_texts[i]
                 }
             )
 

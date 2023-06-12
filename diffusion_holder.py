@@ -18,11 +18,11 @@ import json
 
 from diffusion_utils.diffusion_dynamic_sde import create_sde, create_solver
 from utils.ema_model import ExponentialMovingAverage
-from model.score_estimator_cond import ScoreEstimatorEMB
 from utils.util import dict_to_cuda, reduce_tensor, masked_mean, \
     masked_std, make_mask_wo_SEP_CLS, set_seed
 from data.dataset import create_dataset
 
+from model.score_estimator_cond import ScoreEstimatorEMB
 from model.t5_encoder import T5EncoderModel
 from model.bert_encoder import BertEncoderModel
 from model.roberta_encoder import RobertaEncoderModel
@@ -117,7 +117,7 @@ class DiffusionRunner:
         self.score_estimator = ScoreEstimatorEMB(
             input_size=self.encoder_gen.config.hidden_size,
             config=self.bert_config
-        ).cuda().train()
+        ).cuda()
         self.ddp_score_estimator = self.score_estimator
         if self.config.ddp:
             self.ddp_score_estimator = torch.nn.parallel.DistributedDataParallel(
@@ -550,7 +550,7 @@ class DiffusionRunner:
         self.step += 1
 
         X = dict_to_cuda(X)
-        with torch.autocast(device_type='cuda', dtype=torch.float32):
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             with torch.no_grad():
                 clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
                 cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
@@ -659,13 +659,13 @@ class DiffusionRunner:
         self.switch_to_ema()
         print(f"Checkpoint refreshed {self.config.refresh.prefix}")
 
-    def generate_text(self, batch_size, cond=None, way="sde"):
+    def generate_text(self, batch_size, cond=None, way="sde", attention_mask=None):
         with torch.no_grad():
             cond = dict_to_cuda(cond)
             cond_X = self.encoder_cond(**{"input_ids": cond["cond"], "attention_mask": cond["cond_mask"]})
 
             if way == "sde":
-                pred_embeddings = self.pred_embeddings(batch_size, cond_X=cond_X, cond_mask=cond["cond_mask"])
+                pred_embeddings = self.pred_embeddings(batch_size, cond_X=cond_X, cond_mask=cond["cond_mask"], attention_mask=attention_mask.cuda())
             elif way == "ddpm":
                 pred_embeddings = self.pred_embeddings_DDPM(batch_size)
             elif way == "ddim":

@@ -98,7 +98,7 @@ metric_gpt_fn = None  # GPTMetric(device=f"cuda:{dist.get_rank()}")
 
 model_names = [
     # "rocstory--encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=32-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.0-cond_launch-v1.0_100000_"
-    "wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-ting-pretrain-t5-bert_encoder-wmask_100000_"
+    "wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-ting-pretrain-t5-bert_encoder-wmask_200000_"
 ]
 
 for model_name in model_names:

@@ -26,6 +26,7 @@ def create_config():
     training = config.training = ml_collections.ConfigDict()
     training.ode_sampling = False
     training.checkpoints_folder = '../checkpoints'
+    training.batch_size = 512
     config.checkpoints_prefix = None
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -68,8 +69,8 @@ def create_config():
     return config
 
 
-num_texts_ = 32
-batch_size_ = 32
+num_texts_ = 128
+batch_size_ = 128
 
 metrics_json = dict()
 metrics_path = f"../metrics"

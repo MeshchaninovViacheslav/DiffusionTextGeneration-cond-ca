@@ -69,9 +69,13 @@ def generate_text_unconditional(diffusion, num_texts, batch_size):
 
 def generate_text_conditional(diffusion, num_texts, batch_size):
     print(batch_size)
-    diffusion.config.validation.batch_size = batch_size
-    diffusion.set_valid_data_generator()
-    loader = iter(diffusion.valid_loader)
+    #diffusion.config.validation.batch_size = batch_size
+    #diffusion.set_valid_data_generator()
+    #loader = iter(diffusion.valid_loader)
+
+    diffusion.config.training.batch_size_per_gpu = batch_size
+    diffusion.set_train_data_generator()
+    loader = iter(diffusion.train_loader)
 
     cond_texts = []
     gen_texts = []
@@ -90,7 +94,8 @@ def generate_text_conditional(diffusion, num_texts, batch_size):
 
         gen_text = diffusion.generate_text(
             batch_size=tmp_batch_size,
-            cond={"cond": condition["cond_ids"], "cond_mask": condition["cond_mask"]}
+            cond={"cond": condition["cond_ids"], "cond_mask": condition["cond_mask"]},
+            attention_mask=condition["input_mask"],
         )[0]
 
         cond_text = diffusion.tokenizer_cond.batch_decode(condition["cond_ids"], skip_special_tokens=True)

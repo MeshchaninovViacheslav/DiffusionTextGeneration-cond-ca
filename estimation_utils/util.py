@@ -14,12 +14,12 @@ def clear_text(text):
         s = s.replace("[SEP]", "").replace("[CLS]", "")
         s = s.replace("PAD", "").replace("UNK", "").replace("START", "").replace("END", "")
         if not s:
+            data.append("")
             continue
         if s[0] == ".":
             s = s[1:]
         s = s.strip().lower()
-        if s:
-            data.append(s)
+        data.append(s)
     return data
 
 
@@ -72,6 +72,10 @@ def generate_text_conditional(diffusion, num_texts, batch_size):
     diffusion.config.validation.batch_size = batch_size
     diffusion.set_valid_data_generator()
     loader = iter(diffusion.valid_loader)
+
+    cond_texts = []
+    gen_only_texts = []
+    real_texts = []
     generated_texts = []
     while len(generated_texts) < num_texts:
         tmp_batch_size = int(min(batch_size, num_texts - len(generated_texts)))
@@ -79,27 +83,44 @@ def generate_text_conditional(diffusion, num_texts, batch_size):
             condition = next(loader)
             condition["cond_ids"] = condition["cond_ids"][:tmp_batch_size]
             condition["cond_mask"] = condition["cond_mask"][:tmp_batch_size]
+            condition["input_ids"] = condition["input_ids"][:tmp_batch_size]
+            condition["input_mask"] = condition["input_mask"][:tmp_batch_size]
         except Exception:
             return generated_texts
 
-        condition = {"cond": condition["cond_ids"], "cond_mask": condition["cond_mask"]}
-        text = diffusion.generate_text(batch_size=tmp_batch_size, cond=condition)[0]
+        text = diffusion.generate_text(
+            batch_size=tmp_batch_size,
+            cond={"cond": condition["cond_ids"], "cond_mask": condition["cond_mask"]}
+        )[0]
+
+        cond_text = diffusion.tokenizer_cond.batch_decode(condition["cond_ids"], skip_special_tokens=True)
+        real_text = clear_text(diffusion.tokenizer_cond.batch_decode(condition["input_ids"], skip_special_tokens=True))
 
         joint_text = []
-        cond_text = diffusion.tokenizer_cond.batch_decode(condition["cond"], skip_special_tokens=True)
         for i, c_t in enumerate(cond_text):
             joint_text.append(f"{c_t} {text[i]}")
 
         joint_text = clear_text(joint_text)
+        text = clear_text(text)
+        cond_text = clear_text(cond_text)
+
+        cond_texts += cond_text
+        gen_only_texts += text
+        real_texts += real_text
         generated_texts += joint_text
-    return generated_texts
+
+    return generated_texts, cond_texts, gen_only_texts, real_texts
 
 
 def estimate_model(diffusion, num_texts, batch_size, metric_bloom_fn, metric_gpt_fn, type_="uncond"):
+    cond_texts = None
+    gen_only_texts = None
+    real_texts = None
+
     if type_ == "uncond":
         texts = generate_text_unconditional(diffusion, num_texts, batch_size)
     elif type_ == "cond":
-        texts = generate_text_conditional(diffusion, num_texts, batch_size)
+        texts, cond_texts, gen_only_texts, real_texts = generate_text_conditional(diffusion, num_texts, batch_size)
     else:
         texts = generate_text(diffusion, num_texts, batch_size)
 
@@ -111,7 +132,7 @@ def estimate_model(diffusion, num_texts, batch_size, metric_bloom_fn, metric_gpt
         metric_gpt = compute_metric(metric_gpt_fn, texts)
     else:
         metric_gpt = np.nan
-    return {"Bloom metric": metric_bloom, "GPT2 metric": metric_gpt}, texts
+    return {"Bloom metric": metric_bloom, "GPT2 metric": metric_gpt}, texts, cond_texts, gen_only_texts, real_texts
 
 
 def reduce_metrics(metrics):

@@ -7,13 +7,14 @@ from ml_collections import ConfigDict
 from typing import Optional, Union, Dict
 from tqdm.auto import trange
 from torch.utils.data import DataLoader
-from transformers import BertTokenizerFast, T5TokenizerFast
+from transformers import BertTokenizerFast, T5TokenizerFast, RobertaTokenizerFast
 from tqdm import tqdm
 from torch.nn.functional import cross_entropy
 from copy import deepcopy
 from timm.scheduler.cosine_lr import CosineLRScheduler
 from collections import defaultdict
 from torch.cuda.amp import GradScaler
+import json
 
 from diffusion_utils.diffusion_dynamic_sde import create_sde, create_solver
 from utils.ema_model import ExponentialMovingAverage
@@ -24,6 +25,7 @@ from data.dataset import create_dataset
 
 from model.t5_encoder import T5EncoderModel
 from model.bert_encoder import BertEncoderModel
+from model.roberta_encoder import RobertaEncoderModel
 from model.enc_normalizer import EncNormalizer
 from model.decoder import Decoder
 
@@ -74,14 +76,35 @@ class DiffusionRunner:
             t5_cfg, enc_normalizer=self.t5_enc_normalizer
         ).eval().cuda()
 
-        self.tokenizer_gen = self.tokenizer_cond
-        self.gen_enc_normalizer = self.t5_enc_normalizer
-        self.encoder_gen = self.encoder_cond
+        # roberta_cfg = "roberta-base"
+        # self.tokenizer_gen = RobertaTokenizerFast.from_pretrained(roberta_cfg)
+        # self.roberta_enc_normalizer = EncNormalizer(
+        #     enc_mean_path=self.config.data.enc_roberta_mean,
+        #     enc_std_path=self.config.data.enc_roberta_std,
+        # )
+        # self.encoder_gen = RobertaEncoderModel.from_pretrained(
+        #     roberta_cfg, enc_normalizer=self.roberta_enc_normalizer
+        # ).eval().cuda()
+
+        # self.tokenizer_gen = self.tokenizer_cond
+        # self.gen_enc_normalizer = self.t5_enc_normalizer
+        # self.encoder_gen = self.encoder_cond
+
+        bert_cfg = "bert-base-uncased"
+        self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
+        self.gen_enc_normalizer = EncNormalizer(
+            enc_mean_path=self.config.data.enc_bert_mean,
+            enc_std_path=self.config.data.enc_bert_std,
+        )
+        self.encoder_gen = BertEncoderModel.from_pretrained(
+            bert_cfg, enc_normalizer=self.gen_enc_normalizer
+        ).eval().cuda()
 
         bert_cfg = "bert-base-uncased"
         self.tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
 
-        self.decoder = Decoder()
+        # self.decoder = Decoder()
+        self.decoder = self.encoder_gen.cls.cpu()
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 
@@ -117,8 +140,10 @@ class DiffusionRunner:
 
         self.grad_expl_dict = defaultdict(list)
 
-        self.train_datasets_iter = create_dataset(dataset_name=config.model.dataset,
-                                                  downstream_task=config.model.downstream_task)(
+        self.train_datasets_iter = create_dataset(
+            dataset_name=config.model.dataset,
+            downstream_task=config.model.downstream_task
+        )(
             split="train",
             tokenizer_bert=self.tokenizer_bert,
             tokenizer_cond=self.tokenizer_cond,
@@ -127,8 +152,10 @@ class DiffusionRunner:
         ).get_data()
         self.train_dataset = None
 
-        self.valid_datasets_iter = create_dataset(dataset_name=config.model.dataset,
-                                                  downstream_task=config.model.downstream_task)(
+        self.valid_datasets_iter = create_dataset(
+            dataset_name=config.model.dataset,
+            downstream_task=config.model.downstream_task
+        )(
             split="test",
             tokenizer_bert=self.tokenizer_bert,
             tokenizer_cond=self.tokenizer_cond,
@@ -225,7 +252,7 @@ class DiffusionRunner:
             self.train_dataset,
             sampler=sampler_train,
             batch_size=self.config.training.batch_size_per_gpu,
-            num_workers=80,
+            num_workers=40,
             pin_memory=False,
         )
 
@@ -245,7 +272,7 @@ class DiffusionRunner:
             self.valid_dataset,
             sampler=sampler_valid,
             batch_size=self.config.validation.batch_size,
-            num_workers=8,
+            num_workers=1,
             pin_memory=False,
         )
 
@@ -256,7 +283,6 @@ class DiffusionRunner:
     def optimizer_step(self, loss: torch.Tensor):
         self.optimizer.zero_grad()
         self.grad_scaler.scale(loss).backward()
-
         self.grad_scaler.unscale_(self.optimizer)
 
         grad_norm = torch.sqrt(sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters()]))
@@ -360,7 +386,7 @@ class DiffusionRunner:
             X=None,
             eps: float = 1e-5,
     ) -> Dict[str, torch.Tensor]:
-        mask = None
+        mask = X["input_mask"]
 
         # Noizing
         batch_size = clean_x.size(0)
@@ -524,13 +550,14 @@ class DiffusionRunner:
         self.step += 1
 
         X = dict_to_cuda(X)
-        with torch.autocast(device_type='cuda', dtype=torch.float16):
+        with torch.autocast(device_type='cuda', dtype=torch.float32):
             with torch.no_grad():
                 clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
                 cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
             loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
 
         stat_dict["grad_norm"], stat_dict["clipped_grad_norm"] = self.optimizer_step(loss_dict['total_loss'])
+        stat_dict["scale_factor"] = torch.Tensor([self.grad_scaler._scale])
 
         if self.step % 10 == 0:
             stat_dict["weight_norm"] = torch.sqrt(
@@ -599,6 +626,7 @@ class DiffusionRunner:
                     "ema": self.ema.state_dict(),
                     "optimizer": self.optimizer.state_dict(),
                     "scheduler": self.scheduler.state_dict(),
+                    "scaler": self.grad_scaler.state_dict(),
                     "step": self.step,
                 },
                 os.path.join(self.checkpoints_folder, prefix + ".pth")
@@ -617,6 +645,7 @@ class DiffusionRunner:
 
         self.optimizer.load_state_dict(load["optimizer"])
         self.scheduler.load_state_dict(load["scheduler"])
+        self.grad_scaler.load_state_dict(load["scaler"])
         self.step = load["step"]
         print(f"Checkpoint refreshed {self.config.refresh.prefix}")
 
@@ -1029,16 +1058,31 @@ class DiffusionRunner:
         num_texts = int(self.config.validation.num_gen_texts / dist.get_world_size())
         seed = self.config.seed + dist.get_rank()
         set_seed(seed)
-        metrics, texts = estimate_model(self, num_texts, self.config.validation.batch_size,
-                                        self.metric_bloom_fn, None, type_="cond")
+        metrics, texts, cond_texts, gen_only_texts, real_texts = estimate_model(self, num_texts,
+                                                                                self.config.validation.batch_size,
+                                                                                self.metric_bloom_fn, None,
+                                                                                type_="cond")
         texts = gather_texts(texts)
+        cond_texts = gather_texts(cond_texts)
+        gen_only_texts = gather_texts(gen_only_texts)
+        real_texts = gather_texts(real_texts)
+
         metrics = reduce_metrics(metrics)
         if dist.get_rank() == 0:
             texts_path = "./generated_texts"
             print(f"Bloom metric: {metrics['Bloom metric']:0.5f}")
-            with open(f"{texts_path}/{self.config.checkpoints_prefix}-{self.step}.txt", "w") as file:
-                for text in texts:
-                    print(text, file=file)
+
+            text_list = []
+            for i in range(len(texts)):
+                text_list.append(
+                    {
+                        "CONDITION": cond_texts[i],
+                        "GEN": gen_only_texts[i],
+                        "GT": real_texts[i]
+                    }
+                )
+            file_name = f"{texts_path}/{self.config.checkpoints_prefix}-{self.step}.json"
+            json.dump(text_list, open(file_name, "w"), indent=4)
 
         self.log_metric(metric_name="bloom loss", loader_name="", value=metrics['Bloom metric'])
 

@@ -8,7 +8,7 @@ from datasets import disable_progress_bar
 from transformers import BertConfig
 import sys
 
-sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration/")
+sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
 
 from diffusion_holder import DiffusionRunner
 from utils.util import set_seed, _BERT_SMALL
@@ -20,14 +20,6 @@ disable_progress_bar()
 from metrics import BloomMetric, GPTMetric
 
 
-def parse_option(config):
-    parser = argparse.ArgumentParser("MMTD")
-    if config.ddp:
-        parser.add_argument('--local_rank', type=int, required=True)
-    args, unparsed = parser.parse_known_args()
-    return args
-
-
 def create_config():
     config = ml_collections.ConfigDict()
 
@@ -36,43 +28,48 @@ def create_config():
     training.checkpoints_folder = '../checkpoints'
     config.checkpoints_prefix = None
 
+    validation = config.validation = ml_collections.ConfigDict()
+    validation.batch_size = 512
+
     sde = config.sde = ml_collections.ConfigDict()
     sde.typename = 'vp-sde'
     sde.solver = 'euler'
-    sde.N = 1000
+    sde.N = 100
     sde.beta_min = 0.1
     sde.beta_max = 20
     sde.ode_sampling = False
-    sde.scheduler = schedulers.Cosine_lin(sde.beta_min, sde.beta_max)
-
-    validation = config.validation = ml_collections.ConfigDict()
-    validation.batch_size = 1024
-    validation.validation_iters = int(10_000 / validation.batch_size)
-    validation.num_gen_texts = 2048
-    validation.p_uncond = 0.
+    sde.scheduler = schedulers.CosineSD(d=10)
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
     model.enc_type = "base"
     model.embeddings_type = "encodings"
     model.dif_enc_type = "base"
+    model.downstream_task = "sst2"  # "qqp"
+    model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
-    model.dataset = "rocstory"
+    model.loss = "L_x_0"
+    model.decoder_path = "decoder-wikipedia-128.pth"  # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()
-    data.config_path = "/home/vmeshchaninov/DiffusionTextGeneration/data/config.json"
-    data.max_sequence_len = 32
+    data.max_sequence_len = 96
+    data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-mean.pt"
+    data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-std.pt"
+    data.enc_t5_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-mean.pth"
+    data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
 
-    config.lin_input = False
-    config.device = 'cuda:0'
-    config.ddp = False
+    config.finetuning = False
     config.seed = 0
+    config.ddp = True
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
+
+    config.project_name = "bert-conditional-exps"
+
     return config
 
 
-num_texts_ = 512 * 4
-batch_size_ = 1024
+num_texts_ = 512
+batch_size_ = 512 // 4
 
 metrics_json = dict()
 metrics_path = f"../metrics"
@@ -89,23 +86,22 @@ if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
 else:
     rank = -1
     world_size = -1
+
+config.local_rank = rank
 torch.cuda.set_device(rank)
 torch.distributed.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
 torch.distributed.barrier()
 
 metric_bloom_fn = BloomMetric(device=f"cuda:{dist.get_rank()}")
-metric_gpt_fn = GPTMetric(device=f"cuda:{dist.get_rank()}")
+metric_gpt_fn = None  # GPTMetric(device=f"cuda:{dist.get_rank()}")
 
 model_names = [
-    "rocstory--encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=32-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.0-cond_launch-v1.0_100000_"
+    # "rocstory--encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=32-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.0-cond_launch-v1.0_100000_"
+    "wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain-t5-bert_encoder_last_"
 ]
 
 for model_name in model_names:
     config.checkpoints_prefix = model_name
-    if "base" in model_name:
-        config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
-    else:
-        config.bert_config = BertConfig(**_BERT_SMALL)
 
     seed = config.seed + dist.get_rank()
     set_seed(seed)
@@ -114,23 +110,38 @@ for model_name in model_names:
     diffusion_ = DiffusionRunner(config, latent_mode=config.model.embeddings_type, eval=True)
     seed = config.seed + dist.get_rank()
     set_seed(seed)
-    metrics, texts = estimate_model(diffusion_, num_texts_, batch_size_, metric_bloom_fn, metric_gpt_fn, type_="cond")
+    metrics, texts, cond_texts, gen_texts, real_texts = estimate_model(diffusion_, num_texts_, batch_size_,
+                                                                       metric_bloom_fn, metric_gpt_fn,
+                                                                       type_="cond")
     metrics_json[model_name] = reduce_metrics(metrics)
     texts = gather_texts(texts)
+    cond_texts = gather_texts(cond_texts)
+    gen_texts = gather_texts(gen_texts)
+    real_texts = gather_texts(real_texts)
 
     if dist.get_rank() == 0:
         print(model_name)
         print(f"Bloom metric: {metrics['Bloom metric']:0.5f}")
         print(f"GPT2 metric: {metrics['GPT2 metric']:0.5f}")
         print(len(texts))
-        prefix = f"seq-len={config.data.max_sequence_len}-ode-{config.training.ode_sampling}-cosine"
+        prefix = f"seq-len={config.data.max_sequence_len}-ode-{config.training.ode_sampling}-sd=10"
         metrics_file = os.path.join(metrics_path, f"{model_name}-{prefix}.json")
         with open(metrics_file, "w") as file:
             json.dump(metrics_json, file)
-        file_name = f"{texts_path}/{model_name}-{prefix}.txt"
-        with open(file_name, "w") as file:
-            for text in texts:
-                print(text, file=file)
+
+        text_list = []
+        for i in range(len(texts)):
+            text_list.append(
+                {
+                    "CONDITION": cond_texts[i],
+                    "GEN": gen_texts[i],
+                    "GT": real_texts[i]
+                }
+            )
+
+        file_name = f"{texts_path}/{model_name}-{prefix}.json"
+        json.dump(text_list, open(file_name, "w"), indent=4)
+
         print(file_name)
 
     del diffusion_

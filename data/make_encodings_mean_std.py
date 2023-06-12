@@ -1,92 +1,45 @@
-import os
 import torch
-import ml_collections
 from tqdm import tqdm
-from datasets import disable_progress_bar
-from transformers import BertConfig
+from torch.utils.data import DataLoader
+from transformers import BertTokenizerFast, T5TokenizerFast, RobertaTokenizerFast
 
 import sys
-sys.path.insert(0, "/home/vmeshchaninov/DiffusionTextGeneration")
+sys.path.insert(0, "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca")
 
-from diffusion_holder import DiffusionRunner
-from utils.util import set_seed, dict_to_cuda, make_mask_wo_SEP_CLS
-from diffusion_utils import schedulers
+from utils.util import dict_to_cuda, make_mask_wo_SEP_CLS
 
-disable_progress_bar()
+from data.create_dataset import create_rocstory_dataset, create_wiki_dataset
+from model.roberta_encoder import RobertaEncoderModel
 
-
-def create_config():
-    config = ml_collections.ConfigDict()
-    optim = config.optim = ml_collections.ConfigDict()
-    optim.grad_clip_norm = 1.0
-    optim.linear_warmup = 5000
-    optim.lr = 2e-4
-    optim.weight_decay = 0
-
-    training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 350_000
-    training.checkpoint_freq = 50_000
-    training.eval_freq = 50_000
-    training.batch_size = 2048
-    training.ode_sampling = False
-    training.checkpoints_folder = './checkpoints'
-    config.checkpoints_prefix = ""
-
-    validation = config.validation = ml_collections.ConfigDict()
-    validation.batch_size = 1028
-    validation.validation_iters = int(10_000 / validation.batch_size)
-
-    sde = config.sde = ml_collections.ConfigDict()
-    sde.typename = 'vp-sde'
-    sde.solver = 'euler'
-    sde.N = 1000
-    sde.beta_min = 0.1
-    sde.beta_max = 20
-    sde.ode_sampling = False
-    sde.scheduler = schedulers.Cosine(sde.beta_min, sde.beta_max)
-
-    model = config.model = ml_collections.ConfigDict()
-    model.ema_rate = 0.9999
-    model.enc_type = "base"
-    model.embeddings_type = "encodings"
-    model.dif_enc_type = "base"
-    model.downstream_task = None  # "qqp"
-    model.dataset = "rocstory"  # "glue"
-    model.prediction = "x_0"
-    model.loss = "L_x_0"
-
-    data = config.data = ml_collections.ConfigDict()
-    data.max_sequence_len = 64
-
-    config.seed = 0
-    config.ddp = False
-    config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
-
-    return config
-
-if __name__ == "__main__":
-    config = create_config()
-
-    seed = config.seed
-    set_seed(seed)
-
-    diffusion = DiffusionRunner(config, latent_mode=config.model.embeddings_type, eval=False)
-    #diffusion.encoder = torch.nn.DataParallel(diffusion.encoder)
-
-    os.environ['CONFIG_PATH'] = "/home/vmeshchaninov/DiffusionTextGeneration/data/config.json"
-    diffusion.set_train_data_generator()
-
+def compute_mean_std(
+        train_loader,
+        encoder,
+        tokenizer, tokenizer_gen,
+        max_sequence_len,
+        model_name, dataset_name,
+):
     sum_ = None
     sqr_sum_ = None
     num = 0
 
-    T = tqdm(diffusion.train_loader)
+    T = tqdm(train_loader)
 
     for i, X in enumerate(T):
-        X = dict_to_cuda(X)
         with torch.no_grad():
-            output = diffusion.sampler_emb_impl(X)
-            mask = X["attention_mask"]
+            text = tokenizer.batch_decode(X["input_ids"], skip_special_tokens=True)
+            X = tokenizer_gen(
+                text=text,
+                add_special_tokens=True,
+                padding="max_length",
+                truncation=True,
+                max_length=max_sequence_len,
+                return_tensors="pt",
+            )
+            X = dict_to_cuda(X)
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                output = encoder(**X)
+
+            mask = make_mask_wo_SEP_CLS(X["attention_mask"])
             output = output * mask[:, :, None]
             cur_sum = torch.sum(output, dim=[0, 1])
             cur_sqr_sum = torch.sum(output ** 2, dim=[0, 1])
@@ -97,12 +50,42 @@ if __name__ == "__main__":
 
             mean = sum_[:3] / num
             std2 = sqr_sum_[:3] / num - mean ** 2
-            T.set_description(f"mean: {mean}, std2: {std2}")
-        if i == 100:
+            T.set_description(f"mean: {mean.detach().cpu().tolist()}, std2: {std2.detach().cpu().tolist()}")
+        if i == 1000:
             break
 
     mean = sum_ / num
     std = torch.sqrt(sqr_sum_ / num - mean ** 2)
 
-    torch.save(mean, f'./data/{config.model.embeddings_type}-bert_base-{config.model.dataset}-wost-mean.pt')
-    torch.save(std, f'./data/{config.model.embeddings_type}-bert_base-{config.model.dataset}-wost-std.pt')
+    torch.save(mean, f'./data/encodings-{model_name}-{dataset_name}-mean.pt')
+    torch.save(std, f'./data/encodings-{model_name}-{dataset_name}-std.pt')
+
+if __name__ == "__main__":
+    bert_cfg = "bert-base-uncased"
+    tokenizer = BertTokenizerFast.from_pretrained(bert_cfg)
+
+    cfg = "roberta-base"
+    tokenizer_gen = RobertaTokenizerFast.from_pretrained(cfg)
+    encoder = RobertaEncoderModel.from_pretrained(
+        cfg, enc_normalizer=None
+    ).eval().cuda()
+
+    max_sequence_len = 128
+    batch_size = 512
+    train_dataset = create_wiki_dataset()
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        num_workers=16,
+        pin_memory=True,
+    )
+
+    compute_mean_std(
+        train_loader,
+        encoder,
+        tokenizer, tokenizer_gen,
+        max_sequence_len,
+        model_name="roberta_base",
+        dataset_name="wiki"
+    )
+

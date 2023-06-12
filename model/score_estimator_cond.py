@@ -18,7 +18,7 @@ bert_config = BertConfig(**{
     "num_hidden_layers": 12,
     "intermediate_size": 3072,
     "attention_probs_dropout_prob": 0.1,
-    "layer_norm_eps": 1e-12,
+    "layer_norm_eps": 1e-6,
     "model_type": "bert",
     "pad_token_id": 0,
     "position_embedding_type": "absolute",

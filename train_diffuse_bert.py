@@ -34,18 +34,18 @@ def create_config():
     optim.linear_warmup = 5000
     optim.lr = 2e-4
     optim.min_lr = 2e-4
-    optim.warmup_lr = 1e-6
+    optim.warmup_lr = 1e-8
     optim.weight_decay = 0.01
     optim.beta_1 = 0.9
     optim.beta_2 = 0.98
     optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 500_000
+    training.training_iters = 1_000_000
     training.training_iters = training.training_iters
     training.checkpoint_freq = 100_000
     training.eval_freq = 100_000
-    training.batch_size = 512
+    training.batch_size = 512 #* 8
 
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
@@ -56,7 +56,8 @@ def create_config():
 
     refresh = config.refresh = ml_collections.ConfigDict()
     refresh.true = False
-    refresh.prefix = "./checkpoints//wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain-t5_100000_.pth"
+    #refresh.prefix = "./checkpoints//wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain-t5-bert_encoder_500000_.pth"
+    refresh.prefix = "./checkpoints/wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=2.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-ting-pretrain-t5-bert_encoder-wmask_100000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -68,7 +69,7 @@ def create_config():
     sde = config.sde = ml_collections.ConfigDict()
     sde.typename = 'vp-sde'
     sde.solver = 'euler'
-    sde.N = 10
+    sde.N = 1000
     sde.beta_min = 0.1
     sde.beta_max = 20
     sde.ode_sampling = False
@@ -83,7 +84,7 @@ def create_config():
     model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-t5_base-wikipedia-128.pth"
+    model.decoder_path = "decoder-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 96
@@ -105,10 +106,9 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "ting-pretrain-t5-t5_encoder"
+    suffix = "ting-pretrain-t5-bert_encoder-wmask-fl"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
-                                f"{config.model.embeddings_type}-" \
                                 f"prediction={config.model.prediction}-" \
                                 f"loss={config.model.loss}-" \
                                 f"enc={config.model.enc_type}-" \
@@ -121,6 +121,7 @@ if __name__ == '__main__':
                                 f"lin_input={config.lin_input}-" \
                                 f"seed={config.seed}-" \
                                 f"wd={config.optim.weight_decay}-" \
+                                f"batch={config.training.batch_size}-" \
                                 f"{suffix}"  # "end2end-enc-base-seqlen32-v.5"  # 'emb_bert_x0_bs=512_lr=2e-4'
     if "base" in config.model.dif_enc_type:
         config.bert_config = BertConfig.from_pretrained("bert-base-uncased")

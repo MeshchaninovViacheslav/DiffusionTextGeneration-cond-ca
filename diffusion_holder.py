@@ -190,19 +190,6 @@ class DiffusionRunner:
         if self.config.checkpoints_prefix:
             prefix = self.config.checkpoints_prefix
 
-        # state = torch.load(f"{checkpoints_folder}/step_200000.ckpt")
-        #
-        # ema_ckpt = state["state_dict"]
-        # from collections import OrderedDict
-        # new_ema_ckpt = OrderedDict()
-        # for k in ema_ckpt:
-        #     if "score_estimator" in k:
-        #         new_k = k.replace("score_estimator.", "")
-        #         new_ema_ckpt[new_k] = ema_ckpt[k]
-        #
-        # self.score_estimator.load_state_dict(new_ema_ckpt)
-        # self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), 0.9999)
-
         ema_ckpt = torch.load(checkpoints_folder + '/' + prefix + '.pth')["ema"]
         self.ema.load_state_dict(ema_ckpt)
 
@@ -305,14 +292,13 @@ class DiffusionRunner:
 
     def optimizer_step(self, loss: torch.Tensor):
         self.optimizer.zero_grad()
-        loss.backward()
-        #self.grad_scaler.scale(loss).backward()
+        self.grad_scaler.scale(loss).backward()
 
         # grad_norm = torch.sqrt(sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters()]))
         # if torch.any(torch.isnan(grad_norm)):
         #     return grad_norm, grad_norm
 
-        # self.grad_scaler.unscale_(self.optimizer)
+        self.grad_scaler.unscale_(self.optimizer)
 
         grad_norm = torch.sqrt(sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters()]))
 
@@ -325,9 +311,8 @@ class DiffusionRunner:
         clipped_grad_norm = torch.sqrt(sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters()]))
 
         self.log_metric('lr', 'train', self.optimizer.param_groups[0]['lr'])
-        self.optimizer.step()
-        # self.grad_scaler.step(self.optimizer)
-        # self.grad_scaler.update()
+        self.grad_scaler.step(self.optimizer)
+        self.grad_scaler.update()
         self.ema.update(self.score_estimator.parameters())
         self.scheduler.step_update(self.step)
         return grad_norm, clipped_grad_norm

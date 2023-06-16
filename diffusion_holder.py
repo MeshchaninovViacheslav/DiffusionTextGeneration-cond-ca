@@ -76,6 +76,16 @@ class DiffusionRunner:
             t5_cfg, enc_normalizer=self.t5_enc_normalizer
         ).eval().cuda()
 
+        # bert_cfg = "bert-base-uncased"
+        # self.tokenizer_cond = BertTokenizerFast.from_pretrained(bert_cfg)
+        # self.bert_enc_normalizer = EncNormalizer(
+        #     enc_mean_path=self.config.data.enc_bert_mean,
+        #     enc_std_path=self.config.data.enc_bert_std,
+        # )
+        # self.encoder_cond = BertEncoderModel.from_pretrained(
+        #     bert_cfg, enc_normalizer=self.bert_enc_normalizer
+        # ).eval().cuda()
+
         # roberta_cfg = "roberta-base"
         # self.tokenizer_gen = RobertaTokenizerFast.from_pretrained(roberta_cfg)
         # self.roberta_enc_normalizer = EncNormalizer(
@@ -179,8 +189,21 @@ class DiffusionRunner:
         prefix = ''
         if self.config.checkpoints_prefix:
             prefix = self.config.checkpoints_prefix
+
+        # state = torch.load(f"{checkpoints_folder}/step_200000.ckpt")
+        #
+        # ema_ckpt = state["state_dict"]
+        # from collections import OrderedDict
+        # new_ema_ckpt = OrderedDict()
+        # for k in ema_ckpt:
+        #     if "score_estimator" in k:
+        #         new_k = k.replace("score_estimator.", "")
+        #         new_ema_ckpt[new_k] = ema_ckpt[k]
+        #
+        # self.score_estimator.load_state_dict(new_ema_ckpt)
+        # self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), 0.9999)
+
         ema_ckpt = torch.load(checkpoints_folder + '/' + prefix + '.pth')["ema"]
-        # ema_ckpt = torch.load(checkpoints_folder + '/' + prefix + '.pth', map_location=device)
         self.ema.load_state_dict(ema_ckpt)
 
     def restore_decoder(self):
@@ -282,8 +305,14 @@ class DiffusionRunner:
 
     def optimizer_step(self, loss: torch.Tensor):
         self.optimizer.zero_grad()
-        self.grad_scaler.scale(loss).backward()
-        self.grad_scaler.unscale_(self.optimizer)
+        loss.backward()
+        #self.grad_scaler.scale(loss).backward()
+
+        # grad_norm = torch.sqrt(sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters()]))
+        # if torch.any(torch.isnan(grad_norm)):
+        #     return grad_norm, grad_norm
+
+        # self.grad_scaler.unscale_(self.optimizer)
 
         grad_norm = torch.sqrt(sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters()]))
 
@@ -296,8 +325,9 @@ class DiffusionRunner:
         clipped_grad_norm = torch.sqrt(sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters()]))
 
         self.log_metric('lr', 'train', self.optimizer.param_groups[0]['lr'])
-        self.grad_scaler.step(self.optimizer)
-        self.grad_scaler.update()
+        self.optimizer.step()
+        # self.grad_scaler.step(self.optimizer)
+        # self.grad_scaler.update()
         self.ema.update(self.score_estimator.parameters())
         self.scheduler.step_update(self.step)
         return grad_norm, clipped_grad_norm
@@ -664,8 +694,11 @@ class DiffusionRunner:
             cond = dict_to_cuda(cond)
             cond_X = self.encoder_cond(**{"input_ids": cond["cond"], "attention_mask": cond["cond_mask"]})
 
+            if attention_mask is not None:
+                attention_mask = attention_mask.cuda()
+
             if way == "sde":
-                pred_embeddings = self.pred_embeddings(batch_size, cond_X=cond_X, cond_mask=cond["cond_mask"], attention_mask=attention_mask.cuda())
+                pred_embeddings = self.pred_embeddings(batch_size, cond_X=cond_X, cond_mask=cond["cond_mask"], attention_mask=attention_mask)
             elif way == "ddpm":
                 pred_embeddings = self.pred_embeddings_DDPM(batch_size)
             elif way == "ddim":
@@ -690,14 +723,16 @@ class DiffusionRunner:
             cond_mask=None,
             attention_mask=None,
     ) -> torch.Tensor:
+        self.score_estimator.eval()
         shape = (
             batch_size,
             self.config.data.max_sequence_len,
             self.encoder_gen.config.hidden_size
         )
+
         with torch.no_grad():
             x = self.sde.prior_sampling(shape).to(self.device)
-            eps_t = 3 / self.diff_eq_solver.sde.N
+            eps_t = 1 / self.diff_eq_solver.sde.N
             timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N, device=self.device)
             for i in tqdm(range(self.sde.N)):
                 t = timesteps[i]
@@ -710,6 +745,7 @@ class DiffusionRunner:
                     attention_mask=attention_mask
                 )
                 x, x_mean = output["x"], output["x_mean"]
+
             pred_embeddings = x_mean
 
         return pred_embeddings

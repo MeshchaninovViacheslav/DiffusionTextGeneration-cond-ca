@@ -32,6 +32,7 @@ from model.decoder import Decoder
 from estimation_utils.util import estimate_model, gather_texts, reduce_metrics, reduce_sum_metrics
 from estimation_utils.metrics import BloomMetric
 from estimation_utils.estimate_glue import estimate_sst2
+from estimation_utils.metrics import BloomMetricConditional, GPTMetric, BloomMetric, RobertaMetric
 
 
 class Loss_ema_tracker:
@@ -313,6 +314,14 @@ class DiffusionRunner:
         self.log_metric('lr', 'train', self.optimizer.param_groups[0]['lr'])
         self.grad_scaler.step(self.optimizer)
         self.grad_scaler.update()
+
+        # My custom strategy
+        scale = self.grad_scaler._scale.item()
+        max_scale = 2 ** 15
+        min_scale = 1
+        scale = np.clip(scale, min_scale, max_scale)
+        self.grad_scaler.update(new_scale=scale)
+
         self.ema.update(self.score_estimator.parameters())
         self.scheduler.step_update(self.step)
         return grad_norm, clipped_grad_norm
@@ -401,7 +410,7 @@ class DiffusionRunner:
             X=None,
             eps: float = 1e-5,
     ) -> Dict[str, torch.Tensor]:
-        mask = X["input_mask"]
+        mask = None  # X["input_mask"]
 
         # Noizing
         batch_size = clean_x.size(0)
@@ -565,7 +574,7 @@ class DiffusionRunner:
         self.step += 1
 
         X = dict_to_cuda(X)
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+        with torch.autocast(device_type='cuda', dtype=torch.float16):
             with torch.no_grad():
                 clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
                 cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
@@ -683,7 +692,8 @@ class DiffusionRunner:
                 attention_mask = attention_mask.cuda()
 
             if way == "sde":
-                pred_embeddings = self.pred_embeddings(batch_size, cond_X=cond_X, cond_mask=cond["cond_mask"], attention_mask=attention_mask)
+                pred_embeddings = self.pred_embeddings(batch_size, cond_X=cond_X, cond_mask=cond["cond_mask"],
+                                                       attention_mask=attention_mask)
             elif way == "ddpm":
                 pred_embeddings = self.pred_embeddings_DDPM(batch_size)
             elif way == "ddim":
@@ -1072,42 +1082,48 @@ class DiffusionRunner:
         self.switch_to_ema()
 
         if not hasattr(self, 'metric_bloom_fn'):
-            self.metric_bloom_fn = BloomMetric(device=f"cuda:{dist.get_rank()}")
+            self.metric_bloom_fn = BloomMetricConditional(device=f"cuda:{dist.get_rank()}")
+            self.metric_roberta_fn = RobertaMetric(device=f"cuda:{dist.get_rank()}")
 
         self.metric_bloom_fn.model.cuda()
+        self.metric_roberta_fn.model.cuda()
 
         num_texts = int(self.config.validation.num_gen_texts / dist.get_world_size())
         seed = self.config.seed + dist.get_rank()
         set_seed(seed)
-        metrics, texts, cond_texts, gen_only_texts, real_texts = estimate_model(self, num_texts,
-                                                                                self.config.validation.batch_size,
-                                                                                self.metric_bloom_fn, None,
-                                                                                type_="cond")
-        texts = gather_texts(texts)
+        metrics, joint_texts, cond_texts, gen_texts, gt_texts = estimate_model(
+            self, num_texts,
+            self.config.validation.batch_size,
+            self.metric_bloom_fn, self.metric_roberta_fn,
+        )
+        joint_texts = gather_texts(joint_texts)
         cond_texts = gather_texts(cond_texts)
-        gen_only_texts = gather_texts(gen_only_texts)
-        real_texts = gather_texts(real_texts)
+        gen_texts = gather_texts(gen_texts)
+        gt_texts = gather_texts(gt_texts)
 
         metrics = reduce_metrics(metrics)
         if dist.get_rank() == 0:
             texts_path = "./generated_texts"
             print(f"Bloom metric: {metrics['Bloom metric']:0.5f}")
+            print(f"Roberta metric: {metrics['Roberta metric']:0.5f}")
 
             text_list = []
-            for i in range(len(texts)):
+            for i in range(len(cond_texts)):
                 text_list.append(
                     {
                         "CONDITION": cond_texts[i],
-                        "GEN": gen_only_texts[i],
-                        "GT": real_texts[i]
+                        "GEN": gen_texts[i],
+                        "GT": gt_texts[i]
                     }
                 )
             file_name = f"{texts_path}/{self.config.checkpoints_prefix}-{self.step}.json"
             json.dump(text_list, open(file_name, "w"), indent=4)
 
         self.log_metric(metric_name="bloom loss", loader_name="", value=metrics['Bloom metric'])
+        self.log_metric(metric_name="roberta score", loader_name="", value=metrics['Roberta metric'])
 
         self.metric_bloom_fn.model.cpu()
+        self.metric_roberta_fn.model.cpu()
         self.score_estimator.train()
         self.switch_back_from_ema()
 

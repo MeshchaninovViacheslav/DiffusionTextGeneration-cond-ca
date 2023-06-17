@@ -14,10 +14,9 @@ from diffusion_holder import DiffusionRunner
 from utils.util import set_seed, _BERT_SMALL
 from estimation_utils.util import estimate_model, reduce_metrics, gather_texts
 import diffusion_utils.schedulers as schedulers
+from metrics import BloomMetricConditional, GPTMetric, BloomMetric, RobertaMetric
 
 disable_progress_bar()
-
-from metrics import BloomMetric, GPTMetric
 
 
 def create_config():
@@ -35,7 +34,7 @@ def create_config():
     sde = config.sde = ml_collections.ConfigDict()
     sde.typename = 'vp-sde'
     sde.solver = 'euler'
-    sde.N = 100
+    sde.N = 200
     sde.beta_min = 0.1
     sde.beta_max = 20
     sde.ode_sampling = False
@@ -69,8 +68,8 @@ def create_config():
     return config
 
 
-num_texts_ = 128
-batch_size_ = 128
+num_texts_ = 2048
+batch_size_ = 2048 // 6
 
 metrics_json = dict()
 metrics_path = f"../metrics"
@@ -93,14 +92,15 @@ torch.cuda.set_device(rank)
 torch.distributed.init_process_group(backend='nccl', init_method='env://', world_size=world_size, rank=rank)
 torch.distributed.barrier()
 
-metric_bloom_fn = BloomMetric(device=f"cuda:{dist.get_rank()}")
-metric_gpt_fn = None  # GPTMetric(device=f"cuda:{dist.get_rank()}")
+metric_bloom_fn = BloomMetricConditional(device=f"cuda:{dist.get_rank()}")
+metric_roberta_fn = RobertaMetric(device=f"cuda:{dist.get_rank()}")
 
 model_names = [
     # "rocstory--encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=32-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.0-cond_launch-v1.0_100000_"
-    "wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-ting-pretrain-t5-bert_encoder-wmask_200000_"
-    #"wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain_200000_"
-]
+    #"wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-ting-pretrain-t5-bert_encoder-wmask_200000_"
+    # "wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain_200000_"
+
+    ]
 
 for model_name in model_names:
     config.checkpoints_prefix = model_name
@@ -112,9 +112,10 @@ for model_name in model_names:
     diffusion_ = DiffusionRunner(config, latent_mode=config.model.embeddings_type, eval=True)
     seed = config.seed + dist.get_rank()
     set_seed(seed)
-    metrics, joint_texts, cond_texts, gen_texts, gt_texts = estimate_model(diffusion_, num_texts_, batch_size_,
-                                                                       metric_bloom_fn, metric_gpt_fn,
-                                                                       type_="cond")
+    metrics, joint_texts, cond_texts, gen_texts, gt_texts = estimate_model(
+        diffusion_, num_texts_, batch_size_,
+        metric_bloom_fn, metric_roberta_fn
+    )
     metrics_json[model_name] = reduce_metrics(metrics)
     joint_texts = gather_texts(joint_texts)
     cond_texts = gather_texts(cond_texts)
@@ -124,9 +125,9 @@ for model_name in model_names:
     if dist.get_rank() == 0:
         print(model_name)
         print(f"Bloom metric: {metrics['Bloom metric']:0.5f}")
-        print(f"GPT2 metric: {metrics['GPT2 metric']:0.5f}")
+        print(f"Roberta metric: {metrics['Roberta metric']:0.5f}")
         print(len(joint_texts))
-        prefix = f"seq-len={config.data.max_sequence_len}-ode-{config.training.ode_sampling}-sd=10"
+        prefix = f"num_texts={num_texts_}"
         metrics_file = os.path.join(metrics_path, f"{model_name}-{prefix}.json")
         with open(metrics_file, "w") as file:
             json.dump(metrics_json, file)

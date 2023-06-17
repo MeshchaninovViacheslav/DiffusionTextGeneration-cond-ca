@@ -35,7 +35,7 @@ def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
-    optim.linear_warmup = 0
+    optim.linear_warmup = 5000
     optim.lr = 2e-4
     optim.min_lr = 2e-4
     optim.warmup_lr = 1e-8
@@ -110,7 +110,7 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "t5-bert-wmask-a-bfl16-noscale"
+    suffix = "t5-bert-womask"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"prediction={config.model.prediction}-" \

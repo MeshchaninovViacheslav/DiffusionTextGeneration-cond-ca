@@ -3,6 +3,7 @@ from transformers import BloomTokenizerFast, BloomForCausalLM
 from transformers import GPT2Tokenizer, GPT2LMHeadModel
 from transformers import GPTNeoForCausalLM
 from torch.nn.functional import cross_entropy
+from typing import List
 
 from utils.util import dict_to_device
 
@@ -37,15 +38,12 @@ class BloomMetricConditional:
         self.device = device
 
     @torch.no_grad()
-    def __call__(self, text_cond: str, text_gen: str, reduce="mean"):
-        inputs_gen = self.tokenizer(text_gen, return_tensors="pt")
-        inputs_cond = self.tokenizer(f" {text_cond}", return_tensors="pt")
+    @torch.autocast(device_type='cuda', dtype=torch.float16)
+    def __call__(self, cond_text: str, gen_text: str, reduce="mean"):
+        # the first word is necessary for tokens to start with an unnecessary word, because metric doeesn't count it
+        inputs = self.tokenizer(f" {cond_text} {gen_text}", return_tensors="pt")
+        inputs_gen = self.tokenizer(f"{gen_text}", return_tensors="pt")
 
-        inputs = {
-            "input_ids": torch.cat([inputs_cond["input_ids"], inputs_gen["input_ids"]], dim=-1).type(torch.long),
-            "attention_mask": torch.cat([inputs_cond["attention_mask"], inputs_gen["attention_mask"]], dim=-1).type(
-                torch.long)
-        }
         inputs = dict_to_device(inputs, self.device)
         outputs = self.model(**inputs, labels=inputs["input_ids"])
 
@@ -54,10 +52,11 @@ class BloomMetricConditional:
             target=inputs["input_ids"].reshape(-1)[1:],
             reduce=False,
         )
-        losses = losses[torch.sum(inputs_cond["attention_mask"]).item() - 1:]
-
-        loss = torch.mean(losses)
+        losses = losses[-torch.sum(inputs_gen["attention_mask"]).item():]
         num_tokens = losses.shape[0]
+        loss = torch.mean(losses)
+
+        assert num_tokens == torch.sum(inputs_gen["attention_mask"]).item()
 
         if reduce == "sum":
             return loss.item() * num_tokens, num_tokens
@@ -102,33 +101,20 @@ class GPTNEOMetric:
         return loss.item(), num_tokens
 
 
-from transformers import T5TokenizerFast, T5ForConditionalGeneration
+class RobertaMetric:
+    def __init__(self, device: str = "cpu"):
+        from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-
-class T5Metric:
-    def __init__(self, device):
-        self.t5_name = "t5-3b"
-        self.model = T5ForConditionalGeneration.from_pretrained(self.t5_name).eval().to(device)
-        self.tokenizer = T5TokenizerFast.from_pretrained(self.t5_name)
+        self.name = "textattack/roberta-base-CoLA"
+        self.model = AutoModelForSequenceClassification.from_pretrained(self.name).eval().to(device)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.name)
         self.device = device
 
     @torch.no_grad()
-    def __call__(self, batch_texts):
-        condition = [""] * len(batch_texts)
-        encoding = self.tokenizer(condition, return_tensors="pt")
-        input_ids = encoding.input_ids.to(self.device)
-        attention_mask = encoding.attention_mask.to(self.device)
-        labels = self.tokenizer(
-            batch_texts,
-            padding="longest",
-            max_length=64,
-            truncation=True,
-            return_tensors="pt"
-        ).input_ids.to(self.device)
-        # labels = torch.tensor(labels)
-        labels[labels == self.tokenizer.pad_token_id] = -100
-
-        loss = self.model(input_ids=input_ids,
-                          attention_mask=attention_mask,
-                          labels=labels).loss.detach().cpu()
-        return loss.item()
+    def __call__(self, texts: List[str], reduce="mean"):
+        inputs = self.tokenizer(texts, padding=True, return_tensors="pt")
+        inputs = dict_to_device(inputs, self.device)
+        output = self.model(**inputs)
+        probs = torch.softmax(output.logits, -1)[:, 1]
+        naturalness = torch.mean(probs)
+        return naturalness.item()

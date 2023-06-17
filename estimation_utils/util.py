@@ -23,13 +23,17 @@ def clear_text(text):
     return data
 
 
-def compute_metric(metric_fn, texts):
+def compute_metric(metric_fn, cond_texts=None, gen_texts=None, texts=None):
     num_tokens = 0.0
     metric = 0.0
-    T = tqdm(texts)
-    for text in T:
-        t_metric, t_num = metric_fn(text, reduce="sum")
-        if t_metric is None or np.isnan(t_metric):
+    length = len(cond_texts) if texts is None else len(texts)
+    T = tqdm(range(length))
+    for i in T:
+        if texts is None:
+            t_metric, t_num = metric_fn(cond_text=cond_texts[i], gen_text=gen_texts[i], reduce="sum")
+        else:
+            t_metric, t_num = metric_fn(text=texts[i], reduce="sum")
+        if t_metric is None or np.isnan(t_metric) or t_num == 0:
             continue
         metric += t_metric
         num_tokens += t_num
@@ -95,7 +99,7 @@ def generate_text_conditional(diffusion, num_texts, batch_size):
         gen_text = diffusion.generate_text(
             batch_size=tmp_batch_size,
             cond={"cond": condition["cond_ids"], "cond_mask": condition["cond_mask"]},
-            attention_mask=condition["input_mask"],
+            attention_mask=None, #condition["input_mask"],
         )[0]
 
         cond_text = diffusion.tokenizer_cond.batch_decode(condition["cond_ids"], skip_special_tokens=True)
@@ -117,27 +121,19 @@ def generate_text_conditional(diffusion, num_texts, batch_size):
     return joint_texts, cond_texts, gen_texts, gt_texts
 
 
-def estimate_model(diffusion, num_texts, batch_size, metric_bloom_fn, metric_gpt_fn, type_="uncond"):
-    cond_texts = None
-    gen_texts = None
-    gt_texts = None
-
-    if type_ == "uncond":
-        texts = generate_text_unconditional(diffusion, num_texts, batch_size)
-    elif type_ == "cond":
-        joint_texts, cond_texts, gen_texts, gt_texts = generate_text_conditional(diffusion, num_texts, batch_size)
-    else:
-        texts = generate_text(diffusion, num_texts, batch_size)
+def estimate_model(diffusion, num_texts, batch_size, metric_bloom_fn, metric_roberta_fn):
+    joint_texts, cond_texts, gen_texts, gt_texts = generate_text_conditional(diffusion, num_texts, batch_size)
 
     if metric_bloom_fn:
-        metric_bloom = compute_metric(metric_bloom_fn, joint_texts)
+        metric_bloom = compute_metric(metric_bloom_fn, cond_texts, gen_texts)
     else:
         metric_bloom = np.nan
-    if metric_gpt_fn:
-        metric_gpt = compute_metric(metric_gpt_fn, joint_texts)
+    if metric_roberta_fn:
+        metric_roberta = metric_roberta_fn(texts=gen_texts)
     else:
-        metric_gpt = np.nan
-    return {"Bloom metric": metric_bloom, "GPT2 metric": metric_gpt}, joint_texts, cond_texts, gen_texts, gt_texts
+        metric_roberta = np.nan
+    return {"Bloom metric": metric_bloom,
+            "Roberta metric": metric_roberta}, joint_texts, cond_texts, gen_texts, gt_texts
 
 
 def reduce_metrics(metrics):

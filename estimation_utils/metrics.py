@@ -56,8 +56,6 @@ class BloomMetricConditional:
         num_tokens = losses.shape[0]
         loss = torch.mean(losses)
 
-        assert num_tokens == torch.sum(inputs_gen["attention_mask"]).item()
-
         if reduce == "sum":
             return loss.item() * num_tokens, num_tokens
         return loss.item(), num_tokens

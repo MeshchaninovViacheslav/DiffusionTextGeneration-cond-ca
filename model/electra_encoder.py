@@ -16,7 +16,7 @@ class ElectraEncoderModel(HuggingFaceElectraLMHeadModel):
             *args, **kwargs, output_hidden_states=True
         )
 
-        sequence_output = outputs.hidden_states[-1]
+        sequence_output = outputs.hidden_states[-4]
         if self.enc_normalizer is not None:
             sequence_output = self.enc_normalizer.normalize(sequence_output)
         return sequence_output

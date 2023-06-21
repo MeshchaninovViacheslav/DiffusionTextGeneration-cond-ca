@@ -60,8 +60,7 @@ def create_config():
 
     refresh = config.refresh = ml_collections.ConfigDict()
     refresh.true = False
-    #refresh.prefix = "./checkpoints//wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain-t5-bert_encoder_500000_.pth"
-    refresh.prefix = "./checkpoints/wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-ting-pretrain-t5-bert_encoder-wmask_100000_.pth"
+    refresh.prefix = "./checkpoints/wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-t5-bert-womask_800000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -73,11 +72,12 @@ def create_config():
     sde = config.sde = ml_collections.ConfigDict()
     sde.typename = 'vp-sde'
     sde.solver = 'euler'
-    sde.N = 1000
+    sde.N = 200
     sde.beta_min = 0.1
     sde.beta_max = 20
     sde.ode_sampling = False
-    sde.scheduler = schedulers.CosineSD(d=10)
+    sde.coef_d = 5
+    sde.scheduler = schedulers.CosineSD(d=sde.coef_d)
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
@@ -88,12 +88,14 @@ def create_config():
     model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth"
+    model.decoder_path = "decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 96
     data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-mean.pt"
     data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-std.pt"
+    data.enc_roberta_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-mean.pt"
+    data.enc_roberta_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-std.pt"
     data.enc_t5_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-mean.pth"
     data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
 
@@ -110,13 +112,12 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "t5-bert-womask"
+    suffix = "t5-roberta-womask"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"prediction={config.model.prediction}-" \
                                 f"loss={config.model.loss}-" \
                                 f"enc={config.model.enc_type}-" \
-                                f"bert={config.model.dif_enc_type}-" \
                                 f"kl_cf={config.loss.ce_coef}-" \
                                 f"seq_len={config.data.max_sequence_len}-" \
                                 f"clipgrad={config.optim.grad_clip_norm}-" \
@@ -126,6 +127,7 @@ if __name__ == '__main__':
                                 f"seed={config.seed}-" \
                                 f"wd={config.optim.weight_decay}-" \
                                 f"batch={config.training.batch_size}-" \
+                                f"SD={config.sde.coef_d}-" \
                                 f"{suffix}"  # "end2end-enc-base-seqlen32-v.5"  # 'emb_bert_x0_bs=512_lr=2e-4'
     if "base" in config.model.dif_enc_type:
         config.bert_config = BertConfig.from_pretrained("bert-base-uncased")

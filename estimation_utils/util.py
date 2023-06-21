@@ -22,7 +22,7 @@ def clear_text(text):
         data.append(s)
     return data
 
-
+@torch.no_grad()
 def compute_metric(metric_fn, cond_texts=None, gen_texts=None, texts=None):
     num_tokens = 0.0
     metric = 0.0
@@ -40,7 +40,7 @@ def compute_metric(metric_fn, cond_texts=None, gen_texts=None, texts=None):
         T.set_description(f"metric: {metric_fn.name}, {metric / num_tokens:0.4f}")
     return metric / num_tokens
 
-
+@torch.no_grad()
 def generate_text(diffusion, num_texts, batch_size):
     generated_texts = []
     while len(generated_texts) < num_texts:
@@ -70,16 +70,16 @@ def generate_text_unconditional(diffusion, num_texts, batch_size):
         generated_texts += text
     return generated_texts
 
-
+@torch.no_grad()
 def generate_text_conditional(diffusion, num_texts, batch_size):
     print(batch_size)
-    # diffusion.config.validation.batch_size = batch_size
-    # diffusion.set_valid_data_generator()
-    # loader = iter(diffusion.valid_loader)
+    diffusion.config.validation.batch_size = batch_size
+    diffusion.set_valid_data_generator()
+    loader = iter(diffusion.valid_loader)
 
-    diffusion.config.training.batch_size_per_gpu = batch_size
-    diffusion.set_train_data_generator()
-    loader = iter(diffusion.train_loader)
+    # diffusion.config.training.batch_size_per_gpu = batch_size
+    # diffusion.set_train_data_generator()
+    # loader = iter(diffusion.train_loader)
 
     cond_texts = []
     gen_texts = []
@@ -120,7 +120,7 @@ def generate_text_conditional(diffusion, num_texts, batch_size):
 
     return joint_texts, cond_texts, gen_texts, gt_texts
 
-
+@torch.no_grad()
 def estimate_model(diffusion, num_texts, batch_size, metric_bloom_fn, metric_roberta_fn):
     joint_texts, cond_texts, gen_texts, gt_texts = generate_text_conditional(diffusion, num_texts, batch_size)
 
@@ -128,6 +128,7 @@ def estimate_model(diffusion, num_texts, batch_size, metric_bloom_fn, metric_rob
         metric_bloom = compute_metric(metric_bloom_fn, cond_texts, gen_texts)
     else:
         metric_bloom = np.nan
+
     if metric_roberta_fn:
         metric_roberta = metric_roberta_fn(texts=gen_texts)
     else:

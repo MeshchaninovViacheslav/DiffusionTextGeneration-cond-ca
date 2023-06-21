@@ -1,6 +1,6 @@
 #!/bin/bash
 
-offline_runs="$1./offline-run-20230602_093448-b9d*"
+offline_runs="./$1*"
 while :
 do
     for ofrun in $offline_runs

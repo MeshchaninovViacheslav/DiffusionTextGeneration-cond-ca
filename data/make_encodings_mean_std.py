@@ -1,7 +1,7 @@
 import torch
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-from transformers import BertTokenizerFast, T5TokenizerFast, RobertaTokenizerFast
+from transformers import BertTokenizerFast, T5TokenizerFast, RobertaTokenizerFast, ElectraTokenizerFast
 
 import sys
 sys.path.insert(0, "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca")
@@ -10,6 +10,7 @@ from utils.util import dict_to_cuda, make_mask_wo_SEP_CLS
 
 from data.create_dataset import create_rocstory_dataset, create_wiki_dataset
 from model.roberta_encoder import RobertaEncoderModel
+from model.electra_encoder import ElectraEncoderModel
 
 def compute_mean_std(
         train_loader,
@@ -64,9 +65,9 @@ if __name__ == "__main__":
     bert_cfg = "bert-base-uncased"
     tokenizer = BertTokenizerFast.from_pretrained(bert_cfg)
 
-    cfg = "roberta-base"
-    tokenizer_gen = RobertaTokenizerFast.from_pretrained(cfg)
-    encoder = RobertaEncoderModel.from_pretrained(
+    cfg = "google/electra-base-discriminator"
+    tokenizer_gen = ElectraTokenizerFast.from_pretrained(cfg)
+    encoder = ElectraEncoderModel.from_pretrained(
         cfg, enc_normalizer=None
     ).eval().cuda()
 
@@ -85,7 +86,7 @@ if __name__ == "__main__":
         encoder,
         tokenizer, tokenizer_gen,
         max_sequence_len,
-        model_name="roberta_base",
+        model_name="electra",
         dataset_name="wiki"
     )
 

@@ -67,6 +67,8 @@ class DiffusionRunner:
 
         self.checkpoints_folder = config.training.checkpoints_folder
 
+        # Encoder for condition
+
         t5_cfg = "t5-base"
         self.tokenizer_cond = T5TokenizerFast.from_pretrained(t5_cfg)
         self.t5_enc_normalizer = EncNormalizer(
@@ -87,19 +89,17 @@ class DiffusionRunner:
         #     bert_cfg, enc_normalizer=self.bert_enc_normalizer
         # ).eval().cuda()
 
+        # Encoder for generation
+
         # roberta_cfg = "roberta-base"
         # self.tokenizer_gen = RobertaTokenizerFast.from_pretrained(roberta_cfg)
-        # self.roberta_enc_normalizer = EncNormalizer(
+        # self.gen_enc_normalizer = EncNormalizer(
         #     enc_mean_path=self.config.data.enc_roberta_mean,
         #     enc_std_path=self.config.data.enc_roberta_std,
         # )
         # self.encoder_gen = RobertaEncoderModel.from_pretrained(
-        #     roberta_cfg, enc_normalizer=self.roberta_enc_normalizer
+        #     roberta_cfg, enc_normalizer=self.gen_enc_normalizer
         # ).eval().cuda()
-
-        # self.tokenizer_gen = self.tokenizer_cond
-        # self.gen_enc_normalizer = self.t5_enc_normalizer
-        # self.encoder_gen = self.encoder_cond
 
         bert_cfg = "bert-base-uncased"
         self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
@@ -110,11 +110,14 @@ class DiffusionRunner:
         self.encoder_gen = BertEncoderModel.from_pretrained(
             bert_cfg, enc_normalizer=self.gen_enc_normalizer
         ).eval().cuda()
-
+        #
         bert_cfg = "bert-base-uncased"
         self.tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
 
-        # self.decoder = Decoder()
+        # self.decoder = Decoder(
+        #     hidden_size=self.encoder_gen.config.hidden_size,
+        #     vocab_size=self.encoder_gen.config.vocab_size
+        # )
         self.decoder = self.encoder_gen.cls.cpu()
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
@@ -317,7 +320,7 @@ class DiffusionRunner:
 
         # My custom strategy
         scale = self.grad_scaler._scale.item()
-        max_scale = 2 ** 15
+        max_scale = 2 ** 30
         min_scale = 1
         scale = np.clip(scale, min_scale, max_scale)
         self.grad_scaler.update(new_scale=scale)
@@ -574,7 +577,7 @@ class DiffusionRunner:
         self.step += 1
 
         X = dict_to_cuda(X)
-        with torch.autocast(device_type='cuda', dtype=torch.float16):
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             with torch.no_grad():
                 clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
                 cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
@@ -683,16 +686,20 @@ class DiffusionRunner:
         self.switch_to_ema()
         print(f"Checkpoint refreshed {self.config.refresh.prefix}")
 
+    @torch.no_grad()
     def generate_text(self, batch_size, cond=None, way="sde", attention_mask=None):
+        cond_X, cond_mask = None, None
         with torch.no_grad():
-            cond = dict_to_cuda(cond)
-            cond_X = self.encoder_cond(**{"input_ids": cond["cond"], "attention_mask": cond["cond_mask"]})
+            if cond is not None:
+                cond = dict_to_cuda(cond)
+                cond_X = self.encoder_cond(**{"input_ids": cond["cond"], "attention_mask": cond["cond_mask"]})
+                cond_mask = cond["cond_mask"]
 
             if attention_mask is not None:
                 attention_mask = attention_mask.cuda()
 
             if way == "sde":
-                pred_embeddings = self.pred_embeddings(batch_size, cond_X=cond_X, cond_mask=cond["cond_mask"],
+                pred_embeddings = self.pred_embeddings(batch_size, cond_X=cond_X, cond_mask=cond_mask,
                                                        attention_mask=attention_mask)
             elif way == "ddpm":
                 pred_embeddings = self.pred_embeddings_DDPM(batch_size)
@@ -706,6 +713,7 @@ class DiffusionRunner:
             text = self.tokenizer_gen.batch_decode(tokens, skip_special_tokens=True)
         return text, pred_embeddings
 
+    @torch.no_grad()
     def pred_logits(self, pred_embeddings, input_ids=None):
         pred_embeddings = self.gen_enc_normalizer.denormalize(pred_embeddings)
         output = self.decoder(pred_embeddings)
@@ -1124,8 +1132,10 @@ class DiffusionRunner:
 
         self.metric_bloom_fn.model.cpu()
         self.metric_roberta_fn.model.cpu()
-        self.score_estimator.train()
+
         self.switch_back_from_ema()
+        self.score_estimator.train()
+        self.config.training.batch_size_per_gpu = self.config.training.batch_size // dist.get_world_size()
 
     @torch.no_grad()
     def estimate_finetuning(self):

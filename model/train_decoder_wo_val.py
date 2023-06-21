@@ -125,7 +125,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
                 step += 1
 
     checkpoints_folder = './checkpoints/'
-    name = os.path.join(checkpoints_folder, "decoder-electra_base-wikipedia-128.pth")
+    name = os.path.join(checkpoints_folder, "decoder-electra-wikipedia-128.pth")
     decoder.eval()
     torch.save(
         {
@@ -140,7 +140,7 @@ def main():
     bert_cfg = "bert-base-uncased"
     tokenizer = BertTokenizerFast.from_pretrained(bert_cfg)
 
-    cfg = "google/electra-base-generator"
+    cfg = "google/electra-base-discriminator"
     #cfg = "roberta-base"
     tokenizer_gen = ElectraTokenizerFast.from_pretrained(cfg)
     encoder = ElectraEncoderModel.from_pretrained(

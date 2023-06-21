@@ -49,12 +49,14 @@ def create_config():
     model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-wikipedia-128.pth"  # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth"
+    model.decoder_path = "decoder-wikipedia-128.pth" #"decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 96
     data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-mean.pt"
     data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-std.pt"
+    data.enc_roberta_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-mean.pt"
+    data.enc_roberta_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-std.pt"
     data.enc_t5_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-mean.pth"
     data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
 
@@ -68,8 +70,8 @@ def create_config():
     return config
 
 
-num_texts_ = 2048
-batch_size_ = 2048 // 6
+num_texts_ = 512
+batch_size_ = 512
 
 metrics_json = dict()
 metrics_path = f"../metrics"
@@ -99,7 +101,10 @@ model_names = [
     # "rocstory--encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=32-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.0-cond_launch-v1.0_100000_"
     #"wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-ting-pretrain-t5-bert_encoder-wmask_200000_"
     # "wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain_200000_"
-
+    #"wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain_200000_",
+    #"wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain_500000_",
+    "wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-t5-bert-womask_1000000_",
+    #"wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-t5-roberta-womask_500000_"
     ]
 
 for model_name in model_names:

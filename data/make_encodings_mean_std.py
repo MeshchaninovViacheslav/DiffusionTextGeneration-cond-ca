@@ -41,7 +41,7 @@ def compute_mean_std(
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 output = encoder(**X)
 
-            mask = make_mask_wo_SEP_CLS(X["attention_mask"])
+            mask = torch.ones_like(X["attention_mask"]) #make_mask_wo_SEP_CLS(X["attention_mask"])
             output = output * mask[:, :, None]
             cur_sum = torch.sum(output, dim=[0, 1])
             cur_sqr_sum = torch.sum(output ** 2, dim=[0, 1])

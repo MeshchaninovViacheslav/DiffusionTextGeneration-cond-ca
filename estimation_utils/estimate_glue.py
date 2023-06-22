@@ -11,12 +11,12 @@ def estimate_sst2(diffusion):
 
     for X in diffusion.valid_loader:
         X = dict_to_cuda(X)
-        cond_X = diffusion.sampler_emb({"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
+        cond_X = diffusion.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
         pred_embeddings = diffusion.pred_embeddings(cond_X.shape[0], cond_X=cond_X, cond_mask=X["cond_mask"])
         output = diffusion.pred_logits(pred_embeddings)
 
-        positive_ind = 2748#3893
-        negative_ind = 2053#4997
+        positive_ind = 2748 #2748#3893
+        negative_ind = 2053 #2053#4997
 
         positive_proba = output[:, 1, positive_ind]
         negative_proba = output[:, 1, negative_ind]

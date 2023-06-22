@@ -49,7 +49,7 @@ def create_config():
     training.training_iters = training.training_iters
     training.checkpoint_freq = 100_000
     training.eval_freq = 100_000
-    training.batch_size = 512 #* 8
+    training.batch_size = 512  # * 8
 
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
@@ -82,13 +82,14 @@ def create_config():
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
     model.enc_type = "base"
-    model.embeddings_type = "encodings"
+    model.embeddings_type = "embeddings"
     model.dif_enc_type = "base"
     model.downstream_task = "sst2"  # "qqp"
     model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-electra-wikipedia-128.pth" #"decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
+    model.decoder_path = "decoder-bert-embs-wikipedia-128.pth"
+    # "decoder-electra-wikipedia-128.pth" #"decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 96
@@ -100,6 +101,8 @@ def create_config():
     data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
     data.enc_electra_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-electra-wiki-mean.pt"
     data.enc_electra_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-electra-wiki-std.pt"
+    data.emb_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/embedding-bert-wiki-mean.pt"
+    data.emb_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/embedding-bert-wiki-mean.pt"
 
     config.finetuning = False
     config.lin_input = True
@@ -114,13 +117,11 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "t5-electra-womask"
+    suffix = "embs-t5-bert-womask"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"prediction={config.model.prediction}-" \
                                 f"loss={config.model.loss}-" \
-                                f"enc={config.model.enc_type}-" \
-                                f"kl_cf={config.loss.ce_coef}-" \
                                 f"seq_len={config.data.max_sequence_len}-" \
                                 f"clipgrad={config.optim.grad_clip_norm}-" \
                                 f"lr={config.optim.lr}-" \

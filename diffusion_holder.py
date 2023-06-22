@@ -207,7 +207,7 @@ class DiffusionRunner:
                 project=self.config.project_name,
                 name=self.config.checkpoints_prefix,
                 config=dict(self.config),
-                mode="offline"
+                mode="online"
             )
 
     def restore_parameters(self, device: Optional[torch.device] = None) -> None:
@@ -437,7 +437,7 @@ class DiffusionRunner:
             X=None,
             eps: float = 1e-5,
     ) -> Dict[str, torch.Tensor]:
-        mask = None  # X["input_mask"]
+        mask = None #X["input_mask"]
 
         # Noizing
         batch_size = clean_x.size(0)
@@ -544,10 +544,7 @@ class DiffusionRunner:
         if self.config.refresh.true:
             self.refresh_finetune_checkpoint()
 
-            if self.config.finetuning:
-                self.estimate_finetuning()
-            else:
-                self.estimate()
+            self.estimate_finetuning()
             self.validate()
 
         self.train_range = trange(self.step + 1, self.config.training.training_iters + 1)
@@ -707,6 +704,8 @@ class DiffusionRunner:
         self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
         self.ema.load_state_dict(load["ema"])
         self.ema.cuda()
+        self.ema.decay = self.config.model.ema_rate
+
         self.switch_to_ema()
         print(f"Checkpoint refreshed {self.config.refresh.prefix}")
 
@@ -1163,8 +1162,8 @@ class DiffusionRunner:
 
     @torch.no_grad()
     def estimate_finetuning(self):
-        self.score_estimator.eval()
         self.switch_to_ema()
+        self.score_estimator.eval()
 
         num_right, num = estimate_sst2(self)
         dict_ = {"num_right": num_right, "num": num}

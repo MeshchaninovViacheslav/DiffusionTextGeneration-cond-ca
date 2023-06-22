@@ -64,8 +64,9 @@ class WikipediaDataset:
 
 
 class SST2Dataset:
-    def __init__(self, split, tokenizer_cond, tokenizer_gen, max_sequence_len):
+    def __init__(self, split, tokenizer_bert, tokenizer_cond, tokenizer_gen, max_sequence_len):
         self.split = split
+        self.tokenizer_bert = tokenizer_bert
         self.tokenizer_cond = tokenizer_cond
         self.tokenizer_gen = tokenizer_gen
         self.max_sequence_len = max_sequence_len

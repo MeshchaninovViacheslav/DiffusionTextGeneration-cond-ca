@@ -60,7 +60,7 @@ def create_config():
 
     refresh = config.refresh = ml_collections.ConfigDict()
     refresh.true = False
-    refresh.prefix = "./checkpoints/wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-t5-bert-womask_800000_.pth"
+    refresh.prefix = "./checkpoints/wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=5-t5-roberta-womask_100000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -76,7 +76,7 @@ def create_config():
     sde.beta_min = 0.1
     sde.beta_max = 20
     sde.ode_sampling = False
-    sde.coef_d = 5
+    sde.coef_d = 10
     sde.scheduler = schedulers.CosineSD(d=sde.coef_d)
 
     model = config.model = ml_collections.ConfigDict()
@@ -88,7 +88,7 @@ def create_config():
     model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
+    model.decoder_path = "decoder-electra-wikipedia-128.pth" #"decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 96
@@ -98,6 +98,8 @@ def create_config():
     data.enc_roberta_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-std.pt"
     data.enc_t5_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-mean.pth"
     data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
+    data.enc_electra_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-electra-wiki-mean.pt"
+    data.enc_electra_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-electra-wiki-std.pt"
 
     config.finetuning = False
     config.lin_input = True
@@ -112,7 +114,7 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "t5-roberta-womask"
+    suffix = "t5-electra-womask"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"prediction={config.model.prediction}-" \

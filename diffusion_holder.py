@@ -7,7 +7,7 @@ from ml_collections import ConfigDict
 from typing import Optional, Union, Dict
 from tqdm.auto import trange
 from torch.utils.data import DataLoader
-from transformers import BertTokenizerFast, T5TokenizerFast, RobertaTokenizerFast
+from transformers import BertTokenizerFast, T5TokenizerFast, RobertaTokenizerFast, ElectraTokenizerFast
 from tqdm import tqdm
 from torch.nn.functional import cross_entropy
 from copy import deepcopy
@@ -26,6 +26,7 @@ from model.score_estimator_cond import ScoreEstimatorEMB
 from model.t5_encoder import T5EncoderModel
 from model.bert_encoder import BertEncoderModel
 from model.roberta_encoder import RobertaEncoderModel
+from model.electra_encoder import ElectraEncoderModel
 from model.enc_normalizer import EncNormalizer
 from model.decoder import Decoder
 
@@ -91,6 +92,16 @@ class DiffusionRunner:
 
         # Encoder for generation
 
+        electra_cfg = "google/electra-base-discriminator"
+        self.tokenizer_gen = ElectraTokenizerFast.from_pretrained(electra_cfg)
+        self.gen_enc_normalizer = EncNormalizer(
+            enc_mean_path=self.config.data.enc_electra_mean,
+            enc_std_path=self.config.data.enc_electra_std,
+        )
+        self.encoder_gen = ElectraEncoderModel.from_pretrained(
+            electra_cfg, enc_normalizer=self.gen_enc_normalizer
+        ).eval().cuda()
+
         # roberta_cfg = "roberta-base"
         # self.tokenizer_gen = RobertaTokenizerFast.from_pretrained(roberta_cfg)
         # self.gen_enc_normalizer = EncNormalizer(
@@ -101,24 +112,24 @@ class DiffusionRunner:
         #     roberta_cfg, enc_normalizer=self.gen_enc_normalizer
         # ).eval().cuda()
 
-        bert_cfg = "bert-base-uncased"
-        self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
-        self.gen_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.enc_bert_mean,
-            enc_std_path=self.config.data.enc_bert_std,
-        )
-        self.encoder_gen = BertEncoderModel.from_pretrained(
-            bert_cfg, enc_normalizer=self.gen_enc_normalizer
-        ).eval().cuda()
+        # bert_cfg = "bert-base-uncased"
+        # self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
+        # self.gen_enc_normalizer = EncNormalizer(
+        #     enc_mean_path=self.config.data.enc_bert_mean,
+        #     enc_std_path=self.config.data.enc_bert_std,
+        # )
+        # self.encoder_gen = BertEncoderModel.from_pretrained(
+        #     bert_cfg, enc_normalizer=self.gen_enc_normalizer
+        # ).eval().cuda()
         #
         bert_cfg = "bert-base-uncased"
         self.tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
 
-        # self.decoder = Decoder(
-        #     hidden_size=self.encoder_gen.config.hidden_size,
-        #     vocab_size=self.encoder_gen.config.vocab_size
-        # )
-        self.decoder = self.encoder_gen.cls.cpu()
+        self.decoder = Decoder(
+            hidden_size=self.encoder_gen.config.hidden_size,
+            vocab_size=self.encoder_gen.config.vocab_size
+        )
+        # self.decoder = self.encoder_gen.cls.cpu()
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 

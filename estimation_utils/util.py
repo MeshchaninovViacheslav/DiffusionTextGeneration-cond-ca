@@ -130,7 +130,7 @@ def estimate_model(diffusion, num_texts, batch_size, metric_bloom_fn, metric_rob
         metric_bloom = np.nan
 
     if metric_roberta_fn:
-        metric_roberta = metric_roberta_fn(texts=gen_texts)
+        metric_roberta = metric_roberta_fn(texts=gen_texts)[0]
     else:
         metric_roberta = np.nan
     return {"Bloom metric": metric_bloom,

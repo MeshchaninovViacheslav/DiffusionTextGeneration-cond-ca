@@ -115,4 +115,4 @@ class RobertaMetric:
         output = self.model(**inputs)
         probs = torch.softmax(output.logits, -1)[:, 1]
         naturalness = torch.mean(probs)
-        return naturalness.item()
+        return naturalness.item(), probs

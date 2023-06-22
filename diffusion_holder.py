@@ -27,8 +27,10 @@ from model.t5_encoder import T5EncoderModel
 from model.bert_encoder import BertEncoderModel
 from model.roberta_encoder import RobertaEncoderModel
 from model.electra_encoder import ElectraEncoderModel
+from model.emb_encoder import EmbEncoderModel
 from model.enc_normalizer import EncNormalizer
 from model.decoder import Decoder
+
 
 from estimation_utils.util import estimate_model, gather_texts, reduce_metrics, reduce_sum_metrics
 from estimation_utils.metrics import BloomMetric
@@ -92,15 +94,15 @@ class DiffusionRunner:
 
         # Encoder for generation
 
-        electra_cfg = "google/electra-base-discriminator"
-        self.tokenizer_gen = ElectraTokenizerFast.from_pretrained(electra_cfg)
-        self.gen_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.enc_electra_mean,
-            enc_std_path=self.config.data.enc_electra_std,
-        )
-        self.encoder_gen = ElectraEncoderModel.from_pretrained(
-            electra_cfg, enc_normalizer=self.gen_enc_normalizer
-        ).eval().cuda()
+        # electra_cfg = "google/electra-base-discriminator"
+        # self.tokenizer_gen = ElectraTokenizerFast.from_pretrained(electra_cfg)
+        # self.gen_enc_normalizer = EncNormalizer(
+        #     enc_mean_path=self.config.data.enc_electra_mean,
+        #     enc_std_path=self.config.data.enc_electra_std,
+        # )
+        # self.encoder_gen = ElectraEncoderModel.from_pretrained(
+        #     electra_cfg, enc_normalizer=self.gen_enc_normalizer
+        # ).eval().cuda()
 
         # roberta_cfg = "roberta-base"
         # self.tokenizer_gen = RobertaTokenizerFast.from_pretrained(roberta_cfg)
@@ -121,6 +123,17 @@ class DiffusionRunner:
         # self.encoder_gen = BertEncoderModel.from_pretrained(
         #     bert_cfg, enc_normalizer=self.gen_enc_normalizer
         # ).eval().cuda()
+
+        bert_cfg = "bert-base-uncased"
+        self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
+        self.gen_enc_normalizer = EncNormalizer(
+            enc_mean_path=self.config.data.emb_bert_mean,
+            enc_std_path=self.config.data.emb_bert_std,
+        )
+        self.encoder_gen = EmbEncoderModel.from_pretrained(
+            bert_cfg, enc_normalizer=self.gen_enc_normalizer
+        ).eval().cuda()
+
         #
         bert_cfg = "bert-base-uncased"
         self.tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)

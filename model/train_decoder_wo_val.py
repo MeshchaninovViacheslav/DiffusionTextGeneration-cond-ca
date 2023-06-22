@@ -16,6 +16,7 @@ from utils.util import dict_to_cuda
 from model.t5_encoder import T5EncoderModel
 from model.roberta_encoder import RobertaEncoderModel
 from model.electra_encoder import ElectraEncoderModel
+from model.emb_encoder import EmbEncoderModel
 
 from model.decoder import Decoder
 
@@ -125,7 +126,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
                 step += 1
 
     checkpoints_folder = './checkpoints/'
-    name = os.path.join(checkpoints_folder, "decoder-electra-wikipedia-128.pth")
+    name = os.path.join(checkpoints_folder, "decoder-bert-embs-wikipedia-128.pth")
     decoder.eval()
     torch.save(
         {
@@ -140,16 +141,15 @@ def main():
     bert_cfg = "bert-base-uncased"
     tokenizer = BertTokenizerFast.from_pretrained(bert_cfg)
 
-    cfg = "google/electra-base-discriminator"
-    #cfg = "roberta-base"
-    tokenizer_gen = ElectraTokenizerFast.from_pretrained(cfg)
-    encoder = ElectraEncoderModel.from_pretrained(
+    cfg = "bert-base-uncased"
+    tokenizer_gen = BertTokenizerFast.from_pretrained(cfg)
+    encoder = EmbEncoderModel.from_pretrained(
         cfg, enc_normalizer=None
     ).eval().cuda()
 
     decoder = Decoder(hidden_size=encoder.config.hidden_size, vocab_size=encoder.config.vocab_size).train().cuda()
 
-    wandb.init(project="decoders", name="decoder_training_electra", mode="online")
+    wandb.init(project="decoders", name="decoder_training_bert_embs", mode="online")
     train(encoder, decoder, tokenizer, tokenizer_gen)
 
 

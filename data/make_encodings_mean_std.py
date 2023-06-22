@@ -11,6 +11,7 @@ from utils.util import dict_to_cuda, make_mask_wo_SEP_CLS
 from data.create_dataset import create_rocstory_dataset, create_wiki_dataset
 from model.roberta_encoder import RobertaEncoderModel
 from model.electra_encoder import ElectraEncoderModel
+from model.emb_encoder import EmbEncoderModel
 
 def compute_mean_std(
         train_loader,
@@ -58,16 +59,16 @@ def compute_mean_std(
     mean = sum_ / num
     std = torch.sqrt(sqr_sum_ / num - mean ** 2)
 
-    torch.save(mean, f'./data/encodings-{model_name}-{dataset_name}-mean.pt')
-    torch.save(std, f'./data/encodings-{model_name}-{dataset_name}-std.pt')
+    torch.save(mean, f'./data/embedding-{model_name}-{dataset_name}-mean.pt')
+    torch.save(std, f'./data/embeddings-{model_name}-{dataset_name}-std.pt')
 
 if __name__ == "__main__":
     bert_cfg = "bert-base-uncased"
     tokenizer = BertTokenizerFast.from_pretrained(bert_cfg)
 
-    cfg = "google/electra-base-discriminator"
-    tokenizer_gen = ElectraTokenizerFast.from_pretrained(cfg)
-    encoder = ElectraEncoderModel.from_pretrained(
+    cfg = "bert-base-uncased"
+    tokenizer_gen = BertTokenizerFast.from_pretrained(cfg)
+    encoder = EmbEncoderModel.from_pretrained(
         cfg, enc_normalizer=None
     ).eval().cuda()
 
@@ -86,7 +87,7 @@ if __name__ == "__main__":
         encoder,
         tokenizer, tokenizer_gen,
         max_sequence_len,
-        model_name="electra",
+        model_name="bert",
         dataset_name="wiki"
     )
 

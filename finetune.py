@@ -11,8 +11,8 @@ from transformers import BertConfig
 
 datasets.config.IN_MEMORY_MAX_SIZE = psutil.virtual_memory().available
 
-from diffusion_holder import DiffusionRunner
-from utils.util import set_seed, _BERT_SMALL, _BERT_BASE_FOR_LARGE_ENC
+from downstream_tasks.diffusion_holder_ft import DiffusionRunner
+from utils.util import set_seed, _BERT_SMALL
 from diffusion_utils import schedulers
 
 disable_progress_bar()

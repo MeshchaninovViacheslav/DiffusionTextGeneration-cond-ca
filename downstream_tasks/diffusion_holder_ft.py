@@ -15,6 +15,7 @@ from timm.scheduler.cosine_lr import CosineLRScheduler
 from collections import defaultdict
 from torch.cuda.amp import GradScaler
 import json
+import itertools
 
 from diffusion_utils.diffusion_dynamic_sde import create_sde, create_solver
 from utils.ema_model import ExponentialMovingAverage
@@ -30,7 +31,6 @@ from model.electra_encoder import ElectraEncoderModel
 from model.emb_encoder import EmbEncoderModel
 from model.enc_normalizer import EncNormalizer
 from model.decoder import Decoder
-
 
 from estimation_utils.util import estimate_model, gather_texts, reduce_metrics, reduce_sum_metrics
 from estimation_utils.metrics import BloomMetric
@@ -78,16 +78,18 @@ class DiffusionRunner:
             enc_mean_path=self.config.data.enc_t5_mean,
             enc_std_path=self.config.data.enc_t5_std,
         )
+        self.t5_enc_normalizer.requires_grad_(requires_grad=True)
+        print(self.t5_enc_normalizer.enc_mean.requires_grad)
         self.encoder_cond = T5EncoderModel.from_pretrained(
             t5_cfg, enc_normalizer=self.t5_enc_normalizer
         ).cuda()
 
-        # if self.config.ddp:
-        #     self.ddp_encoder_cond = torch.nn.parallel.DistributedDataParallel(
-        #         self.encoder_cond,
-        #         device_ids=[config.local_rank],
-        #         broadcast_buffers=False,
-        #     )
+        if self.config.ddp:
+            self.ddp_encoder_cond = torch.nn.parallel.DistributedDataParallel(
+                self.encoder_cond,
+                device_ids=[config.local_rank],
+                broadcast_buffers=False,
+            )
 
         # bert_cfg = "bert-base-uncased"
         # self.tokenizer_cond = BertTokenizerFast.from_pretrained(bert_cfg)
@@ -101,15 +103,15 @@ class DiffusionRunner:
 
         # Encoder for generation
 
-        # electra_cfg = "google/electra-base-discriminator"
-        # self.tokenizer_gen = ElectraTokenizerFast.from_pretrained(electra_cfg)
-        # self.gen_enc_normalizer = EncNormalizer(
-        #     enc_mean_path=self.config.data.enc_electra_mean,
-        #     enc_std_path=self.config.data.enc_electra_std,
-        # )
-        # self.encoder_gen = ElectraEncoderModel.from_pretrained(
-        #     electra_cfg, enc_normalizer=self.gen_enc_normalizer
-        # ).eval().cuda()
+        electra_cfg = "google/electra-base-discriminator"
+        self.tokenizer_gen = ElectraTokenizerFast.from_pretrained(electra_cfg)
+        self.gen_enc_normalizer = EncNormalizer(
+            enc_mean_path=self.config.data.enc_electra_mean,
+            enc_std_path=self.config.data.enc_electra_std,
+        )
+        self.encoder_gen = ElectraEncoderModel.from_pretrained(
+            electra_cfg, enc_normalizer=self.gen_enc_normalizer
+        ).eval().cuda()
 
         # roberta_cfg = "roberta-base"
         # self.tokenizer_gen = RobertaTokenizerFast.from_pretrained(roberta_cfg)
@@ -121,15 +123,15 @@ class DiffusionRunner:
         #     roberta_cfg, enc_normalizer=self.gen_enc_normalizer
         # ).eval().cuda()
 
-        bert_cfg = "bert-base-uncased"
-        self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
-        self.gen_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.enc_bert_mean,
-            enc_std_path=self.config.data.enc_bert_std,
-        )
-        self.encoder_gen = BertEncoderModel.from_pretrained(
-            bert_cfg, enc_normalizer=self.gen_enc_normalizer
-        ).eval().cuda()
+        # bert_cfg = "bert-base-uncased"
+        # self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
+        # self.gen_enc_normalizer = EncNormalizer(
+        #     enc_mean_path=self.config.data.enc_bert_mean,
+        #     enc_std_path=self.config.data.enc_bert_std,
+        # )
+        # self.encoder_gen = BertEncoderModel.from_pretrained(
+        #     bert_cfg, enc_normalizer=self.gen_enc_normalizer
+        # ).eval().cuda()
 
         # bert_cfg = "bert-base-uncased"
         # self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
@@ -145,11 +147,11 @@ class DiffusionRunner:
         bert_cfg = "bert-base-uncased"
         self.tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
 
-        # self.decoder = Decoder(
-        #     hidden_size=self.encoder_gen.config.hidden_size,
-        #     vocab_size=self.encoder_gen.config.vocab_size
-        # )
-        self.decoder = self.encoder_gen.cls.cpu()
+        self.decoder = Decoder(
+            hidden_size=self.encoder_gen.config.hidden_size,
+            vocab_size=self.encoder_gen.config.vocab_size
+        )
+        # self.decoder = self.encoder_gen.cls.cpu()
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 
@@ -246,7 +248,7 @@ class DiffusionRunner:
     def set_optimizer(self) -> None:
         if self.optimizer is None:
             optimizer = torch.optim.AdamW(
-                self.score_estimator.parameters(),
+                list(self.score_estimator.parameters()) + list(self.encoder_cond.parameters()),
                 lr=self.config.optim.lr,
                 weight_decay=self.config.optim.weight_decay,
                 betas=(self.config.optim.beta_1, self.config.optim.beta_2),
@@ -444,7 +446,7 @@ class DiffusionRunner:
             X=None,
             eps: float = 1e-5,
     ) -> Dict[str, torch.Tensor]:
-        mask = None #X["input_mask"]
+        mask = None  # X["input_mask"]
 
         # Noizing
         batch_size = clean_x.size(0)
@@ -528,6 +530,7 @@ class DiffusionRunner:
 
         while True:
             self.set_train_data_generator()
+            self.ddp_encoder_cond.train()
             self.ddp_score_estimator.train()
             self.train_epoch()
 
@@ -559,6 +562,7 @@ class DiffusionRunner:
 
         while True:
             self.set_train_data_generator()
+            self.ddp_encoder_cond.train()
             self.ddp_score_estimator.train()
             self.train_epoch()
 
@@ -581,7 +585,8 @@ class DiffusionRunner:
             if self.step % self.config.training.checkpoint_freq == 0:
                 self.save_checkpoint()
 
-            if self.step % self.config.training.eval_freq == 0:
+            if self.step >= self.config.training.val_iter_start and \
+                    self.step % self.config.training.eval_freq == 0:
                 if self.config.finetuning:
                     self.estimate_finetuning()
                 else:
@@ -608,7 +613,8 @@ class DiffusionRunner:
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             with torch.no_grad():
                 clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
-                cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
+
+            cond = self.ddp_encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
             loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
 
         stat_dict["grad_norm"], stat_dict["clipped_grad_norm"] = self.optimizer_step(loss_dict['total_loss'])
@@ -629,6 +635,7 @@ class DiffusionRunner:
     def validate(self) -> None:
         prev_mode = self.ddp_score_estimator.training
 
+        self.ddp_encoder_cond.eval()
         self.ddp_score_estimator.eval()
         self.switch_to_ema()
 
@@ -661,6 +668,7 @@ class DiffusionRunner:
 
         self.switch_back_from_ema()
         self.ddp_score_estimator.train(prev_mode)
+        self.ddp_encoder_cond.train()
 
     def save_checkpoint(self, last: bool = False) -> None:
         if dist.get_rank() == 0:
@@ -1169,8 +1177,11 @@ class DiffusionRunner:
 
     @torch.no_grad()
     def estimate_finetuning(self):
+        from diffusion_utils import schedulers
+
         self.switch_to_ema()
         self.score_estimator.eval()
+        self.encoder_cond.eval()
 
         num_right, num = estimate_sst2(self)
         dict_ = {"num_right": num_right, "num": num}
@@ -1182,5 +1193,6 @@ class DiffusionRunner:
             self.log_metric(metric_name=f"accuracy {self.config.model.downstream_task}", loader_name="", value=accuracy)
 
         self.score_estimator.train()
+        self.ddp_encoder_cond.train()
         self.switch_back_from_ema()
         return accuracy

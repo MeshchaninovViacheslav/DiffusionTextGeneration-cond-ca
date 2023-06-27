@@ -1,3 +1,4 @@
+import json
 import torch
 from utils.util import dict_to_cuda
 
@@ -15,8 +16,16 @@ def estimate_sst2(diffusion):
         pred_embeddings = diffusion.pred_embeddings(cond_X.shape[0], cond_X=cond_X, cond_mask=X["cond_mask"])
         output = diffusion.pred_logits(pred_embeddings)
 
-        positive_ind = 2748 #2748#3893
-        negative_ind = 2053 #2053#4997
+        benchmark_name = diffusion.config.model.downstream_task
+        config = json.load(open("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/config.json", "rb"))
+
+        labels = config["data"][benchmark_name]["label_classes"]
+        #print(diffusion.tokenizer_gen.encode(labels[0]))
+        negative_ind = diffusion.tokenizer_gen.encode(labels[0], add_special_tokens=False)[0]
+        positive_ind = diffusion.tokenizer_gen.encode(labels[1], add_special_tokens=False)[0]
+
+        # positive_ind = 3893 #2748#3893
+        # negative_ind = 4997 #2053#4997
 
         positive_proba = output[:, 1, positive_ind]
         negative_proba = output[:, 1, negative_ind]

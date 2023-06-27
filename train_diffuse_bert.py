@@ -84,15 +84,17 @@ def create_config():
     model.enc_type = "base"
     model.embeddings_type = "embeddings"
     model.dif_enc_type = "base"
-    model.downstream_task = "sst2"  # "qqp"
+    model.downstream_task = ""  # "qqp"
     model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-bert-embs-wikipedia-128.pth"
+    model.decoder_path = "decoder-wikipedia-128.pth"
     # "decoder-electra-wikipedia-128.pth" #"decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 96
+    data.pos_begin = 0.0
+    data.pos_end = 0.67
     data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-mean.pt"
     data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-std.pt"
     data.enc_roberta_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-mean.pt"
@@ -101,8 +103,8 @@ def create_config():
     data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
     data.enc_electra_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-electra-wiki-mean.pt"
     data.enc_electra_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-electra-wiki-std.pt"
-    data.emb_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/embedding-bert-wiki-mean.pt"
-    data.emb_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/embedding-bert-wiki-mean.pt"
+    data.emb_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/embeddings-bert-wiki-mean.pt"
+    data.emb_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/embeddings-bert-wiki-std.pt"
 
     config.finetuning = False
     config.lin_input = True
@@ -117,12 +119,13 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "embs-t5-bert-womask"
+    suffix = "bert-bert-womask"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"prediction={config.model.prediction}-" \
                                 f"loss={config.model.loss}-" \
                                 f"seq_len={config.data.max_sequence_len}-" \
+                                f"cond_seg=[{config.data.pos_begin:0.2f}, {config.data.pos_end:0.2f}]-" \
                                 f"clipgrad={config.optim.grad_clip_norm}-" \
                                 f"lr={config.optim.lr}-" \
                                 f"min_lr={config.optim.min_lr}-" \

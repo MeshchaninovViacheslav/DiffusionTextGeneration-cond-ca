@@ -4,6 +4,7 @@ from torch.utils.data import DataLoader
 from transformers import BertTokenizerFast, T5TokenizerFast, RobertaTokenizerFast, ElectraTokenizerFast
 
 import sys
+
 sys.path.insert(0, "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca")
 
 from utils.util import dict_to_cuda, make_mask_wo_SEP_CLS
@@ -12,6 +13,7 @@ from data.create_dataset import create_rocstory_dataset, create_wiki_dataset
 from model.roberta_encoder import RobertaEncoderModel
 from model.electra_encoder import ElectraEncoderModel
 from model.emb_encoder import EmbEncoderModel
+
 
 def compute_mean_std(
         train_loader,
@@ -41,26 +43,29 @@ def compute_mean_std(
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 output = encoder(**X)
 
-            mask = torch.ones_like(X["attention_mask"]) #make_mask_wo_SEP_CLS(X["attention_mask"])
+            mask = make_mask_wo_SEP_CLS(X["attention_mask"]) #torch.ones_like(X["attention_mask"])  # make_mask_wo_SEP_CLS(X["attention_mask"])
             output = output * mask[:, :, None]
             cur_sum = torch.sum(output, dim=[0, 1])
             cur_sqr_sum = torch.sum(output ** 2, dim=[0, 1])
+            cur_num = torch.sum(mask).item()
 
             sum_ = cur_sum if sum_ is None else cur_sum + sum_
             sqr_sum_ = cur_sqr_sum if sqr_sum_ is None else cur_sqr_sum + sqr_sum_
-            num += torch.sum(mask).item()
+            num += cur_num
 
-            mean = sum_[:3] / num
-            std2 = sqr_sum_[:3] / num - mean ** 2
-            T.set_description(f"mean: {mean.detach().cpu().tolist()}, std2: {std2.detach().cpu().tolist()}")
+            mean_dif = (sum_ / num - cur_sum / cur_num)
+            sqr_dif = (sqr_sum_ / num - cur_sqr_sum / cur_num)
+            T.set_description(
+                f"dif mean: {torch.sum(torch.abs(mean_dif)).item()}, dif std2: {torch.sum(torch.abs(sqr_dif)).item()}")
         if i == 1000:
             break
 
     mean = sum_ / num
     std = torch.sqrt(sqr_sum_ / num - mean ** 2)
 
-    torch.save(mean, f'./data/embedding-{model_name}-{dataset_name}-mean.pt')
+    torch.save(mean, f'./data/embeddings-{model_name}-{dataset_name}-mean.pt')
     torch.save(std, f'./data/embeddings-{model_name}-{dataset_name}-std.pt')
+
 
 if __name__ == "__main__":
     bert_cfg = "bert-base-uncased"
@@ -90,4 +95,3 @@ if __name__ == "__main__":
         model_name="bert",
         dataset_name="wiki"
     )
-

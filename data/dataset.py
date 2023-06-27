@@ -8,11 +8,14 @@ disable_progress_bar()
 set_verbosity_error()
 
 from data.preprocessing import glue_tokenize, glue_text_preprocessor, conditional_preprocessing_wiki
+from data.dataset_clean_wiki import WikipediaCleanDataset
 
 
 def create_dataset(dataset_name, downstream_task=None):
     if dataset_name == "wikipedia":
         return WikipediaDataset
+    if dataset_name == "wikipedia-clean":
+        return WikipediaCleanDataset
     if dataset_name == "glue":
         if downstream_task == "sst2":
             return SST2Dataset

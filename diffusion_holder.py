@@ -72,25 +72,25 @@ class DiffusionRunner:
 
         # Encoder for condition
 
-        t5_cfg = "t5-base"
-        self.tokenizer_cond = T5TokenizerFast.from_pretrained(t5_cfg)
-        self.t5_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.enc_t5_mean,
-            enc_std_path=self.config.data.enc_t5_std,
-        )
-        self.encoder_cond = T5EncoderModel.from_pretrained(
-            t5_cfg, enc_normalizer=self.t5_enc_normalizer
-        ).eval().cuda()
-
-        # bert_cfg = "bert-base-uncased"
-        # self.tokenizer_cond = BertTokenizerFast.from_pretrained(bert_cfg)
-        # self.bert_enc_normalizer = EncNormalizer(
-        #     enc_mean_path=self.config.data.enc_bert_mean,
-        #     enc_std_path=self.config.data.enc_bert_std,
+        # t5_cfg = "t5-base"
+        # self.tokenizer_cond = T5TokenizerFast.from_pretrained(t5_cfg)
+        # self.t5_enc_normalizer = EncNormalizer(
+        #     enc_mean_path=self.config.data.enc_t5_mean,
+        #     enc_std_path=self.config.data.enc_t5_std,
         # )
-        # self.encoder_cond = BertEncoderModel.from_pretrained(
-        #     bert_cfg, enc_normalizer=self.bert_enc_normalizer
+        # self.encoder_cond = T5EncoderModel.from_pretrained(
+        #     t5_cfg, enc_normalizer=self.t5_enc_normalizer
         # ).eval().cuda()
+
+        bert_cfg = "bert-base-uncased"
+        self.tokenizer_cond = BertTokenizerFast.from_pretrained(bert_cfg)
+        self.bert_enc_normalizer = EncNormalizer(
+            enc_mean_path=self.config.data.enc_bert_mean,
+            enc_std_path=self.config.data.enc_bert_std,
+        )
+        self.encoder_cond = BertEncoderModel.from_pretrained(
+            bert_cfg, enc_normalizer=self.bert_enc_normalizer
+        ).eval().cuda()
 
         # Encoder for generation
 
@@ -114,35 +114,35 @@ class DiffusionRunner:
         #     roberta_cfg, enc_normalizer=self.gen_enc_normalizer
         # ).eval().cuda()
 
-        # bert_cfg = "bert-base-uncased"
-        # self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
-        # self.gen_enc_normalizer = EncNormalizer(
-        #     enc_mean_path=self.config.data.enc_bert_mean,
-        #     enc_std_path=self.config.data.enc_bert_std,
-        # )
-        # self.encoder_gen = BertEncoderModel.from_pretrained(
-        #     bert_cfg, enc_normalizer=self.gen_enc_normalizer
-        # ).eval().cuda()
-
         bert_cfg = "bert-base-uncased"
         self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
         self.gen_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.emb_bert_mean,
-            enc_std_path=self.config.data.emb_bert_std,
+            enc_mean_path=self.config.data.enc_bert_mean,
+            enc_std_path=self.config.data.enc_bert_std,
         )
-        self.encoder_gen = EmbEncoderModel.from_pretrained(
+        self.encoder_gen = BertEncoderModel.from_pretrained(
             bert_cfg, enc_normalizer=self.gen_enc_normalizer
         ).eval().cuda()
+
+        # bert_cfg = "bert-base-uncased"
+        # self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
+        # self.gen_enc_normalizer = EncNormalizer(
+        #     enc_mean_path=self.config.data.emb_bert_mean,
+        #     enc_std_path=self.config.data.emb_bert_std,
+        # )
+        # self.encoder_gen = EmbEncoderModel.from_pretrained(
+        #     bert_cfg, enc_normalizer=self.gen_enc_normalizer
+        # ).eval().cuda()
 
         #
         bert_cfg = "bert-base-uncased"
         self.tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
 
-        self.decoder = Decoder(
-            hidden_size=self.encoder_gen.config.hidden_size,
-            vocab_size=self.encoder_gen.config.vocab_size
-        )
-        # self.decoder = self.encoder_gen.cls.cpu()
+        # self.decoder = Decoder(
+        #     hidden_size=self.encoder_gen.config.hidden_size,
+        #     vocab_size=self.encoder_gen.config.vocab_size
+        # )
+        self.decoder = self.encoder_gen.cls.cpu()
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 
@@ -187,6 +187,8 @@ class DiffusionRunner:
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,
             max_sequence_len=self.config.data.max_sequence_len,
+            pos_begin=self.config.data.pos_begin,
+            pos_end=self.config.data.pos_end,
         ).get_data()
         self.train_dataset = None
 
@@ -199,6 +201,8 @@ class DiffusionRunner:
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,
             max_sequence_len=self.config.data.max_sequence_len,
+            pos_begin=self.config.data.pos_begin,
+            pos_end=self.config.data.pos_end,
         ).get_data()
         self.valid_dataset = next(self.valid_datasets_iter)
 
@@ -290,7 +294,7 @@ class DiffusionRunner:
             self.train_dataset,
             sampler=sampler_train,
             batch_size=self.config.training.batch_size_per_gpu,
-            num_workers=40,
+            num_workers=50,
             pin_memory=False,
         )
 

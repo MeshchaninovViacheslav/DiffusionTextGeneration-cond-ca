@@ -5,7 +5,7 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from transformers import BertTokenizerFast
 import itertools
-
+from datasets import Dataset
 import sys
 
 sys.path.insert(0, "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca")
@@ -68,7 +68,7 @@ def filter_dataset(
     }).to_csv(f"wikipedia-scored-{num_chunk:02d}.csv")
 
 
-if __name__ == "__main__":
+def initialize():
     bert_cfg = "bert-base-uncased"
     tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
 
@@ -82,9 +82,45 @@ if __name__ == "__main__":
         num_workers=30,
         pin_memory=True,
     )
+    return tokenizer_bert, metric_roberta_fn, train_loader
 
+
+def score_wiki():
+    tokenizer_bert, metric_roberta_fn, train_loader = initialize()
     filter_dataset(
         train_loader,
         tokenizer_bert,
         metric_roberta_fn
     )
+
+
+def make_hf_clean_wiki():
+    dt_pd = None
+    for ind in range(8):
+        filename = f"./wikipedia-dataset-clean/wikipedia-scored-{ind:02d}.csv"
+        dt = pd.read_csv(filename, index_col=0)
+        if dt_pd is None:
+            dt_pd = dt
+        else:
+            dt_pd = pd.concat([dt_pd, dt], ignore_index=True)
+
+    print("Csv data have been read")
+
+    threshold_clean = 0.5
+    dataset = Dataset.from_pandas(dt_pd)
+    dataset = dataset.filter(lambda x: x["score"] > threshold_clean, num_proc=24)
+    dt_dict = dataset.train_test_split(test_size=0.001, seed=0)
+
+    path_dir = "/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128-clean_text"
+    dt_dict["train"].save_to_disk(f"{path_dir}/train",
+                             max_shard_size="10GB",
+                             num_proc=8)
+
+    dt_dict["test"].save_to_disk(f"{path_dir}/test")
+
+
+
+
+
+if __name__ == "__main__":
+    make_hf_clean_wiki()

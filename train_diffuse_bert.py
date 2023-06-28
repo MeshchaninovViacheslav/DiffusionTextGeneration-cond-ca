@@ -85,7 +85,7 @@ def create_config():
     model.embeddings_type = "embeddings"
     model.dif_enc_type = "base"
     model.downstream_task = ""  # "qqp"
-    model.dataset = "wikipedia"  # "glue"
+    model.dataset = "wikipedia-clean"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
     model.decoder_path = "decoder-wikipedia-128.pth"

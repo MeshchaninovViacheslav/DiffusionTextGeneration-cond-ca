@@ -96,7 +96,7 @@ def score_wiki():
 
 def make_hf_clean_wiki():
     dt_pd = None
-    for ind in range(8):
+    for ind in tqdm(range(8)):
         filename = f"./wikipedia-dataset-clean/wikipedia-scored-{ind:02d}.csv"
         dt = pd.read_csv(filename, index_col=0)
         if dt_pd is None:
@@ -105,6 +105,10 @@ def make_hf_clean_wiki():
             dt_pd = pd.concat([dt_pd, dt], ignore_index=True)
 
     print("Csv data have been read")
+    print(f"Size of data = {dt_pd.shape[0]}")
+
+    dt_pd.dropna(inplace=True)
+    print(f"Size of non-None data = {dt_pd.shape[0]}")
 
     threshold_clean = 0.5
     dataset = Dataset.from_pandas(dt_pd)
@@ -114,7 +118,7 @@ def make_hf_clean_wiki():
     path_dir = "/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128-clean_text"
     dt_dict["train"].save_to_disk(f"{path_dir}/train",
                              max_shard_size="10GB",
-                             num_proc=8)
+                             num_proc=4)
 
     dt_dict["test"].save_to_disk(f"{path_dir}/test")
 

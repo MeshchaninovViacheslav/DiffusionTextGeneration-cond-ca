@@ -48,8 +48,8 @@ class WikipediaCleanDataset:
             yield self.load_data(test_path)
 
         list_of_datasets = [
-            f"/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128-clean_text/train/data-{i:05d}-of-00008.arrow"
-            for i in range(8)]
+            f"/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128-clean_text/train/data-{i:05d}-of-00004.arrow"
+            for i in range(4)]
         for name_dt in cycle(list_of_datasets):
             yield self.load_data(name_dt)
             self.clear_data()
@@ -62,7 +62,10 @@ def conditional_preprocessing_wiki_text(
         pos_begin: float = 0.33,
         pos_end: float = 0.67,
 ):
-    element = tokenizer_bert.encode(element["sentence"])
+    try:
+        element = tokenizer_bert.encode_plus(element["sentence"])
+    except Exception:
+        print(element)
     elem_count = sum(element["attention_mask"])
     delimeter_pos = int(
         (

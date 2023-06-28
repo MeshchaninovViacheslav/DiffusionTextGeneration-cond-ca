@@ -1,7 +1,7 @@
 import os
 import sys
 
-sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration/")
+sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
 
 import torch
 from metrics import BloomMetric, GPTNEOMetric

@@ -32,8 +32,8 @@ def create_config():
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
     optim.linear_warmup = 5_000
-    optim.lr = 2e-4
-    optim.min_lr = 2e-4
+    optim.lr = 5e-5
+    optim.min_lr = 5e-5
     optim.warmup_lr = 1e-6
     optim.weight_decay = 0.01
     optim.beta_1 = 0.9
@@ -47,7 +47,7 @@ def create_config():
     training.checkpoint_freq = 100_000
     training.eval_freq = 200
     training.batch_size = 512
-    training.val_iter_start = 5_000
+    training.val_iter_start = 0
 
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
@@ -58,7 +58,7 @@ def create_config():
 
     refresh = config.refresh = ml_collections.ConfigDict()
     refresh.true = True
-    refresh.prefix = "./checkpoints/wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-t5-bert-womask_1000000_.pth"
+    refresh.prefix = "./checkpoints/wikipedia-sst2-prediction=x_0-loss=L_x_0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_1000000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -86,7 +86,7 @@ def create_config():
     model.dataset = "glue"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-electra-wikipedia-128.pth"
+    model.decoder_path = "decoder-wikipedia-128.pth"
     # "decoder-electra-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()

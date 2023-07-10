@@ -47,8 +47,8 @@ def create_config():
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 1_000_000
     training.training_iters = training.training_iters
-    training.checkpoint_freq = 100_000
-    training.eval_freq = 100_000
+    training.checkpoint_freq = 100
+    training.eval_freq = 100
     training.batch_size = 512  # * 8
 
     training.ode_sampling = False
@@ -59,8 +59,8 @@ def create_config():
     loss.ce_coef = 0.
 
     refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = False
-    refresh.prefix = "./checkpoints/wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=5-t5-roberta-womask_100000_.pth"
+    refresh.true = True
+    refresh.prefix = "./checkpoints/wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-test_100_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -112,14 +112,14 @@ def create_config():
     config.ddp = True
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
 
-    config.project_name = "bert-encoder-exps"
+    config.project_name = "test"
 
     return config
 
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "bert-bert-womask"
+    suffix = "test"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"prediction={config.model.prediction}-" \

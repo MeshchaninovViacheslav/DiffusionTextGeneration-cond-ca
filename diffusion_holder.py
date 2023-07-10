@@ -31,7 +31,6 @@ from model.emb_encoder import EmbEncoderModel
 from model.enc_normalizer import EncNormalizer
 from model.decoder import Decoder
 
-
 from estimation_utils.util import estimate_model, gather_texts, reduce_metrics, reduce_sum_metrics
 from estimation_utils.metrics import BloomMetric
 from estimation_utils.estimate_glue import estimate_sst2
@@ -156,6 +155,7 @@ class DiffusionRunner:
             input_size=self.encoder_gen.config.hidden_size,
             config=self.bert_config
         ).cuda()
+
         self.ddp_score_estimator = self.score_estimator
         if self.config.ddp:
             self.ddp_score_estimator = torch.nn.parallel.DistributedDataParallel(
@@ -441,7 +441,7 @@ class DiffusionRunner:
             X=None,
             eps: float = 1e-5,
     ) -> Dict[str, torch.Tensor]:
-        mask = None #X["input_mask"]
+        mask = None  # X["input_mask"]
 
         # Noizing
         batch_size = clean_x.size(0)
@@ -514,10 +514,7 @@ class DiffusionRunner:
         if self.config.refresh.true:
             self.refresh_checkpoint()
 
-            if self.config.finetuning:
-                self.estimate_finetuning()
-            else:
-                self.estimate()
+            self.estimate()
             self.validate()
 
         self.train_range = trange(self.step + 1, self.config.training.training_iters + 1)
@@ -690,6 +687,8 @@ class DiffusionRunner:
             return
         load = torch.load(f'{self.config.refresh.prefix}', map_location="cpu")
 
+
+
         self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
         self.ema.load_state_dict(load["ema"])
         self.ema.cuda()
@@ -725,15 +724,13 @@ class DiffusionRunner:
             if attention_mask is not None:
                 attention_mask = attention_mask.cuda()
 
-            if way == "sde":
-                pred_embeddings = self.pred_embeddings(batch_size, cond_X=cond_X, cond_mask=cond_mask,
-                                                       attention_mask=attention_mask)
-            elif way == "ddpm":
-                pred_embeddings = self.pred_embeddings_DDPM(batch_size)
-            elif way == "ddim":
-                pred_embeddings = self.pred_embeddings_DDIM(batch_size)
-            else:
-                raise Exception("way of sampling doesn't exist")
+            pred_embeddings = self.pred_embeddings(
+                batch_size,
+                cond_X=cond_X,
+                cond_mask=cond_mask,
+                attention_mask=attention_mask
+            )
+
             # pred_embeddings = normalize(pred_embeddings, dim=-1) * np.sqrt(pred_embeddings.shape[-1])
             output = self.pred_logits(pred_embeddings)
             tokens = output.argmax(dim=-1)
@@ -804,7 +801,7 @@ class DiffusionRunner:
             self.config.data.max_sequence_len,
             self.encoder_gen.config.hidden_size
         )
-        scale = 2
+        scale = 0.
 
         with torch.no_grad():
             x_t = self.sde.prior_sampling(shape).to(self.device)

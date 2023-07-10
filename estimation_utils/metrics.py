@@ -52,6 +52,7 @@ class BloomMetricConditional:
             target=inputs["input_ids"].reshape(-1)[1:],
             reduce=False,
         )
+
         losses = losses[-torch.sum(inputs_gen["attention_mask"]).item():]
         num_tokens = losses.shape[0]
         loss = torch.mean(losses)

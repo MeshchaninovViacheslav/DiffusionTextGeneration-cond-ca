@@ -156,11 +156,12 @@ class WikipediaCleanDatasetUnconditional:
     def get_data(self):
         if self.split == "test":
             test_path = "/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128-clean_text/test/data-00000-of-00001.arrow"
-            yield self.load_data(test_path)
-
-        list_of_datasets = [
-            f"/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128-clean_text/train/data-{i:05d}-of-00004.arrow"
-            for i in range(4)]
-        for name_dt in cycle(list_of_datasets):
-            yield self.load_data(name_dt)
-            self.clear_data()
+            for name_dt in cycle([test_path]):
+                yield self.load_data(name_dt)
+        if self.split == "train":
+            list_of_datasets = [
+                f"/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128-clean_text/train/data-{i:05d}-of-00004.arrow"
+                for i in range(4)]
+            for name_dt in cycle(list_of_datasets):
+                yield self.load_data(name_dt)
+                self.clear_data()

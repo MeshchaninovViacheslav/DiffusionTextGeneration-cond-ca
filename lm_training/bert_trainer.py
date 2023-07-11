@@ -14,6 +14,7 @@ from lm_training.dataset_lightning import WikiDataModule
 from lm_training.bert_lightning import BERTModel
 
 import os
+
 os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = 'true'
 
 
@@ -35,7 +36,7 @@ def create_config():
     training.training_iters = 500_000
     training.training_iters = training.training_iters
     training.checkpoint_freq = 100_000
-    training.eval_freq = 10_000
+    training.eval_freq = 10
     training.batch_size = 512 // torch.cuda.device_count()
 
     data = config.data = ml_collections.ConfigDict()
@@ -107,7 +108,7 @@ def main():
         val_check_interval=config.training.eval_freq,
         check_val_every_n_epoch=None
     )
-    model = BERTModel(config)
+    model = BERTModel.load_from_checkpoint(checkpoint_path="./checkpoints/bert-step_500000.ckpt", config=config)
     trainer.fit(model, datamodule=datamodule)
 
 

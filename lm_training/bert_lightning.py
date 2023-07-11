@@ -59,8 +59,7 @@ class BERTModel(L.LightningModule):
         return {'loss': loss}
 
     def validation_step(self, batch, batch_idx):
-        target = batch["input_ids"]
-        mask = batch["attention_mask"]
+        target = batch["labels"]
 
         logits = self.forward({
             "input_ids": batch["input_ids"],

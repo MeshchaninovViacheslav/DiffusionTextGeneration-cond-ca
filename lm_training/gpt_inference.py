@@ -114,7 +114,8 @@ def main():
                 cond_texts[i]
             )
             full_text = tokenizer.decode(
-                outputs[i]
+                outputs[i],
+                skip_special_tokens=True
             )
             text = full_text[prompt_length:]
             result_texts.append(

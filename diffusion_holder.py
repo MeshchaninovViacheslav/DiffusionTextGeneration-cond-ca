@@ -137,11 +137,11 @@ class DiffusionRunner:
         bert_cfg = "bert-base-uncased"
         self.tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
 
-        # self.decoder = Decoder(
-        #     hidden_size=self.encoder_gen.config.hidden_size,
-        #     vocab_size=self.encoder_gen.config.vocab_size
-        # )
-        self.decoder = self.encoder_gen.cls.cpu()
+        self.decoder = Decoder(
+            hidden_size=self.encoder_gen.config.hidden_size,
+            vocab_size=self.encoder_gen.config.vocab_size
+        )
+        # self.decoder = self.encoder_gen.cls.cpu()
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 
@@ -152,7 +152,7 @@ class DiffusionRunner:
         # self.load_sde()
         self.bert_config = config.bert_config
         self.score_estimator = ScoreEstimatorEMB(
-            input_size=self.encoder_gen.config.hidden_size,
+            input_size=384,  # self.encoder_gen.config.hidden_size,
             config=self.bert_config
         ).cuda()
 
@@ -442,6 +442,7 @@ class DiffusionRunner:
             eps: float = 1e-5,
     ) -> Dict[str, torch.Tensor]:
         mask = None  # X["input_mask"]
+        clean_x = clean_x[..., :384]
 
         # Noizing
         batch_size = clean_x.size(0)
@@ -471,7 +472,7 @@ class DiffusionRunner:
         coef = 1 + torch.clip(params["std"] / params["alpha"], min=0, max=1000)
 
         if self.config.model.loss == "L_x_0":
-            loss = torch.mean(torch.mean(torch.square(clean_x - x_0), dim=[1, 2]) * coef)
+            loss = loss_x_0 #torch.mean(torch.mean(torch.square(clean_x - x_0), dim=[1, 2]) * coef)
         elif self.config.model.loss == "L_eps":
             loss = loss_eps
         elif self.config.model.loss == "L_score":
@@ -796,12 +797,30 @@ class DiffusionRunner:
             std = torch.sqrt((1 - alpha_t_1) / (1 - alpha_t) * beta_t)
             return mu, std
 
+        cond_null = self.tokenizer_cond.encode_plus(
+            text="",
+            add_special_tokens=True,
+            padding="max_length",
+            truncation=True,
+            max_length=self.config.data.max_sequence_len,
+            return_tensors="pt",
+        )
+        cond_null = dict_to_cuda(cond_null)
+        cond_null["input_ids"] = cond_null["input_ids"].repeat(batch_size, 1)
+        cond_null["attention_mask"] = cond_null["attention_mask"].repeat(batch_size, 1)
+
+        cond_null_X = self.encoder_cond(**{
+            "input_ids": cond_null["input_ids"],
+            "attention_mask": cond_null["attention_mask"]
+        })
+        cond_null_mask = cond_null["attention_mask"]
+
         shape = (
             batch_size,
             self.config.data.max_sequence_len,
             self.encoder_gen.config.hidden_size
         )
-        scale = 0.
+        scale = self.config.classifier_guidance_scale
 
         with torch.no_grad():
             x_t = self.sde.prior_sampling(shape).to(self.device)
@@ -814,7 +833,8 @@ class DiffusionRunner:
                 # print(f"{t:0.3f}: {torch.mean(torch.norm(x_t, dim=-1)):0.3f}")
 
                 x_0_null = self.sde.calc_score(
-                    self.score_estimator, x_t, vec_t, attention_mask=attention_mask
+                    self.score_estimator, x_t, vec_t,
+                    cond=cond_null_X, cond_mask=cond_null_mask, attention_mask=attention_mask
                 )["x_0"]
 
                 x_0_cond = self.sde.calc_score(

@@ -19,5 +19,6 @@ class BertEncoderModel(HuggingFaceBertLMHeadModel):
         )
 
         sequence_output = outputs.last_hidden_state
-        normed = self.enc_normalizer.normalize(sequence_output)
-        return normed
+        if self.enc_normalizer is not None:
+            sequence_output = self.enc_normalizer.normalize(sequence_output)
+        return sequence_output

@@ -13,6 +13,7 @@ sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
 from data.create_dataset import create_rocstory_dataset, create_wiki_dataset
 from utils.util import dict_to_cuda
 
+from model.bert_encoder import BertEncoderModel
 from model.t5_encoder import T5EncoderModel
 from model.roberta_encoder import RobertaEncoderModel
 from model.electra_encoder import ElectraEncoderModel
@@ -51,7 +52,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
 
     optimizer = torch.optim.Adam(
         decoder.parameters(),
-        lr=5e-4,
+        lr=5e-3,
         # weight_decay=0.01,
         #eps=1e-6,
         betas=(0.9, 0.98),
@@ -91,11 +92,12 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
                     emb = encoder(**X)
 
             if not eval_mode:
-                sigma = 0.1
+                sigma = 0.
                 eps = torch.randn_like(emb) * sigma
-                logits = decoder(emb + eps)
-            else:
-                logits = decoder(emb)
+                emb = emb + eps
+
+            emb = emb[..., :384]
+            logits = decoder(emb)
 
             loss = reconstruction_loss(targets, logits, mask=None)
             if not eval_mode:
@@ -126,7 +128,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
                 step += 1
 
     checkpoints_folder = './checkpoints/'
-    name = os.path.join(checkpoints_folder, "decoder-bert-embs-wikipedia-128.pth")
+    name = os.path.join(checkpoints_folder, "decoder-bert-encs-384.pth")
     decoder.eval()
     torch.save(
         {
@@ -143,13 +145,13 @@ def main():
 
     cfg = "bert-base-uncased"
     tokenizer_gen = BertTokenizerFast.from_pretrained(cfg)
-    encoder = EmbEncoderModel.from_pretrained(
+    encoder = BertEncoderModel.from_pretrained(
         cfg, enc_normalizer=None
     ).eval().cuda()
 
     decoder = Decoder(hidden_size=encoder.config.hidden_size, vocab_size=encoder.config.vocab_size).train().cuda()
 
-    wandb.init(project="decoders", name="decoder_training_bert_embs", mode="online")
+    wandb.init(project="decoders", name="bert-encs-384", mode="online")
     train(encoder, decoder, tokenizer, tokenizer_gen)
 
 

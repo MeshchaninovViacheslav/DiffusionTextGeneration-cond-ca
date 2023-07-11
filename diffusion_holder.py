@@ -467,9 +467,11 @@ class DiffusionRunner:
         ce_loss = self.recon_loss(logits, X["input_ids"], mask)
 
         # Statistics
+        params = self.sde.marginal_params_tensor(clean_x, t)
+        coef = 1 + torch.clip(params["std"] / params["alpha"], min=0, max=1000)
 
         if self.config.model.loss == "L_x_0":
-            loss = loss_x_0
+            loss = torch.mean(torch.mean(torch.square(clean_x - x_0), dim=[1, 2]) * coef)
         elif self.config.model.loss == "L_eps":
             loss = loss_eps
         elif self.config.model.loss == "L_score":
@@ -722,7 +724,7 @@ class DiffusionRunner:
             if attention_mask is not None:
                 attention_mask = attention_mask.cuda()
 
-            pred_embeddings = self.pred_embeddings(
+            pred_embeddings = self.pred_embeddings_classifier_guidance(
                 batch_size,
                 cond_X=cond_X,
                 cond_mask=cond_mask,
@@ -803,7 +805,7 @@ class DiffusionRunner:
 
         with torch.no_grad():
             x_t = self.sde.prior_sampling(shape).to(self.device)
-            n = 4
+            n = 2
             eps_t = n / self.diff_eq_solver.sde.N
             timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N - n + 1, device=self.device)
             for i in tqdm(range(self.sde.N - n + 1)):

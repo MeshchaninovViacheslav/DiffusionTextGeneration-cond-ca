@@ -34,7 +34,7 @@ def parse_option(config):
 def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
-    optim.grad_clip_norm = 1.
+    optim.grad_clip_norm = 10.
     optim.linear_warmup = 5000
     optim.lr = 2e-4
     optim.min_lr = 2e-4
@@ -119,7 +119,7 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "t5-bert"
+    suffix = "t5-bert-coef_loss"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"prediction={config.model.prediction}-" \

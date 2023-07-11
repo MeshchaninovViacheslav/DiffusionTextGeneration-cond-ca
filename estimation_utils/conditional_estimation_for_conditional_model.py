@@ -15,6 +15,7 @@ from utils.util import set_seed, _BERT_SMALL
 from estimation_utils.util import estimate_model, reduce_metrics, gather_texts
 import diffusion_utils.schedulers as schedulers
 from metrics import BloomMetricConditional, GPTMetric, BloomMetric, RobertaMetric
+from estimation_utils.diversity_metrics import NGramStats
 
 disable_progress_bar()
 
@@ -59,7 +60,7 @@ def create_config():
     data.enc_roberta_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-std.pt"
     data.enc_t5_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-mean.pth"
     data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
-    data.pos_begin = 0.0
+    data.pos_begin = 0.
     data.pos_end = 0.67
 
     config.finetuning = False
@@ -68,6 +69,7 @@ def create_config():
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
 
     config.project_name = "test"
+    config.classifier_guidance_scale = 3.
 
     return config
 
@@ -105,18 +107,18 @@ model_names = [
     # "wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain_200000_"
     # "wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain_200000_",
     # "wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain_500000_",
-    # "wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-t5-bert-womask_1000000_",
+    #"wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-t5-bert-womask_1000000_",
     # "wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-t5-roberta-womask_500000_"
     #"wikipedia-sst2-prediction=x_0-loss=L_x_0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_1000000_",
     #"wikipedia-sst2-prediction=x_0-loss=L_x_0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_500000_",
     #"wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_900000_",
-    # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_800000_",
+    "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_800000_",
     # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_500000_",
     # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_200000_"
     #"wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_800000_"
     #"wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert_10000_"
-    "wikipedia-sst2-prediction=x_0-loss=L_x_0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_900000_",
-    "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_900000_",
+    # "wikipedia-sst2-prediction=x_0-loss=L_x_0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_900000_",
+    # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_900000_",
 ]
 
 for model_name in model_names:
@@ -146,7 +148,7 @@ for model_name in model_names:
         print(f"Bloom metric: {metrics['Bloom metric']:0.5f}")
         print(f"Roberta metric: {metrics['Roberta metric']:0.5f}")
         print(len(joint_texts))
-        prefix = f"num_texts={num_texts_}-dt_train=1"
+        prefix = f"num_texts={num_texts_}-scale={config.classifier_guidance_scale:0.1f}"
         metrics_file = os.path.join(metrics_path, f"{model_name}-{prefix}.json")
         with open(metrics_file, "w") as file:
             json.dump(metrics_json, file)
@@ -165,5 +167,9 @@ for model_name in model_names:
         json.dump(text_list, open(file_name, "w"), indent=4)
 
         print(file_name)
+
+        metric_div = NGramStats()
+        metric_div.compute(gen_texts)
+        print(metric_div)
 
     del diffusion_

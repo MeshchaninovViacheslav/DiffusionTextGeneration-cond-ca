@@ -35,7 +35,7 @@ def create_config():
     training.training_iters = 500_000
     training.training_iters = training.training_iters
     training.checkpoint_freq = 100_000
-    training.eval_freq = 50_000
+    training.eval_freq = 10_000
     training.batch_size = 512 // torch.cuda.device_count()
 
     data = config.data = ml_collections.ConfigDict()

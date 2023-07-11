@@ -103,3 +103,9 @@ class GPTModel(L.LightningModule):
     def on_before_optimizer_step(self, *args, **kwargs) -> None:
         self.logger.log_metrics({'model/grads_norm': calc_model_grads_norm(self.model)})
         return super().on_before_optimizer_step(*args, **kwargs)
+
+    def generate_text(self, inputs=None, max_new_tokens: int = 64, num_beams: int = 2):
+        if inputs is None:
+            return self.model.generate(max_new_tokens=max_new_tokens, num_beams=num_beams)
+        else:
+            return self.model.generate(**inputs, max_new_tokens=max_new_tokens, num_beams=num_beams)

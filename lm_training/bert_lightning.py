@@ -62,7 +62,10 @@ class BERTModel(L.LightningModule):
         target = batch["input_ids"]
         mask = batch["attention_mask"]
 
-        logits = self.forward(batch)
+        logits = self.forward({
+            "input_ids": batch["input_ids"],
+            "attention_mask": batch["attention_mask"]
+        })
         loss = self.get_loss(logits, target)
 
         logs = {'loss': loss}

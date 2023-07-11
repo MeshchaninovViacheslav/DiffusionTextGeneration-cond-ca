@@ -47,8 +47,8 @@ def create_config():
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 1_000_000
     training.training_iters = training.training_iters
-    training.checkpoint_freq = 100
-    training.eval_freq = 100
+    training.checkpoint_freq = 100_000
+    training.eval_freq = 100_000
     training.batch_size = 512  # * 8
 
     training.ode_sampling = False
@@ -59,14 +59,14 @@ def create_config():
     loss.ce_coef = 0.
 
     refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = True
-    refresh.prefix = "./checkpoints/wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-test_100_.pth"
+    refresh.true = False
+    refresh.prefix = "./checkpoints/wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_100000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
-    validation.batch_size = 512
+    validation.batch_size = 1024
     validation.validation_iters = int(10_000 / validation.batch_size)
-    validation.num_gen_texts = 1024
+    validation.num_gen_texts = 8192
     validation.p_uncond = 0.
 
     sde = config.sde = ml_collections.ConfigDict()
@@ -112,14 +112,14 @@ def create_config():
     config.ddp = True
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
 
-    config.project_name = "test"
+    config.project_name = "bert-encoder-exps"
 
     return config
 
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "test"
+    suffix = "t5-bert"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"prediction={config.model.prediction}-" \
@@ -129,7 +129,6 @@ if __name__ == '__main__':
                                 f"clipgrad={config.optim.grad_clip_norm}-" \
                                 f"lr={config.optim.lr}-" \
                                 f"min_lr={config.optim.min_lr}-" \
-                                f"lin_input={config.lin_input}-" \
                                 f"seed={config.seed}-" \
                                 f"wd={config.optim.weight_decay}-" \
                                 f"batch={config.training.batch_size}-" \

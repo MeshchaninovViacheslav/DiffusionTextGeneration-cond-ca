@@ -43,7 +43,7 @@ def create_config():
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 128
     data.num_workers = 16
-    data.pos_begin = 0.33
+    data.pos_begin = 0.
     data.pos_end = 0.67
 
     config.project_name = "lm-training"
@@ -89,7 +89,7 @@ def main():
     file_name = f"{texts_path}/{model_name}.json"
 
     num_gen_texts = 8192
-    batch_size = 256
+    batch_size = 512
 
     config = create_config()
     seed_everything(config.seed, workers=True)

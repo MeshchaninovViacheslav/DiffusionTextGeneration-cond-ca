@@ -725,7 +725,7 @@ class DiffusionRunner:
             if attention_mask is not None:
                 attention_mask = attention_mask.cuda()
 
-            pred_embeddings = self.pred_embeddings_classifier_guidance(
+            pred_embeddings = self.pred_embeddings(
                 batch_size,
                 cond_X=cond_X,
                 cond_mask=cond_mask,

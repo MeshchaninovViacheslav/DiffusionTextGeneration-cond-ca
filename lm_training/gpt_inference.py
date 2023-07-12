@@ -96,8 +96,8 @@ def main():
     texts_path = "./generated_texts"
     os.makedirs(texts_path, exist_ok=True)
 
-    num_gen_texts = 160
-    batch_size = 16
+    num_gen_texts = 8192
+    batch_size = 256
 
     config = create_config()
     seed_everything(config.seed, workers=True)

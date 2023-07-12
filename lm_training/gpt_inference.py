@@ -18,6 +18,7 @@ from lightning import seed_everything, Trainer
 from lm_training.dataset_lightning import WikiDataModule
 from lm_training.gpt_lightning import GPTModel
 from utils.util import dict_to_cuda
+from tqdm import tqdm
 
 
 def create_config():
@@ -95,7 +96,7 @@ def main():
     texts_path = "./generated_texts"
     os.makedirs(texts_path, exist_ok=True)
 
-    num_gen_texts = 16  # 8192
+    num_gen_texts = 160
     batch_size = 16
 
     config = create_config()
@@ -113,11 +114,13 @@ def main():
     file_name = f"{texts_path}/" \
                 f"{model_name}-" \
                 f"{config.dataset_name}-" \
-                f"num_beams={config.num_beams}=-" \
+                f"num_beams={config.num_beams}-" \
+                f"num_texts={num_gen_texts}-" \
                 f"cond_seg=[{config.data.pos_begin:0.2f}, {config.data.pos_end:0.2f}].json"
 
-    for inputs in dataloader:
+    for inputs in tqdm(dataloader):
         cond_inputs = {"input_ids": inputs["cond_ids"], "attention_mask": inputs["cond_mask"]}
+        # text_cond = dict_to_cuda(cond_inputs)
         text_cond = tokenizer.batch_decode(
             cond_inputs["input_ids"],
             skip_special_tokens=True,

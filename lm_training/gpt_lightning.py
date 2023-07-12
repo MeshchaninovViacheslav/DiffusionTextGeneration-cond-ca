@@ -115,8 +115,13 @@ class GPTModel(L.LightningModule):
             num_beams: int = 1
     ) -> List[str]:
         if self.generation_pipeline is None:
-            self.generation_pipeline = pipeline('text-generation', model=self.model, device="cuda:0",
-                                                tokenizer=tokenizer)
+            self.generation_pipeline = pipeline(
+                'text-generation',
+                model=self.model.cuda(),
+                use_fast=True,
+                device="cuda:0",
+                tokenizer=tokenizer
+            )
 
         outputs = self.generation_pipeline(
             text_inputs=text_inputs,

@@ -8,7 +8,7 @@ from timm.scheduler.cosine_lr import CosineLRScheduler
 from typing import Dict, Any
 from torch import FloatTensor, Tensor
 
-from lm_training.utils import calc_model_grads_norm
+from lm_training.util import calc_model_grads_norm
 
 
 class BERTModel(L.LightningModule):

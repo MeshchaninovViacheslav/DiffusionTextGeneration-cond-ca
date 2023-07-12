@@ -2,13 +2,13 @@ import torch
 import lightning as L
 from transformers import AutoConfig, AutoModelForCausalLM
 from torch.nn.functional import cross_entropy
-
+from transformers import pipeline
 from timm.scheduler.cosine_lr import CosineLRScheduler
 
-from typing import Dict, Any
+from typing import Dict, Any, List
 from torch import FloatTensor, Tensor
 
-from lm_training.utils import calc_model_grads_norm
+from lm_training.util import calc_model_grads_norm
 
 
 class GPTModel(L.LightningModule):
@@ -18,6 +18,9 @@ class GPTModel(L.LightningModule):
         self.config = config
         self.gpt_config = AutoConfig.from_pretrained("gpt2")
         self.model = AutoModelForCausalLM.from_config(self.gpt_config)
+        if config.hg_pretrain:
+            self.model = AutoModelForCausalLM.from_pretrained("gpt2")
+        self.generation_pipeline = None
 
     def recon_loss(self, inputs, outputs, mask=None):
         if mask is None:
@@ -104,8 +107,24 @@ class GPTModel(L.LightningModule):
         self.logger.log_metrics({'model/grads_norm': calc_model_grads_norm(self.model)})
         return super().on_before_optimizer_step(*args, **kwargs)
 
-    def generate_text(self, inputs=None, max_new_tokens: int = 64, num_beams: int = 2):
-        if inputs is None:
-            return self.model.generate(max_new_tokens=max_new_tokens, num_beams=num_beams)
-        else:
-            return self.model.generate(**inputs, max_new_tokens=max_new_tokens, num_beams=num_beams)
+    def generate_text(
+            self,
+            tokenizer=None,
+            text_inputs: List[str] = None,
+            max_new_tokens: int = 64,
+            num_beams: int = 1
+    ) -> List[str]:
+        if self.generation_pipeline is None:
+            self.generation_pipeline = pipeline('text-generation', model=self.model, device="cuda:0",
+                                                tokenizer=tokenizer)
+
+        outputs = self.generation_pipeline(
+            text_inputs=text_inputs,
+            max_new_tokens=max_new_tokens,
+            num_return_sequences=1,
+            num_beams=num_beams,
+            return_full_text=True,
+            pad_token_id=50256
+        )
+        text_outputs = [t[0]["generated_text"] for t in outputs]
+        return text_outputs

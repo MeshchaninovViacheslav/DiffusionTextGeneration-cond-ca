@@ -17,6 +17,7 @@ from lightning import seed_everything, Trainer
 
 from lm_training.dataset_lightning import WikiDataModule
 from lm_training.gpt_lightning import GPTModel
+from utils.util import dict_to_cuda
 
 
 def create_config():
@@ -48,13 +49,21 @@ def create_config():
 
     config.project_name = "lm-training"
     config.exp_name = "gpt2-training"
+    config.dataset_name = "wikipedia-clean"
+    config.num_beams = 1
     config.seed = 0
+    config.hg_pretrain = False
 
     return config
 
 
 def get_model(config):
-    gpt = GPTModel.load_from_checkpoint(config=config, checkpoint_path="./checkpoints/gpt2-training/step_500000.ckpt")
+    if config.hg_pretrain:
+        gpt = GPTModel(config=config)
+        print("Huggingface pretrain model is loaded")
+    else:
+        gpt = GPTModel.load_from_checkpoint(config=config,
+                                            checkpoint_path="./checkpoints/gpt2-training/step_500000.ckpt")
     return gpt
 
 
@@ -63,7 +72,7 @@ def get_dataloader(config, tokenizer, batch_size):
     tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
 
     valid_dataset = next(create_dataset(
-        dataset_name="wikipedia-clean",
+        dataset_name=config.dataset_name,
     )(
         split="test",
         tokenizer_bert=tokenizer_bert,
@@ -84,12 +93,10 @@ def get_dataloader(config, tokenizer, batch_size):
 
 def main():
     texts_path = "./generated_texts"
-    model_name = "gpt2-500_000"
     os.makedirs(texts_path, exist_ok=True)
-    file_name = f"{texts_path}/{model_name}.json"
 
-    num_gen_texts = 8192
-    batch_size = 512
+    num_gen_texts = 16  # 8192
+    batch_size = 16
 
     config = create_config()
     seed_everything(config.seed, workers=True)
@@ -98,25 +105,38 @@ def main():
     tokenizer.pad_token_id = 50256
 
     gpt = get_model(config)
+    gpt.model.cuda()
     dataloader = get_dataloader(config, tokenizer, batch_size)
 
     result_texts = []
+    model_name = "hg_pretrained" if config.hg_pretrain else "pretrain"
+    file_name = f"{texts_path}/" \
+                f"{model_name}-" \
+                f"{config.dataset_name}-" \
+                f"num_beams={config.num_beams}=-" \
+                f"cond_seg=[{config.data.pos_begin:0.2f}, {config.data.pos_end:0.2f}].json"
 
     for inputs in dataloader:
         cond_inputs = {"input_ids": inputs["cond_ids"], "attention_mask": inputs["cond_mask"]}
-        outputs = gpt.generate_text(inputs=cond_inputs, max_new_tokens=64)
+        text_cond = tokenizer.batch_decode(
+            cond_inputs["input_ids"],
+            skip_special_tokens=True,
+        )
+
+        outputs = gpt.generate_text(
+            tokenizer=tokenizer,
+            text_inputs=text_cond,
+            max_new_tokens=64,
+            num_beams=config.num_beams
+        )
 
         cond_texts = tokenizer.batch_decode(inputs["cond_ids"], skip_special_tokens=True)
         gt_texts = tokenizer.batch_decode(inputs["input_ids"], skip_special_tokens=True)
 
         for i in range(len(outputs)):
-            prompt_length = len(
-                cond_texts[i]
-            )
-            full_text = tokenizer.decode(
-                outputs[i],
-                skip_special_tokens=True
-            )
+            prompt_length = len(cond_texts[i])
+            full_text = outputs[i]
+
             text = full_text[prompt_length:]
             result_texts.append(
                 {

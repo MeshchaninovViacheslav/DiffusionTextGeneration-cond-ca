@@ -4,7 +4,7 @@ import torch
 class Decoder(torch.nn.Module):
     def __init__(self, hidden_size=768, vocab_size=32100, layer_norm_eps=1e-12):
         super().__init__()
-        self.dense = torch.nn.Linear(384, hidden_size)
+        self.dense = torch.nn.Linear(hidden_size, hidden_size)
         self.act_fn = torch.nn.GELU()
         self.LayerNorm = torch.nn.LayerNorm(hidden_size, eps=layer_norm_eps)
 

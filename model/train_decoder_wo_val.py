@@ -92,11 +92,10 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
                     emb = encoder(**X)
 
             if not eval_mode:
-                sigma = 0.
+                sigma = 0.1
                 eps = torch.randn_like(emb) * sigma
                 emb = emb + eps
 
-            emb = emb[..., :384]
             logits = decoder(emb)
 
             loss = reconstruction_loss(targets, logits, mask=None)
@@ -128,7 +127,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
                 step += 1
 
     checkpoints_folder = './checkpoints/'
-    name = os.path.join(checkpoints_folder, "decoder-bert-encs-384.pth")
+    name = os.path.join(checkpoints_folder, "decoder-bert-encs.pth")
     decoder.eval()
     torch.save(
         {
@@ -151,7 +150,7 @@ def main():
 
     decoder = Decoder(hidden_size=encoder.config.hidden_size, vocab_size=encoder.config.vocab_size).train().cuda()
 
-    wandb.init(project="decoders", name="bert-encs-384", mode="online")
+    wandb.init(project="decoders", name="bert-encs", mode="online")
     train(encoder, decoder, tokenizer, tokenizer_gen)
 
 

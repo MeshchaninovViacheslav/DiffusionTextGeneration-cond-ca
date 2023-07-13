@@ -45,11 +45,11 @@ def create_config():
     optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 1_000_000
+    training.training_iters = 100_000
     training.training_iters = training.training_iters
     training.checkpoint_freq = 100_000
-    training.eval_freq = 100_000
-    training.batch_size = 512  # * 8
+    training.eval_freq = 5_000
+    training.batch_size = 256  # * 8
 
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
@@ -88,8 +88,8 @@ def create_config():
     model.dataset = "wikipedia-clean"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.dim = 128
-    model.decoder_path = f"decoder-bert-encs-{model.dim}.pth"
+    model.dim = 768
+    model.decoder_path = "decoder-wikipedia-128.pth" #f"decoder-bert-encs-{model.dim}.pth"
     # "decoder-electra-wikipedia-128.pth" #"decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()
@@ -113,14 +113,14 @@ def create_config():
     config.ddp = True
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
 
-    config.project_name = "bert-encoder-exps"
+    config.project_name = "dimension_research"
 
     return config
 
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "t5-bert-384"
+    suffix = f"t5-bert-{config.model.dim}"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"prediction={config.model.prediction}-" \

@@ -76,7 +76,7 @@ def create_config():
     sde.beta_min = 0.1
     sde.beta_max = 20
     sde.ode_sampling = False
-    sde.coef_d = 5
+    sde.coef_d = 10
     sde.scheduler = schedulers.CosineSD(d=sde.coef_d)
 
     model = config.model = ml_collections.ConfigDict()
@@ -88,7 +88,8 @@ def create_config():
     model.dataset = "wikipedia-clean"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-bert-encs-384.pth"
+    model.dim = 384
+    model.decoder_path = f"decoder-bert-encs-{model.dim}.pth"
     # "decoder-electra-wikipedia-128.pth" #"decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()

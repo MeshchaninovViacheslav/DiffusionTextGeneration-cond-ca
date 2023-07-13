@@ -39,7 +39,7 @@ def reconstruction_loss(target, prediction_scores, mask):
     return ce_loss
 
 
-def train(encoder, decoder, tokenizer, tokenizer_gen):
+def train(encoder, decoder, tokenizer, tokenizer_gen, dimension):
     max_sequence_len = 128
     batch_size = 512
     train_dataset = create_wiki_dataset()
@@ -96,7 +96,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
                 eps = torch.randn_like(emb) * sigma
                 emb = emb + eps
 
-            emb = emb[..., :384]
+            emb = emb[..., :dimension]
             logits = decoder(emb)
 
             loss = reconstruction_loss(targets, logits, mask=None)
@@ -119,7 +119,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
                 wandb.log({f'valid accuracy': acc.item()}, step=step)
 
             T.set_description(f"Loss: {loss.item():0.6f}")
-            if step > 2000:
+            if step > 500:
                 break
 
             if eval_mode:
@@ -128,7 +128,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
                 step += 1
 
     checkpoints_folder = './checkpoints/'
-    name = os.path.join(checkpoints_folder, "decoder-bert-encs-384.pth")
+    name = os.path.join(checkpoints_folder, f"decoder-bert-encs-{dimension}.pth")
     decoder.eval()
     torch.save(
         {
@@ -140,6 +140,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
 
 
 def main():
+    dimension = 384
     bert_cfg = "bert-base-uncased"
     tokenizer = BertTokenizerFast.from_pretrained(bert_cfg)
 
@@ -151,8 +152,8 @@ def main():
 
     decoder = Decoder(hidden_size=encoder.config.hidden_size, vocab_size=encoder.config.vocab_size).train().cuda()
 
-    wandb.init(project="decoders", name="bert-encs-384", mode="online")
-    train(encoder, decoder, tokenizer, tokenizer_gen)
+    wandb.init(project="decoders", name=f"bert-encs-{dimension}", mode="online")
+    train(encoder, decoder, tokenizer, tokenizer_gen, dimension)
 
 
 main()

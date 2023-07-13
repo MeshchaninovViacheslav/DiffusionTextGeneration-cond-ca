@@ -54,7 +54,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen, dimension):
         decoder.parameters(),
         lr=5e-3,
         # weight_decay=0.01,
-        #eps=1e-6,
+        # eps=1e-6,
         betas=(0.9, 0.98),
     )
 
@@ -140,7 +140,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen, dimension):
 
 
 def main():
-    dimension = 384
+    dimension = 768
     bert_cfg = "bert-base-uncased"
     tokenizer = BertTokenizerFast.from_pretrained(bert_cfg)
 
@@ -150,7 +150,11 @@ def main():
         cfg, enc_normalizer=None
     ).eval().cuda()
 
-    decoder = Decoder(hidden_size=encoder.config.hidden_size, vocab_size=encoder.config.vocab_size).train().cuda()
+    decoder = Decoder(
+        input_size=dimension,
+        hidden_size=encoder.config.hidden_size,
+        vocab_size=encoder.config.vocab_size
+    ).train().cuda()
 
     wandb.init(project="decoders", name=f"bert-encs-{dimension}", mode="online")
     train(encoder, decoder, tokenizer, tokenizer_gen, dimension)

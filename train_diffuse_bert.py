@@ -59,7 +59,7 @@ def create_config():
     loss.ce_coef = 0.
 
     refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = True
+    refresh.true = False
     refresh.prefix = "./checkpoints/wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-bert-384_100000_.pth"
     refresh.wand_id = "g5fb4af3"
 
@@ -76,7 +76,7 @@ def create_config():
     sde.beta_min = 0.1
     sde.beta_max = 20
     sde.ode_sampling = False
-    sde.coef_d = 10
+    sde.coef_d = 5
     sde.scheduler = schedulers.CosineSD(d=sde.coef_d)
 
     model = config.model = ml_collections.ConfigDict()

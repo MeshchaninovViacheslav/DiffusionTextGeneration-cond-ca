@@ -152,7 +152,7 @@ class DiffusionRunner:
         # self.load_sde()
         self.bert_config = config.bert_config
         self.score_estimator = ScoreEstimatorEMB(
-            input_size=384,  # self.encoder_gen.config.hidden_size,
+            input_size=self.config.model.dim,  # self.encoder_gen.config.hidden_size,
             config=self.bert_config
         ).cuda()
 
@@ -442,7 +442,7 @@ class DiffusionRunner:
             eps: float = 1e-5,
     ) -> Dict[str, torch.Tensor]:
         mask = None  # X["input_mask"]
-        clean_x = clean_x[..., :384]
+        clean_x = clean_x[..., :self.config.model.dim]
 
         # Noizing
         batch_size = clean_x.size(0)
@@ -756,7 +756,7 @@ class DiffusionRunner:
         )
 
         with torch.no_grad():
-            x = self.sde.prior_sampling(shape).to(self.device)[..., :384]
+            x = self.sde.prior_sampling(shape).to(self.device)[..., :self.config.model.dim]
             eps_t = 1 / self.diff_eq_solver.sde.N
             timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N, device=self.device)
             for i in tqdm(range(self.sde.N)):

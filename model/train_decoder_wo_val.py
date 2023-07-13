@@ -88,7 +88,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen, dimension):
             targets = X["input_ids"].type(torch.LongTensor).cuda()
             mask = X["attention_mask"]
             with torch.no_grad():
-                with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                with torch.autocast(device_type='cuda', dtype=torch.float16):
                     emb = encoder(**X)
 
             if not eval_mode:

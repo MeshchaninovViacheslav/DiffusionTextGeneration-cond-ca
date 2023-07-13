@@ -34,7 +34,7 @@ def parse_option(config):
 def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
-    optim.grad_clip_norm = 10.
+    optim.grad_clip_norm = 1.
     optim.linear_warmup = 5000
     optim.lr = 2e-4
     optim.min_lr = 2e-4
@@ -49,7 +49,7 @@ def create_config():
     training.training_iters = training.training_iters
     training.checkpoint_freq = 100_000
     training.eval_freq = 5_000
-    training.batch_size = 256  # * 8
+    training.batch_size = 512  # * 8
 
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'

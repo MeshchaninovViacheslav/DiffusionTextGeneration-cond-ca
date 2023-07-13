@@ -41,7 +41,7 @@ def reconstruction_loss(target, prediction_scores, mask):
 
 def train(encoder, decoder, tokenizer, tokenizer_gen, dimension):
     max_sequence_len = 128
-    batch_size = 512
+    batch_size = 256
     train_dataset = create_wiki_dataset()
     train_loader = DataLoader(
         train_dataset,
@@ -140,7 +140,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen, dimension):
 
 
 def main():
-    dimension = 768
+    dimension = 32
     bert_cfg = "bert-base-uncased"
     tokenizer = BertTokenizerFast.from_pretrained(bert_cfg)
 

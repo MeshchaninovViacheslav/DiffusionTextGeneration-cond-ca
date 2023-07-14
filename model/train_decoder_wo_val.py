@@ -96,7 +96,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen, dimension):
                 eps = torch.randn_like(emb) * sigma
                 emb = emb + eps
 
-            emb = emb.repeat(1, 1, 2)
+            emb = emb.repeat(1, 1, 3)
             logits = decoder(emb)
 
             loss = reconstruction_loss(targets, logits, mask=None)
@@ -140,7 +140,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen, dimension):
 
 
 def main():
-    dimension = 768 * 2
+    dimension = 768 * 3
     bert_cfg = "bert-base-uncased"
     tokenizer = BertTokenizerFast.from_pretrained(bert_cfg)
 

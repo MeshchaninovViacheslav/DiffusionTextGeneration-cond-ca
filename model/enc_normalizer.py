@@ -23,5 +23,6 @@ class EncNormalizer(nn.Module):
         return (encoding - self.enc_mean) / self.enc_std
 
     def denormalize(self, pred_x_0: FloatTensor) -> FloatTensor:
-        dim = pred_x_0.shape[-1]
-        return pred_x_0 * self.enc_std[..., :dim] + self.enc_mean[..., :dim]
+        return pred_x_0 * self.enc_std.repeat(1, 1, 3) + self.enc_mean.repeat(1, 1, 2)
+        # dim = pred_x_0.shape[-1]
+        # return pred_x_0 * self.enc_std[..., :dim] + self.enc_mean[..., :dim]

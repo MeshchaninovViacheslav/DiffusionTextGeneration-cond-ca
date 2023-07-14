@@ -127,7 +127,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
                 step += 1
 
     checkpoints_folder = './checkpoints/'
-    name = os.path.join(checkpoints_folder, "decoder-bert-encs.pth")
+    name = os.path.join(checkpoints_folder, "decoder-my_bert-768.pth")
     decoder.eval()
     torch.save(
         {
@@ -145,12 +145,13 @@ def main():
     cfg = "bert-base-uncased"
     tokenizer_gen = BertTokenizerFast.from_pretrained(cfg)
     encoder = BertEncoderModel.from_pretrained(
-        cfg, enc_normalizer=None
+        "./lm_training/checkpoints/bert/",
+        enc_normalizer=None
     ).eval().cuda()
 
     decoder = Decoder(hidden_size=encoder.config.hidden_size, vocab_size=encoder.config.vocab_size).train().cuda()
 
-    wandb.init(project="decoders", name="bert-encs", mode="online")
+    wandb.init(project="decoders", name="my_bert-768", mode="online")
     train(encoder, decoder, tokenizer, tokenizer_gen)
 
 

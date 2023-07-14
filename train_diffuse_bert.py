@@ -88,8 +88,8 @@ def create_config():
     model.dataset = "wikipedia-clean"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.dim = 768
-    model.decoder_path = "decoder-wikipedia-128.pth" #f"decoder-bert-encs-{model.dim}.pth"
+    model.dim = 32
+    model.decoder_path = f"decoder-bert-encs-{model.dim}.pth" #"decoder-wikipedia-128.pth" #f"decoder-bert-encs-{model.dim}.pth"
     # "decoder-electra-wikipedia-128.pth" #"decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()

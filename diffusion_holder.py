@@ -137,12 +137,12 @@ class DiffusionRunner:
         bert_cfg = "bert-base-uncased"
         self.tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
 
-        # self.decoder = Decoder(
-        #     input_size=self.config.model.dim,
-        #     hidden_size=self.encoder_gen.config.hidden_size,
-        #     vocab_size=self.encoder_gen.config.vocab_size
-        # )
-        self.decoder = self.encoder_gen.cls.cpu()
+        self.decoder = Decoder(
+            input_size=self.config.model.dim,
+            hidden_size=self.encoder_gen.config.hidden_size,
+            vocab_size=self.encoder_gen.config.vocab_size
+        )
+        # self.decoder = self.encoder_gen.cls.cpu()
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 

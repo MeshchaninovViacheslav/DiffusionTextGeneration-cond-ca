@@ -88,7 +88,7 @@ def create_config():
     model.dataset = "wikipedia-clean"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.dim = 32
+    model.dim = int(768 * 2)
     model.decoder_path = f"decoder-bert-encs-{model.dim}.pth" #"decoder-wikipedia-128.pth" #f"decoder-bert-encs-{model.dim}.pth"
     # "decoder-electra-wikipedia-128.pth" #"decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
 
@@ -120,7 +120,7 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = f"t5-bert-{config.model.dim}"
+    suffix = f"t5-bert-{config.model.dim}-samenoise"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"prediction={config.model.prediction}-" \

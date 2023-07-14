@@ -443,7 +443,7 @@ class DiffusionRunner:
             eps: float = 1e-5,
     ) -> Dict[str, torch.Tensor]:
         mask = None  # X["input_mask"]
-        clean_x = clean_x.repeat(1, 1, 3)#clean_x[..., :self.config.model.dim]
+        #clean_x = clean_x.repeat(1, 1, 2)#clean_x[..., :self.config.model.dim]
 
         # Noizing
         batch_size = clean_x.size(0)
@@ -451,6 +451,11 @@ class DiffusionRunner:
         t = self.sample_time(batch_size, eps=eps)
         marg_forward = self.sde.marginal_forward(clean_x, t)
         x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
+
+        clean_x = clean_x.repeat(1, 1, 2)
+        x_t = x_t.repeat(1, 1, 2)
+        noise = noise.repeat(1, 1, 2)
+        score_clean = score_clean.repeat(1, 1, 2)
 
         # model prediction
         scores = self.sde.calc_score(self.ddp_score_estimator, x_t, t, cond=cond, cond_mask=X["cond_mask"],
@@ -757,7 +762,7 @@ class DiffusionRunner:
         )
 
         with torch.no_grad():
-            x = self.sde.prior_sampling(shape).to(self.device).repeat(1, 1, 3) #[..., :self.config.model.dim]
+            x = self.sde.prior_sampling(shape).to(self.device).repeat(1, 1, 2) #[..., :self.config.model.dim]
             eps_t = 1 / self.diff_eq_solver.sde.N
             timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N, device=self.device)
             for i in tqdm(range(self.sde.N)):

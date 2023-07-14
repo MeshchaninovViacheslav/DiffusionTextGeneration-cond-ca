@@ -73,10 +73,11 @@ class NN(torch.nn.Module):
         return self.ffn(x)
 
 
-input_size = 384
-output_size = 768 - input_size
+input_size = 768
+output_size = 768
 
 model = NN(input_size, output_size).cuda()
+
 optimizer = torch.optim.Adam(
     model.parameters(),
     lr=2e-3,
@@ -84,7 +85,7 @@ optimizer = torch.optim.Adam(
 
 wandb.init(
     project="dimension_research",
-    name="ffn_correlation",
+    name="masked_ffn_correlation",
     mode="online"
 )
 
@@ -96,14 +97,15 @@ for step, X in tqdm(enumerate(train_loader), total=len(train_loader)):
         X = dict_to_cuda(X)
         clean_X = encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
 
-    x = clean_X[..., :input_size].cuda()
-    target = clean_X[..., input_size:].cuda()
+    p = 0.15
+    mask = (torch.rand_like(clean_X) > p) * 1.
+    x = (clean_X * mask).cuda()
+
+    target = clean_X.cuda()
 
     pred = model(x)
-    recon_loss = torch.mean(torch.square(target - pred))
-    l1_norm = sum(torch.abs(p).sum() for p in model.parameters())
-    l1_lambda = 0.0
-    loss = recon_loss + l1_lambda * l1_norm
+    recon_loss = torch.sum(torch.square(target - pred) * (1 - mask)) / torch.sum(1 - mask)
+    loss = recon_loss
 
     optimizer.zero_grad()
     loss.backward()
@@ -116,10 +118,10 @@ for step, X in tqdm(enumerate(train_loader), total=len(train_loader)):
     if step % 1000 == 0:
         torch.save(
             model.state_dict(),
-            "ffn_correlation_model.pth"
+            "masked_ffn_correlation_model.pth"
         )
 
 torch.save(
     model.state_dict(),
-    "ffn_correlation_model.pth"
+    "masked_ffn_correlation_model.pth"
 )

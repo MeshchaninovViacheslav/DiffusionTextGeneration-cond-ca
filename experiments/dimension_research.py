@@ -32,7 +32,7 @@ train_dataset = next(WikipediaCleanDataset(
 
 train_loader = DataLoader(
     train_dataset,
-    batch_size=64,
+    batch_size=128,
     shuffle=True
 )
 
@@ -50,10 +50,27 @@ class NN(torch.nn.Module):
     def __init__(self, input_size, output_size):
         super(NN, self).__init__()
 
-        self.linear = torch.nn.Linear(input_size, output_size)
+        self.hidden_size = 768
+        self.ffn = torch.nn.Sequential(
+            torch.nn.Linear(input_size, self.hidden_size),
+            torch.nn.GELU(),
+            torch.nn.Linear(self.hidden_size, self.hidden_size),
+            torch.nn.GELU(),
+            torch.nn.Linear(self.hidden_size, self.hidden_size),
+            torch.nn.GELU(),
+            torch.nn.Linear(self.hidden_size, self.hidden_size),
+            torch.nn.GELU(),
+            torch.nn.Linear(self.hidden_size, self.hidden_size),
+            torch.nn.GELU(),
+            torch.nn.Linear(self.hidden_size, self.hidden_size),
+            torch.nn.GELU(),
+            torch.nn.Linear(self.hidden_size, output_size),
+        )
+
+        # self.ffn = torch.nn.Linear(input_size, output_size)
 
     def forward(self, x):
-        return self.linear(x)
+        return self.ffn(x)
 
 
 input_size = 384
@@ -62,12 +79,12 @@ output_size = 768 - input_size
 model = NN(input_size, output_size).cuda()
 optimizer = torch.optim.Adam(
     model.parameters(),
-    lr=2e-4,
+    lr=2e-3,
 )
 
 wandb.init(
     project="dimension_research",
-    name="linear_correlation",
+    name="ffn_correlation",
     mode="online"
 )
 
@@ -85,7 +102,7 @@ for step, X in tqdm(enumerate(train_loader), total=len(train_loader)):
     pred = model(x)
     recon_loss = torch.mean(torch.square(target - pred))
     l1_norm = sum(torch.abs(p).sum() for p in model.parameters())
-    l1_lambda = 0.001
+    l1_lambda = 0.0
     loss = recon_loss + l1_lambda * l1_norm
 
     optimizer.zero_grad()
@@ -99,10 +116,10 @@ for step, X in tqdm(enumerate(train_loader), total=len(train_loader)):
     if step % 1000 == 0:
         torch.save(
             model.state_dict(),
-            "linear_correlation_model.pth"
+            "ffn_correlation_model.pth"
         )
 
 torch.save(
     model.state_dict(),
-    "linear_correlation_model.pth"
+    "ffn_correlation_model.pth"
 )

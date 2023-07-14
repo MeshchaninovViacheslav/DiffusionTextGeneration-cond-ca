@@ -71,25 +71,26 @@ class DiffusionRunner:
 
         # Encoder for condition
 
-        t5_cfg = "t5-base"
-        self.tokenizer_cond = T5TokenizerFast.from_pretrained(t5_cfg)
-        self.t5_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.enc_t5_mean,
-            enc_std_path=self.config.data.enc_t5_std,
-        )
-        self.encoder_cond = T5EncoderModel.from_pretrained(
-            t5_cfg, enc_normalizer=self.t5_enc_normalizer
-        ).eval().cuda()
-
-        # bert_cfg = "bert-base-uncased"
-        # self.tokenizer_cond = BertTokenizerFast.from_pretrained(bert_cfg)
-        # self.bert_enc_normalizer = EncNormalizer(
-        #     enc_mean_path=self.config.data.enc_bert_mean,
-        #     enc_std_path=self.config.data.enc_bert_std,
+        # t5_cfg = "t5-base"
+        # self.tokenizer_cond = T5TokenizerFast.from_pretrained(t5_cfg)
+        # self.t5_enc_normalizer = EncNormalizer(
+        #     enc_mean_path=self.config.data.enc_t5_mean,
+        #     enc_std_path=self.config.data.enc_t5_std,
         # )
-        # self.encoder_cond = BertEncoderModel.from_pretrained(
-        #     bert_cfg, enc_normalizer=self.bert_enc_normalizer
+        # self.encoder_cond = T5EncoderModel.from_pretrained(
+        #     t5_cfg, enc_normalizer=self.t5_enc_normalizer
         # ).eval().cuda()
+
+        bert_cfg = "bert-base-uncased"
+        self.tokenizer_cond = BertTokenizerFast.from_pretrained(bert_cfg)
+        self.bert_enc_normalizer = EncNormalizer(
+            enc_mean_path=self.config.data.enc_bert_mean,
+            enc_std_path=self.config.data.enc_bert_std,
+        )
+        self.encoder_cond = BertEncoderModel.from_pretrained(
+            "./lm_training/checkpoints/bert/",
+            enc_normalizer=self.bert_enc_normalizer
+        ).eval().cuda()
 
         # Encoder for generation
 
@@ -120,7 +121,8 @@ class DiffusionRunner:
             enc_std_path=self.config.data.enc_bert_std,
         )
         self.encoder_gen = BertEncoderModel.from_pretrained(
-            bert_cfg, enc_normalizer=self.gen_enc_normalizer
+            "./lm_training/checkpoints/bert/",
+            enc_normalizer=self.gen_enc_normalizer
         ).eval().cuda()
 
         # bert_cfg = "bert-base-uncased"

@@ -36,19 +36,23 @@ def create_config():
     training.training_iters = 500_000
     training.training_iters = training.training_iters
     training.checkpoint_freq = 100_000
-    training.eval_freq = 10
+    training.eval_freq = 5_000
     training.batch_size = 512 // torch.cuda.device_count()
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 128
     data.num_workers = 16
+    data.bert_recon_dataset = True
 
     model = config.model = ml_collections.ConfigDict()
     model.mlm_probability = 0.15
-    model.pad_to_multiple_of = 3
+    model.pad_to_multiple_of = None
+
+    bert_config = config.bert_config = ml_collections.ConfigDict()
+    bert_config.hidden_size = 768
 
     config.project_name = "lm-training"
-    config.exp_name = "bert-training"
+    config.exp_name = f"bert-training-{bert_config.hidden_size}"
     config.seed = 0
 
     return config
@@ -108,7 +112,7 @@ def main():
         val_check_interval=config.training.eval_freq,
         check_val_every_n_epoch=None
     )
-    model = BERTModel.load_from_checkpoint(checkpoint_path="./checkpoints/bert-step_500000.ckpt", config=config)
+    model = BERTModel(config) #.load_from_checkpoint(checkpoint_path="./checkpoints/bert-step_500000.ckpt", config=config)
     trainer.fit(model, datamodule=datamodule)
 
 

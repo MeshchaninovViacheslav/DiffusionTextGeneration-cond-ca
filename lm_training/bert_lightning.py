@@ -10,13 +10,24 @@ from torch import FloatTensor, Tensor
 
 from lm_training.util import calc_model_grads_norm
 
+import torch.distributed as dist
+
+
+def update_bert_config(bert_config, config):
+    for key in config.bert_config:
+        bert_config.__dict__[key] = config.bert_config[key]
+    return bert_config
+
 
 class BERTModel(L.LightningModule):
     def __init__(self, config):
         super(BERTModel, self).__init__()
         # Model Architecture
         self.config = config
-        self.bert_config = AutoConfig.from_pretrained("bert-base-uncased")
+        self.bert_config = update_bert_config(
+            bert_config=AutoConfig.from_pretrained("bert-base-uncased"),
+            config=config
+        )
         self.model = BertForMaskedLM(self.bert_config)
 
     def recon_loss(self, inputs, outputs, mask=None):
@@ -58,7 +69,18 @@ class BERTModel(L.LightningModule):
         self.log_dict(logs, is_train=True, sync_dist=True)
         return {'loss': loss}
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch, batch_idx, dataloader_idx=0):
+        # if dist.get_rank() == 0:
+        #     print("idx", dataloader_idx)
+        #     print("batch", batch)
+        if dataloader_idx == 0:
+            return self.validation_step_mask(batch)
+        elif dataloader_idx == 1:
+            return self.validation_step_clean(batch)
+        else:
+            raise Exception()
+
+    def validation_step_mask(self, batch):
         target = batch["labels"]
 
         logits = self.forward({
@@ -67,9 +89,23 @@ class BERTModel(L.LightningModule):
         })
         loss = self.get_loss(logits, target)
 
-        logs = {'loss': loss}
+        logs = {'loss_mask': loss}
         self.log_dict(logs, is_train=False, sync_dist=True)
-        return {'loss': loss}
+        return {"loss_mask": loss}
+
+    def validation_step_clean(self, batch):
+        target = batch["input_ids"]
+        mask = batch["attention_mask"]
+
+        logits = self.forward({
+            "input_ids": batch["input_ids"],
+            "attention_mask": batch["attention_mask"]
+        })
+        loss = self.recon_loss(logits, target, mask)
+
+        logs = {'loss_clean': loss}
+        self.log_dict(logs, is_train=False, sync_dist=True)
+        return {"loss_clean": loss}
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(

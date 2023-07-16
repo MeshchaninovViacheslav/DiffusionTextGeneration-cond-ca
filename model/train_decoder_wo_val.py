@@ -11,6 +11,8 @@ import sys
 sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
 
 from data.create_dataset import create_rocstory_dataset, create_wiki_dataset
+from data.dataset_clean_wiki import WikipediaCleanDatasetUnconditional
+
 from utils.util import dict_to_cuda
 
 from model.bert_encoder import BertEncoderModel
@@ -18,7 +20,6 @@ from model.t5_encoder import T5EncoderModel
 from model.roberta_encoder import RobertaEncoderModel
 from model.electra_encoder import ElectraEncoderModel
 from model.emb_encoder import EmbEncoderModel
-
 from model.decoder import Decoder
 
 
@@ -42,7 +43,14 @@ def reconstruction_loss(target, prediction_scores, mask):
 def train(encoder, decoder, tokenizer, tokenizer_gen):
     max_sequence_len = 128
     batch_size = 512
-    train_dataset = create_wiki_dataset()
+    # train_dataset = create_wiki_dataset()
+
+    train_dataset = next(WikipediaCleanDatasetUnconditional(
+        split="train",
+        tokenizer=tokenizer,
+        max_sequence_len=max_sequence_len,
+    ).get_data())
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -54,7 +62,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
         decoder.parameters(),
         lr=5e-3,
         # weight_decay=0.01,
-        #eps=1e-6,
+        # eps=1e-6,
         betas=(0.9, 0.98),
     )
 
@@ -145,11 +153,11 @@ def main():
     cfg = "bert-base-uncased"
     tokenizer_gen = BertTokenizerFast.from_pretrained(cfg)
     encoder = BertEncoderModel.from_pretrained(
-        "./lm_training/checkpoints/bert/",
+        "./lm_training/checkpoints/bert-training-768/bert/",
         enc_normalizer=None
     ).eval().cuda()
 
-    decoder = Decoder(hidden_size=encoder.config.hidden_size, vocab_size=encoder.config.vocab_size).train().cuda()
+    decoder = encoder.cls.train() #Decoder(hidden_size=encoder.config.hidden_size, vocab_size=encoder.config.vocab_size).train().cuda()
 
     wandb.init(project="decoders", name="my_bert-768", mode="online")
     train(encoder, decoder, tokenizer, tokenizer_gen)

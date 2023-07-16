@@ -6,6 +6,7 @@ import lightning as L
 from torch.utils.data import DataLoader
 
 from data.dataset_clean_wiki import WikipediaCleanDatasetUnconditional
+from data.dataset_wiki import WikipediaDatasetUnconditional
 
 
 class WikiDataModule(L.LightningDataModule):
@@ -18,7 +19,7 @@ class WikiDataModule(L.LightningDataModule):
         self.num_workers = config.data.num_workers
         self.bert_recon_dataset = config.data.bert_recon_dataset
 
-        self.train_dataset_iter = WikipediaCleanDatasetUnconditional(
+        self.train_dataset_iter = WikipediaDatasetUnconditional(
             split="train",
             tokenizer=tokenizer,
             max_sequence_len=self.max_sequence_len,

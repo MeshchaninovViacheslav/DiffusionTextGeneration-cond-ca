@@ -71,7 +71,7 @@ class WikipediaDatasetUnconditional:
                 yield self.load_data(name_dt)
         if self.split == "train":
             list_of_datasets = [
-                f"/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128-text/train/data-{i:05d}-of-00004.arrow"
+                f"/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128-text/train/data-{i:05d}-of-00008.arrow"
                 for i in range(8)]
             for name_dt in cycle(list_of_datasets):
                 yield self.load_data(name_dt)

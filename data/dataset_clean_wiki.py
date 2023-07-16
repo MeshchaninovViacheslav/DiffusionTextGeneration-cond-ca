@@ -74,36 +74,22 @@ def conditional_preprocessing_wiki_text(
     cond_ids = element["input_ids"][:delimeter_pos]
     input_ids = element["input_ids"][delimeter_pos:]
 
-    add_special_tokens = True
-    padding = True
-
     cond_ = tokenizer_cond.encode_plus(
         text=tokenizer_bert.decode(cond_ids, skip_special_tokens=True),
-        add_special_tokens=add_special_tokens,
-        padding=padding,
+        add_special_tokens=True,
+        padding="max_length",
         truncation=True,
         max_length=max_sequence_len,
     )
-
-    # cond_ = tokenizer_cond(
-    #     text=tokenizer_bert.decode(cond_ids, skip_special_tokens=True),
-    #     add_special_tokens=add_special_tokens,
-    #     padding=padding,
-    # )
 
     input_ = tokenizer_gen.encode_plus(
         text=tokenizer_bert.decode(input_ids, skip_special_tokens=True),
-        add_special_tokens=add_special_tokens,
-        padding=padding,
+        add_special_tokens=True,
+        padding="max_length",
         truncation=True,
         max_length=max_sequence_len,
     )
-
-    # input_ = tokenizer_gen(
-    #     text=tokenizer_bert.decode(input_ids, skip_special_tokens=True),
-    #     add_special_tokens=add_special_tokens,
-    #     padding=padding,
-    # )
+    #print(len(input_["input_ids"]))
 
     output = {
         "input_ids": input_["input_ids"],

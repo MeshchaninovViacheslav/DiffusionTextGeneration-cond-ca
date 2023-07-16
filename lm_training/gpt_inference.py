@@ -53,7 +53,7 @@ def create_config():
     config.dataset_name = "wikipedia-clean"
     config.num_beams = 1
     config.seed = 0
-    config.hg_pretrain = False
+    config.hg_pretrain = True
 
     return config
 

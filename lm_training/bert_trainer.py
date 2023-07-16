@@ -45,14 +45,14 @@ def create_config():
     data.bert_recon_dataset = True
 
     model = config.model = ml_collections.ConfigDict()
-    model.mlm_probability = 0.15
+    model.mlm_probability = 0.25
     model.pad_to_multiple_of = None
 
     bert_config = config.bert_config = ml_collections.ConfigDict()
     bert_config.hidden_size = 768
 
     config.project_name = "lm-training"
-    config.exp_name = f"bert-training-{bert_config.hidden_size}"
+    config.exp_name = f"bert-training-{bert_config.hidden_size}-{model.mlm_probability}"
     config.seed = 0
 
     return config

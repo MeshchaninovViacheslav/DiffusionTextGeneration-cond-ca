@@ -20,14 +20,16 @@ def update_bert_config(bert_config, config):
 
 
 class BERTModel(L.LightningModule):
-    def __init__(self, config):
+    def __init__(self, config, *args, **kwargs):
         super(BERTModel, self).__init__()
         # Model Architecture
         self.config = config
-        self.bert_config = update_bert_config(
-            bert_config=AutoConfig.from_pretrained("bert-base-uncased"),
-            config=config
-        )
+        self.bert_config = AutoConfig.from_pretrained("bert-base-uncased"),
+        if config is not None:
+            self.bert_config = update_bert_config(
+                bert_config=AutoConfig.from_pretrained("bert-base-uncased"),
+                config=config
+            )
         self.model = BertForMaskedLM(self.bert_config)
 
     def recon_loss(self, inputs, outputs, mask=None):

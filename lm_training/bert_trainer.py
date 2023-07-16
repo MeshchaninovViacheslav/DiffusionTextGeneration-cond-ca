@@ -23,8 +23,8 @@ def create_config():
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 5.
     optim.linear_warmup = 5000
-    optim.lr = 2e-4
-    optim.min_lr = 1e-4
+    optim.lr = 0.#2e-4
+    optim.min_lr = 0.#1e-4
     optim.warmup_lr = 1e-8
     optim.weight_decay = 0.01
     optim.beta_1 = 0.9
@@ -36,7 +36,7 @@ def create_config():
     training.training_iters = 500_000
     training.training_iters = training.training_iters
     training.checkpoint_freq = 100_000
-    training.eval_freq = 5_000
+    training.eval_freq = 1_000
     training.batch_size = 512 // torch.cuda.device_count()
 
     data = config.data = ml_collections.ConfigDict()
@@ -45,7 +45,7 @@ def create_config():
     data.bert_recon_dataset = True
 
     model = config.model = ml_collections.ConfigDict()
-    model.mlm_probability = 0.25
+    model.mlm_probability = 0.15
     model.pad_to_multiple_of = None
 
     bert_config = config.bert_config = ml_collections.ConfigDict()
@@ -54,6 +54,7 @@ def create_config():
     config.project_name = "lm-training"
     config.exp_name = f"bert-training-{bert_config.hidden_size}-{model.mlm_probability}"
     config.seed = 0
+    config.hg_pretrain = False
 
     return config
 
@@ -86,7 +87,7 @@ def main():
 
     trainer = Trainer(
         max_steps=config.training.training_iters,
-        log_every_n_steps=50,
+        log_every_n_steps=1,
         reload_dataloaders_every_n_epochs=1,
         gradient_clip_algorithm="norm",
         gradient_clip_val=config.optim.grad_clip_norm,

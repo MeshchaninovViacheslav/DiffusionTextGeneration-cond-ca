@@ -31,6 +31,9 @@ class BERTModel(L.LightningModule):
                 config=config
             )
         self.model = BertForMaskedLM(self.bert_config)
+        if config.hg_pretrain:
+            self.model = BertForMaskedLM.from_pretrained("bert-base-uncased")
+
 
     def recon_loss(self, inputs, outputs, mask=None):
         if mask is None:

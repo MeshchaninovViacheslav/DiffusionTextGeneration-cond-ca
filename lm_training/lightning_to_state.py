@@ -8,6 +8,7 @@ import ml_collections
 
 from lm_training.bert_lightning import BERTModel
 
+
 def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
@@ -44,20 +45,23 @@ def create_config():
     config.project_name = "lm-training"
     config.exp_name = f"bert-training-{bert_config.hidden_size}"
     config.seed = 0
+    config.hg_pretrain = False
 
     return config
 
+
 config = create_config()
+
+path_dir = "./checkpoints/bert-training-768-0.15-3/"
 
 bert = BERTModel.load_from_checkpoint(
     config=config,
-    checkpoint_path="./checkpoints/bert-training-768/step_500000.ckpt"
+    checkpoint_path=f"{path_dir}/step_300000.ckpt"
 )
 
-#torch.save(bert.model.state_dict(), "../checkpoints/my_bert_pretrain.ckpt")
+# torch.save(bert.model.state_dict(), "../checkpoints/my_bert_pretrain.ckpt")
 
-path_dir = "./checkpoints/bert-training-768/bert/"
 
-os.makedirs(path_dir, exist_ok=True)
+os.makedirs(f"{path_dir}/bert/", exist_ok=True)
 
-bert.model.save_pretrained(path_dir)
+bert.model.save_pretrained(f"{path_dir}/bert/")

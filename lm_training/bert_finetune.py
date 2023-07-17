@@ -10,7 +10,7 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.strategies.ddp import DDPStrategy
 from lightning import seed_everything, Trainer
 
-from lm_training.dataset_lightning import WikiDataModule
+from lm_training.dataset_lightning import WikiDataModule, SSTDataModule
 from lm_training.bert_lightning import BERTModel
 
 import os
@@ -21,10 +21,10 @@ os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = 'true'
 def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
-    optim.grad_clip_norm = 5.
+    optim.grad_clip_norm = 100.
     optim.linear_warmup = 5000
-    optim.lr = 1e-4
-    optim.min_lr = 1e-4
+    optim.lr = 5e-5
+    optim.min_lr = 5e-5
     optim.warmup_lr = 1e-8
     optim.weight_decay = 0.01
     optim.beta_1 = 0.9
@@ -33,11 +33,11 @@ def create_config():
     optim.precision = "16"
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 500_000
+    training.training_iters = 50_000
     training.training_iters = training.training_iters
     training.checkpoint_freq = 100_000
-    training.eval_freq = 1_000
-    training.batch_size = 512 // torch.cuda.device_count()
+    training.eval_freq = 100
+    training.batch_size = 128 // torch.cuda.device_count()
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 128
@@ -52,10 +52,10 @@ def create_config():
     bert_config.hidden_size = 768
 
     config.project_name = "lm-training"
-    config.exp_name = f"bert-training-{bert_config.hidden_size}-{model.mlm_probability}-{model.pad_to_multiple_of}"
+    config.exp_name = f"bert-finetune-{bert_config.hidden_size}-{model.mlm_probability}-{model.pad_to_multiple_of}"
     config.seed = 0
     config.hg_pretrain = False
-    config.finetune = False
+    config.finetune = True
 
     return config
 
@@ -66,17 +66,10 @@ def main():
 
     tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
 
-    data_collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer,
-        mlm=True,
-        mlm_probability=config.model.mlm_probability,
-        pad_to_multiple_of=config.model.pad_to_multiple_of,
-    )
-
-    datamodule = WikiDataModule(
+    datamodule = SSTDataModule(
         tokenizer=tokenizer,
         config=config,
-        collate_fn=data_collator,
+        collate_fn=None,
     )
 
     if torch.cuda.device_count() > 1:
@@ -114,7 +107,11 @@ def main():
         val_check_interval=config.training.eval_freq,
         check_val_every_n_epoch=None
     )
-    model = BERTModel(config) #.load_from_checkpoint(checkpoint_path="./checkpoints/bert-step_500000.ckpt", config=config)
+    model = BERTModel.load_from_checkpoint(
+        checkpoint_path="./checkpoints/bert-training-768-0.15-3/step_400000.ckpt",
+        config=config
+    )
+
     trainer.fit(model, datamodule=datamodule)
 
 

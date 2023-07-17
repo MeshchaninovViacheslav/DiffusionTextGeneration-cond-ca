@@ -8,7 +8,7 @@ from timm.scheduler.cosine_lr import CosineLRScheduler
 from typing import Dict, Any
 from torch import FloatTensor, Tensor
 
-from lm_training.util import calc_model_grads_norm
+from lm_training.util import calc_model_grads_norm, MyAccuracy
 
 import torch.distributed as dist
 
@@ -34,13 +34,16 @@ class BERTModel(L.LightningModule):
         if config.hg_pretrain:
             self.model = BertForMaskedLM.from_pretrained("bert-base-uncased")
 
+        self.finetune = config.finetune
+        self.accuracy = MyAccuracy()
 
     def recon_loss(self, inputs, outputs, mask=None):
         if mask is None:
             mask = torch.ones(
-                (inputs.shape[0], inputs.shape[1]),
+                inputs.shape[:-1],
                 requires_grad=False,
                 dtype=torch.int64,
+                device=inputs.device,
             )
 
         losses = cross_entropy(
@@ -62,6 +65,9 @@ class BERTModel(L.LightningModule):
         return logits
 
     def training_step(self, batch):
+        if self.finetune:
+            return self.finetune_step(batch)
+
         target = batch["labels"]
 
         logits = self.forward({
@@ -74,16 +80,60 @@ class BERTModel(L.LightningModule):
         self.log_dict(logs, is_train=True, sync_dist=True)
         return {'loss': loss}
 
+    def finetune_step(self, batch):
+        target = batch["input_ids"]
+
+        logits = self.forward({
+            "input_ids": batch["cond_ids"],
+            "attention_mask": batch["cond_mask"],
+        })
+
+        target = target[..., 1]
+        logits = logits[:, 0]
+        loss = self.recon_loss(logits, target)
+        logs = {'sst_loss': loss}
+        self.log_dict(logs, is_train=True, sync_dist=True)
+        return {'loss': loss}
+
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
-        # if dist.get_rank() == 0:
-        #     print("idx", dataloader_idx)
-        #     print("batch", batch)
+        if self.finetune:
+            return self.validation_fn_step(batch)
         if dataloader_idx == 0:
             return self.validation_step_mask(batch)
         elif dataloader_idx == 1:
             return self.validation_step_clean(batch)
         else:
             raise Exception()
+
+    def validation_fn_step(self, batch):
+        target = batch["input_ids"]
+
+        logits = self.forward({
+            "input_ids": batch["cond_ids"],
+            "attention_mask": batch["cond_mask"],
+        })
+
+        target = target[..., 1]
+        logits = logits[:, 0]
+        loss = self.recon_loss(logits, target)
+
+        positive_ind = 2748
+        negative_ind = 2053
+
+        positive_proba = logits[:, positive_ind]
+        negative_proba = logits[:, negative_ind]
+
+        label = torch.where(
+            negative_proba < positive_proba,
+            positive_ind,
+            negative_ind
+        )
+
+        accuracy = self.accuracy(label, target)
+
+        logs = {'sst_accuracy': accuracy, 'sst_loss': loss}
+        self.log_dict(logs, is_train=False, sync_dist=True, on_epoch=True, on_step=False)
+        return logs
 
     def validation_step_mask(self, batch):
         target = batch["labels"]
@@ -149,3 +199,6 @@ class BERTModel(L.LightningModule):
     def on_before_optimizer_step(self, *args, **kwargs) -> None:
         self.logger.log_metrics({'model/grads_norm': calc_model_grads_norm(self.model)})
         return super().on_before_optimizer_step(*args, **kwargs)
+
+    def on_validation_epoch_start(self) -> None:
+        self.accuracy = MyAccuracy().to(device=self.device)

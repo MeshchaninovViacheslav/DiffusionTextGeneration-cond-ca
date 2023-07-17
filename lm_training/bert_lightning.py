@@ -35,8 +35,8 @@ class BERTModel(L.LightningModule):
 
         if config.hg_pretrain:
             self.model = BertForMaskedLM.from_pretrained("bert-base-uncased")
-        if self.finetune:
-            self.model.cls = torch.nn.Linear(768, 1)
+        # if self.finetune:
+        #     self.model.cls = torch.nn.Linear(self.bert_config.hidden_size, 1)
 
         self.accuracy = MyAccuracy()
 

@@ -24,8 +24,8 @@ def create_config():
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 100.
     optim.linear_warmup = 1250
-    optim.lr = 2e-5
-    optim.min_lr = 2e-5
+    optim.lr = 1e-5
+    optim.min_lr = 1e-5
     optim.warmup_lr = 1e-8
     optim.weight_decay = 0.1
     optim.beta_1 = 0.9
@@ -34,7 +34,7 @@ def create_config():
     optim.precision = "32"
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 2_000
+    training.training_iters = 10_000
     training.training_iters = training.training_iters
     training.checkpoint_freq = 2000
     training.eval_freq = 100
@@ -53,9 +53,9 @@ def create_config():
     bert_config.hidden_size = 768
 
     config.project_name = "lm-training"
-    config.exp_name = f"bert-finetune-{bert_config.hidden_size}-{model.mlm_probability}-{model.pad_to_multiple_of}-hg"
+    config.exp_name = f"bert-finetune-{bert_config.hidden_size}-{model.mlm_probability}-{model.pad_to_multiple_of}"
     config.seed = 47
-    config.hg_pretrain = True
+    config.hg_pretrain = False
     config.finetune = True
 
     return config
@@ -110,10 +110,12 @@ def main():
         val_check_interval=config.training.eval_freq,
         check_val_every_n_epoch=None
     )
+    # model = BERTModel(config)
     model = BERTModel.load_from_checkpoint(
         checkpoint_path="./checkpoints/bert-training-768-0.15-3/step_500000.ckpt",
         config=config
     )
+    model.model.cls = torch.nn.Linear(config.bert_config.hidden_size, 1)
     trainer.fit(model, datamodule=datamodule)
 
     # model = BERTModel.load_from_checkpoint(

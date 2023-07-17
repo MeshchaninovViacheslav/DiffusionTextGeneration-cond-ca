@@ -82,15 +82,24 @@ class BERTModel(L.LightningModule):
 
     def finetune_step(self, batch):
         target = batch["input_ids"]
+        target = target[:, 0]
+
+        positive_ind = 2748
+        negative_ind = 2053
+
+        target = torch.where(
+            target == positive_ind,
+            1,
+            0
+        ).long()
 
         logits = self.forward({
             "input_ids": batch["cond_ids"],
             "attention_mask": batch["cond_mask"],
         })
 
-        target = target[..., 1]
-        logits = logits[:, 0]
-        loss = self.recon_loss(logits, target)
+        logits = logits[:, 0].reshape(-1)
+        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, target)
         logs = {'sst_loss': loss}
         self.log_dict(logs, is_train=True, sync_dist=True)
         return {'loss': loss}
@@ -107,27 +116,29 @@ class BERTModel(L.LightningModule):
 
     def validation_fn_step(self, batch):
         target = batch["input_ids"]
+        target = target[:, 0]
+
+        positive_ind = 2748
+        negative_ind = 2053
+
+        target = torch.where(
+            target == positive_ind,
+            1,
+            0
+        ).long()
 
         logits = self.forward({
             "input_ids": batch["cond_ids"],
             "attention_mask": batch["cond_mask"],
         })
+        logits = torch.sigmoid(logits[:, 0].reshape(-1))
 
-        target = target[..., 1]
-        logits = logits[:, 0]
-        loss = self.recon_loss(logits, target)
+        print(logits.type(), target.type())
+        print(logits, target)
 
-        positive_ind = 2748
-        negative_ind = 2053
+        loss = torch.nn.functional.binary_cross_entropy(logits, target.long())
 
-        positive_proba = logits[:, positive_ind]
-        negative_proba = logits[:, negative_ind]
-
-        label = torch.where(
-            negative_proba < positive_proba,
-            positive_ind,
-            negative_ind
-        )
+        label = (logits < 0.5).float()
 
         accuracy = self.accuracy(label, target)
 

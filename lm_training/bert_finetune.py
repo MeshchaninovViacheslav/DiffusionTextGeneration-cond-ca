@@ -30,7 +30,7 @@ def create_config():
     optim.beta_1 = 0.9
     optim.beta_2 = 0.98
     optim.eps = 1e-6
-    optim.precision = "16"
+    optim.precision = "32"
 
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 50_000
@@ -51,7 +51,7 @@ def create_config():
     bert_config = config.bert_config = ml_collections.ConfigDict()
     bert_config.hidden_size = 768
 
-    config.project_name = "lm-training"
+    config.project_name = "test"  # "lm-training"
     config.exp_name = f"bert-finetune-{bert_config.hidden_size}-{model.mlm_probability}-{model.pad_to_multiple_of}"
     config.seed = 0
     config.hg_pretrain = False
@@ -111,7 +111,7 @@ def main():
         checkpoint_path="./checkpoints/bert-training-768-0.15-3/step_400000.ckpt",
         config=config
     )
-
+    model.model.cls = torch.nn.Linear(768, 1)
     trainer.fit(model, datamodule=datamodule)
 
 

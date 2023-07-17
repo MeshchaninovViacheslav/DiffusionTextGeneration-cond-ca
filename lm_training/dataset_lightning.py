@@ -43,6 +43,7 @@ class WikiDataModule(L.LightningDataModule):
             batch_size=self.batch_size,
             collate_fn=self.collate_fn,
             num_workers=self.num_workers,
+            shuffle=True,
         )
 
     def val_dataloader(self):
@@ -95,6 +96,14 @@ class SSTDataModule(L.LightningDataModule):
             max_sequence_len=self.max_sequence_len,
         ).get_data())
 
+        self.test_dataset = next(SST2Dataset(
+            split="test",
+            tokenizer_bert=tokenizer,
+            tokenizer_cond=tokenizer,
+            tokenizer_gen=tokenizer,
+            max_sequence_len=self.max_sequence_len,
+        ).get_data())
+
     def train_update(self):
         self.train_dataset = self.train_dataset
 
@@ -104,6 +113,7 @@ class SSTDataModule(L.LightningDataModule):
             dataset=self.train_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
+            shuffle=True,
         )
 
     def val_dataloader(self):
@@ -115,3 +125,13 @@ class SSTDataModule(L.LightningDataModule):
             )
         }
         return loaders
+
+    def predict_dataloader(self):
+        loader = DataLoader(
+            dataset=self.test_dataset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+        )
+        return loader
+
+

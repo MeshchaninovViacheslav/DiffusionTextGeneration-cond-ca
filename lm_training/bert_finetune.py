@@ -12,6 +12,7 @@ from lightning import seed_everything, Trainer
 
 from lm_training.dataset_lightning import WikiDataModule, SSTDataModule
 from lm_training.bert_lightning import BERTModel
+from lm_training.util import Writer
 
 import os
 
@@ -22,22 +23,22 @@ def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 100.
-    optim.linear_warmup = 5000
-    optim.lr = 5e-5
-    optim.min_lr = 5e-5
+    optim.linear_warmup = 1250
+    optim.lr = 2e-5
+    optim.min_lr = 2e-5
     optim.warmup_lr = 1e-8
-    optim.weight_decay = 0.01
+    optim.weight_decay = 0.1
     optim.beta_1 = 0.9
     optim.beta_2 = 0.98
     optim.eps = 1e-6
     optim.precision = "32"
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 50_000
+    training.training_iters = 2_000
     training.training_iters = training.training_iters
-    training.checkpoint_freq = 100_000
+    training.checkpoint_freq = 2000
     training.eval_freq = 100
-    training.batch_size = 128 // torch.cuda.device_count()
+    training.batch_size = 32 // torch.cuda.device_count()
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 128
@@ -51,10 +52,10 @@ def create_config():
     bert_config = config.bert_config = ml_collections.ConfigDict()
     bert_config.hidden_size = 768
 
-    config.project_name = "test"  # "lm-training"
-    config.exp_name = f"bert-finetune-{bert_config.hidden_size}-{model.mlm_probability}-{model.pad_to_multiple_of}"
-    config.seed = 0
-    config.hg_pretrain = False
+    config.project_name = "lm-training"
+    config.exp_name = f"bert-finetune-{bert_config.hidden_size}-{model.mlm_probability}-{model.pad_to_multiple_of}-hg"
+    config.seed = 47
+    config.hg_pretrain = True
     config.finetune = True
 
     return config
@@ -98,6 +99,8 @@ def main():
                 save_weights_only=False
             ),
             LearningRateMonitor(logging_interval='step'),
+            Writer(output_dir="pred_path", write_interval="epoch"),
+
         ],
         logger=WandbLogger(
             project=config.project_name,
@@ -108,11 +111,17 @@ def main():
         check_val_every_n_epoch=None
     )
     model = BERTModel.load_from_checkpoint(
-        checkpoint_path="./checkpoints/bert-training-768-0.15-3/step_400000.ckpt",
+        checkpoint_path="./checkpoints/bert-training-768-0.15-3/step_500000.ckpt",
         config=config
     )
-    model.model.cls = torch.nn.Linear(768, 1)
     trainer.fit(model, datamodule=datamodule)
+
+    # model = BERTModel.load_from_checkpoint(
+    #     checkpoint_path="./checkpoints/bert-finetune-768-0.15-3-hg/step_2000.ckpt",
+    #     config=config
+    # )
+    #
+    # trainer.predict(model, datamodule=datamodule)
 
 
 main()

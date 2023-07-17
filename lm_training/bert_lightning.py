@@ -24,6 +24,7 @@ class BERTModel(L.LightningModule):
         super(BERTModel, self).__init__()
         # Model Architecture
         self.config = config
+        self.finetune = config.finetune
         self.bert_config = AutoConfig.from_pretrained("bert-base-uncased"),
         if config is not None:
             self.bert_config = update_bert_config(
@@ -31,10 +32,12 @@ class BERTModel(L.LightningModule):
                 config=config
             )
         self.model = BertForMaskedLM(self.bert_config)
+
         if config.hg_pretrain:
             self.model = BertForMaskedLM.from_pretrained("bert-base-uncased")
+        if self.finetune:
+            self.model.cls = torch.nn.Linear(768, 1)
 
-        self.finetune = config.finetune
         self.accuracy = MyAccuracy()
 
     def recon_loss(self, inputs, outputs, mask=None):
@@ -82,7 +85,7 @@ class BERTModel(L.LightningModule):
 
     def finetune_step(self, batch):
         target = batch["input_ids"]
-        target = target[:, 0]
+        target = target[:, 1]
 
         positive_ind = 2748
         negative_ind = 2053
@@ -91,7 +94,7 @@ class BERTModel(L.LightningModule):
             target == positive_ind,
             1,
             0
-        ).long()
+        ).float()
 
         logits = self.forward({
             "input_ids": batch["cond_ids"],
@@ -116,7 +119,7 @@ class BERTModel(L.LightningModule):
 
     def validation_fn_step(self, batch):
         target = batch["input_ids"]
-        target = target[:, 0]
+        target = target[:, 1]
 
         positive_ind = 2748
         negative_ind = 2053
@@ -125,20 +128,17 @@ class BERTModel(L.LightningModule):
             target == positive_ind,
             1,
             0
-        ).long()
+        ).float()
 
         logits = self.forward({
             "input_ids": batch["cond_ids"],
             "attention_mask": batch["cond_mask"],
         })
-        logits = torch.sigmoid(logits[:, 0].reshape(-1))
+        logits = logits[:, 0].reshape(-1)
 
-        print(logits.type(), target.type())
-        print(logits, target)
+        loss = torch.nn.functional.binary_cross_entropy_with_logits(logits, target)
 
-        loss = torch.nn.functional.binary_cross_entropy(logits, target.long())
-
-        label = (logits < 0.5).float()
+        label = (torch.sigmoid(logits) > 0.5).float()
 
         accuracy = self.accuracy(label, target)
 
@@ -213,3 +213,12 @@ class BERTModel(L.LightningModule):
 
     def on_validation_epoch_start(self) -> None:
         self.accuracy = MyAccuracy().to(device=self.device)
+
+    def predict_step(self, batch, batch_idx):
+        logits = self.forward({
+            "input_ids": batch["cond_ids"],
+            "attention_mask": batch["cond_mask"],
+        })
+        logits = logits[:, 0].reshape(-1)
+        label = (torch.sigmoid(logits) > 0.5).float()
+        return label.tolist()

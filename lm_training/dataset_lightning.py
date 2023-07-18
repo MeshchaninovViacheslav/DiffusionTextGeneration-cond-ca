@@ -89,7 +89,7 @@ class SSTDataModule(L.LightningDataModule):
         ).get_data())
 
         self.valid_dataset = next(SST2Dataset(
-            split="test",
+            split="valid",
             tokenizer_bert=tokenizer,
             tokenizer_cond=tokenizer,
             tokenizer_gen=tokenizer,

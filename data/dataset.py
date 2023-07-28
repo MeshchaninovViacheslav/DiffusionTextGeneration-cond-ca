@@ -111,7 +111,7 @@ class WikipediaDatasetDDP:
         elif self.split == "train":
             list_of_datasets = [
                 f"/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128/train/data-{i:05d}-of-{self.number_of_datasets:05d}.arrow"
-                for i in range(8)]
+                for i in range(self.number_of_datasets)]
             ind = self.device_number
             while True:
                 yield self.load_data(list_of_datasets[ind])

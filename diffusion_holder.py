@@ -4,7 +4,7 @@ import wandb
 import numpy as np
 import torch.distributed as dist
 from ml_collections import ConfigDict
-from typing import Optional, Union, Dict
+from typing import Optional, Union, Dict, Tuple
 from tqdm.auto import trange
 from torch.utils.data import DataLoader
 from transformers import BertTokenizerFast, T5TokenizerFast, RobertaTokenizerFast, ElectraTokenizerFast
@@ -71,26 +71,26 @@ class DiffusionRunner:
 
         # Encoder for condition
 
-        # t5_cfg = "t5-base"
-        # self.tokenizer_cond = T5TokenizerFast.from_pretrained(t5_cfg)
-        # self.t5_enc_normalizer = EncNormalizer(
-        #     enc_mean_path=self.config.data.enc_t5_mean,
-        #     enc_std_path=self.config.data.enc_t5_std,
-        # )
-        # self.encoder_cond = T5EncoderModel.from_pretrained(
-        #     t5_cfg, enc_normalizer=self.t5_enc_normalizer
-        # ).eval().cuda()
-
-        bert_cfg = "bert-base-uncased"
-        self.tokenizer_cond = BertTokenizerFast.from_pretrained(bert_cfg)
-        self.bert_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.enc_bert_mean,
-            enc_std_path=self.config.data.enc_bert_std,
+        t5_cfg = "t5-base"
+        self.tokenizer_cond = T5TokenizerFast.from_pretrained(t5_cfg)
+        self.t5_enc_normalizer = EncNormalizer(
+            enc_mean_path=self.config.data.enc_t5_mean,
+            enc_std_path=self.config.data.enc_t5_std,
         )
-        self.encoder_cond = BertEncoderModel.from_pretrained(
-            "./lm_training/checkpoints/bert/",
-            enc_normalizer=self.bert_enc_normalizer
+        self.encoder_cond = T5EncoderModel.from_pretrained(
+            t5_cfg, enc_normalizer=self.t5_enc_normalizer
         ).eval().cuda()
+
+        # bert_cfg = "bert-base-uncased"
+        # self.tokenizer_cond = BertTokenizerFast.from_pretrained(bert_cfg)
+        # self.bert_enc_normalizer = EncNormalizer(
+        #     enc_mean_path=self.config.data.enc_bert_mean,
+        #     enc_std_path=self.config.data.enc_bert_std,
+        # )
+        # self.encoder_cond = BertEncoderModel.from_pretrained(
+        #     config.model.my_bert_checkpoint,
+        #     enc_normalizer=self.bert_enc_normalizer
+        # ).eval().cuda()
 
         # Encoder for generation
 
@@ -121,7 +121,7 @@ class DiffusionRunner:
             enc_std_path=self.config.data.enc_bert_std,
         )
         self.encoder_gen = BertEncoderModel.from_pretrained(
-            "./lm_training/checkpoints/bert/",
+            config.model.my_bert_checkpoint,
             enc_normalizer=self.gen_enc_normalizer
         ).eval().cuda()
 
@@ -139,11 +139,11 @@ class DiffusionRunner:
         bert_cfg = "bert-base-uncased"
         self.tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
 
-        self.decoder = Decoder(
-            hidden_size=self.encoder_gen.config.hidden_size,
-            vocab_size=self.encoder_gen.config.vocab_size
-        )
-        # self.decoder = self.encoder_gen.cls.cpu()
+        # self.decoder = Decoder(
+        #     hidden_size=self.encoder_gen.config.hidden_size,
+        #     vocab_size=self.encoder_gen.config.vocab_size
+        # )
+        self.decoder = self.encoder_gen.cls.cpu()
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 
@@ -198,7 +198,7 @@ class DiffusionRunner:
             dataset_name=config.model.dataset,
             downstream_task=config.model.downstream_task
         )(
-            split="test",
+            split="valid",
             tokenizer_bert=self.tokenizer_bert,
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,
@@ -279,25 +279,25 @@ class DiffusionRunner:
         self.train_dataset = next(self.train_datasets_iter)
         print("Dataset length:", len(self.train_dataset))
 
-        if self.config.ddp:
-            num_tasks = dist.get_world_size()
-            global_rank = dist.get_rank()
-
-            sampler_train = torch.utils.data.DistributedSampler(
-                self.train_dataset,
-                num_replicas=num_tasks,
-                rank=global_rank,
-                shuffle=True,
-            )
-        else:
-            sampler_train = None
+        # if self.config.ddp:
+        #     num_tasks = dist.get_world_size()
+        #     global_rank = dist.get_rank()
+        #
+        #     sampler_train = torch.utils.data.DistributedSampler(
+        #         self.train_dataset,
+        #         num_replicas=num_tasks,
+        #         rank=global_rank,
+        #         shuffle=True,
+        #     )
+        # else:
+        #     sampler_train = None
 
         self.train_loader = DataLoader(
             self.train_dataset,
-            sampler=sampler_train,
             batch_size=self.config.training.batch_size_per_gpu,
-            num_workers=50,
+            num_workers=30,
             pin_memory=False,
+            shuffle=True,
         )
 
     def set_valid_data_generator(self) -> None:
@@ -316,7 +316,7 @@ class DiffusionRunner:
             self.valid_dataset,
             sampler=sampler_valid,
             batch_size=self.config.validation.batch_size,
-            num_workers=1,
+            num_workers=10,
             pin_memory=False,
         )
 
@@ -430,11 +430,17 @@ class DiffusionRunner:
                 requires_grad=False,
                 dtype=torch.int64,
             )
-        mask_SEP_CLS = make_mask_wo_SEP_CLS(mask)
-        mean = masked_mean(z, mask_SEP_CLS)
-        std = masked_std(z, mask_SEP_CLS)
-        norm = torch.sum(torch.norm(z, dim=2) * mask_SEP_CLS) / torch.sum(mask_SEP_CLS)
-        return torch.mean(mean), torch.mean(std), norm
+        else:
+            mask = make_mask_wo_SEP_CLS(mask)
+        mean = masked_mean(z, mask)
+        std = masked_std(z, mask)
+        norm = torch.sum(torch.norm(z, dim=2) * mask) / torch.sum(mask)
+        stat_dict = {
+            "mean": torch.mean(mean),
+            "std": torch.mean(std),
+            "norm": norm
+        }
+        return stat_dict
 
     def calc_loss(
             self,
@@ -442,7 +448,7 @@ class DiffusionRunner:
             cond=None,
             X=None,
             eps: float = 1e-5,
-    ) -> Dict[str, torch.Tensor]:
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         mask = None  # X["input_mask"]
 
         # Noizing
@@ -468,12 +474,8 @@ class DiffusionRunner:
         logits = self.pred_logits(pred_embeddings=x_0, input_ids=X["input_ids"])
         ce_loss = self.recon_loss(logits, X["input_ids"], mask)
 
-        # Statistics
-        params = self.sde.marginal_params_tensor(clean_x, t)
-        coef = 1 + torch.clip(params["std"] / params["alpha"], min=0, max=1000)
-
         if self.config.model.loss == "L_x_0":
-            loss = loss_x_0 #torch.mean(torch.mean(torch.square(clean_x - x_0), dim=[1, 2]) * coef)
+            loss = loss_x_0
         elif self.config.model.loss == "L_eps":
             loss = loss_eps
         elif self.config.model.loss == "L_score":
@@ -489,16 +491,24 @@ class DiffusionRunner:
             'accuracy': self.bert_acc(targets=X["input_ids"], outputs=logits, mask=mask)
         }
 
-        clean_x_mean, clean_x_std, clean_x_norm = self.get_stat(clean_x, mask)
-        x_0_mean, x_0_std, x_0_norm = self.get_stat(x_0, mask)
-        stat_dict = {
-            "clean_x_mean": clean_x_mean,
-            "clean_x_std": clean_x_std,
-            "clean_x_norm": clean_x_norm,
-            "x_0_mean": x_0_mean,
-            "x_0_std": x_0_std,
-            "x_0_norm": x_0_norm,
-        }
+        stat_dict = {}
+        clean_x_dict = self.get_stat(clean_x, mask)
+        for key in clean_x_dict:
+            stat_dict[f"clean_x_{key}"] = clean_x_dict[key]
+
+        x_0_dict = self.get_stat(x_0, mask)
+        for key in x_0_dict:
+            stat_dict[f"x_0_{key}"] = x_0_dict[key]
+
+        mask = X["input_mask"]
+        clean_x_dict_SPT = self.get_stat(clean_x, mask)
+        for key in clean_x_dict_SPT:
+            stat_dict[f"clean_x_woSPT_{key}"] = clean_x_dict_SPT[key]
+
+        x_0_dict_SPT = self.get_stat(x_0, mask)
+        for key in x_0_dict_SPT:
+            stat_dict[f"x_0_woSPT_{key}"] = x_0_dict_SPT[key]
+
         return loss_dict, stat_dict
 
     def train(

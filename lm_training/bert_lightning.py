@@ -1,11 +1,11 @@
 import torch
 import lightning as L
-from transformers import AutoConfig, AutoModelForMaskedLM
+from transformers import AutoConfig, AutoModelForMaskedLM, BertPreTrainedModel
 from torch.nn.functional import cross_entropy
 
 from timm.scheduler.cosine_lr import CosineLRScheduler
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from torch import FloatTensor, Tensor
 
 from lm_training.util import calc_model_grads_norm, MyAccuracy
@@ -17,6 +17,65 @@ def update_bert_config(bert_config, config):
     for key in config.bert_config:
         bert_config.__dict__[key] = config.bert_config[key]
     return bert_config
+
+
+class BertLMPredictionHead(torch.nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.transform = torch.nn.Sequential(
+            torch.nn.Linear(config.embedding_size, config.hidden_size),
+            torch.nn.GELU(),
+            torch.nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        )
+
+        # The output weights are the same as the input embeddings, but there is
+        # an output-only bias for each token.
+        self.decoder = torch.nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+
+        self.bias = torch.nn.Parameter(torch.zeros(config.vocab_size))
+
+        # Need a link between the two variables so that the bias is correctly resized with `resize_token_embeddings`
+        self.decoder.bias = self.bias
+
+    def forward(self, hidden_states):
+        hidden_states = self.transform(hidden_states)
+        hidden_states = self.decoder(hidden_states)
+        return hidden_states
+
+
+class BERT(BertPreTrainedModel):
+    def __init__(self, config):
+        super(BERT, self).__init__(config)
+
+        from transformers import BertModel
+
+        self.encoder = BertModel(config, add_pooling_layer=False)
+        self.projector = torch.nn.Linear(config.hidden_size, config.embedding_size)
+        self.cls = BertLMPredictionHead(config)
+
+        # Initialize weights and apply final processing
+        self.post_init()
+
+    def forward(
+            self,
+            input_ids: Optional[torch.Tensor] = None,
+            attention_mask: Optional[torch.Tensor] = None,
+    ) -> Dict[str, torch.Tensor]:
+        return_dict = {}
+
+        outputs = self.encoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+        )[0]
+
+        return_dict["last_hidden_state"] = outputs
+
+        embeddings = self.projector(outputs)
+        return_dict["embeddings"] = embeddings
+
+        logits = self.cls(embeddings)
+        return_dict["logits"] = logits
+        return return_dict
 
 
 class BERTModel(L.LightningModule):
@@ -31,7 +90,10 @@ class BERTModel(L.LightningModule):
                 bert_config=AutoConfig.from_pretrained(config.model_name),
                 config=config
             )
-        self.model = AutoModelForMaskedLM.from_config(self.bert_config)
+        self.model = BERT(self.bert_config)
+        if self.bert_config.encoder_initialization is not None:
+            self.model.encoder.from_pretrained(self.bert_config.encoder_initialization)
+
         self.loss_type = config.loss_type
 
         if config.hg_pretrain:
@@ -50,7 +112,7 @@ class BERTModel(L.LightningModule):
                 device=inputs.device,
             )
 
-        #print("mask target", torch.sum(mask))
+        # print("mask target", torch.sum(mask))
         losses = cross_entropy(
             input=inputs.reshape(-1, inputs.shape[-1]),
             target=outputs.reshape(-1),
@@ -64,9 +126,9 @@ class BERTModel(L.LightningModule):
         if self.loss_type == "mlm":
             targets = batch["labels"]
             mask = (targets != -100).float()
-            #print("mask target", torch.mean(mask).item())
+            # print("mask target", torch.mean(mask).item())
             loss = self.recon_loss(logits, targets, mask)
-            #print("loss", loss)
+            # print("loss", loss)
             return loss
         elif self.loss_type == "denoising":
             mask = (batch["labels"] != -100).int()
@@ -79,7 +141,7 @@ class BERTModel(L.LightningModule):
 
     def forward(self, X):
         outputs = self.model(**X)
-        logits = outputs.logits
+        logits = outputs["logits"]
         return logits
 
     def training_step(self, batch):
@@ -91,7 +153,7 @@ class BERTModel(L.LightningModule):
         logits = self.forward({
             "input_ids": batch["input_ids"],
             "attention_mask": batch["attention_mask"],
-            "labels": target,
+            #"labels": target,
         })
         loss = self.get_loss(logits, batch)
 
@@ -191,7 +253,7 @@ class BERTModel(L.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
-            self.model.parameters(),
+            list(self.model.projector.parameters()) + list(self.model.cls.parameters()),#self.model.parameters(),
             lr=self.config.optim.lr,
             weight_decay=self.config.optim.weight_decay,
             betas=(self.config.optim.beta_1, self.config.optim.beta_2),

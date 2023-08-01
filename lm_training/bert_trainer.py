@@ -21,7 +21,7 @@ os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = 'true'
 def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
-    optim.grad_clip_norm = 5
+    optim.grad_clip_norm = None
     optim.linear_warmup = 5000
     optim.lr = 4e-4
     optim.min_lr = 4e-4
@@ -35,7 +35,7 @@ def create_config():
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 150_000
     training.checkpoint_freq = 10_000
-    training.eval_freq = 1000
+    training.eval_freq = 100
     training.batch_size = 2048 // torch.cuda.device_count()
 
     data = config.data = ml_collections.ConfigDict()
@@ -48,16 +48,19 @@ def create_config():
     model.pad_to_multiple_of = None
 
     bert_config = config.bert_config = ml_collections.ConfigDict()
-    bert_config.hidden_size = 120
+    bert_config.hidden_size = 768
+    bert_config.embedding_size = 120
+    bert_config.encoder_initialization = "./checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert/"
 
     config.project_name = "lm-training"
     config.exp_name = f"bert-training-" \
-                      f"{bert_config.hidden_size}-{model.mlm_probability}-{model.pad_to_multiple_of}-" \
-                      f"{training.batch_size * torch.cuda.device_count()}-wiki_no_group"
+                      f"{bert_config.hidden_size}-{bert_config.embedding_size}-{model.mlm_probability}-{model.pad_to_multiple_of}-" \
+                      f"{training.batch_size * torch.cuda.device_count()}-wiki_no_group-dec"
     config.seed = 0
     config.hg_pretrain = False
     config.finetune = False
     config.model_name = "bert-base-uncased"
+
     config.loss_type = "mlm"
 
     return config

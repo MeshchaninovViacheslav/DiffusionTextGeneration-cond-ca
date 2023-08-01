@@ -1,6 +1,6 @@
 import torch
 import lightning as L
-from transformers import AutoConfig, BertForMaskedLM
+from transformers import AutoConfig, AutoModelForMaskedLM
 from torch.nn.functional import cross_entropy
 
 from timm.scheduler.cosine_lr import CosineLRScheduler
@@ -25,16 +25,17 @@ class BERTModel(L.LightningModule):
         # Model Architecture
         self.config = config
         self.finetune = config.finetune
-        self.bert_config = AutoConfig.from_pretrained("bert-base-uncased"),
+        self.bert_config = AutoConfig.from_pretrained(config.model_name),
         if config is not None:
             self.bert_config = update_bert_config(
-                bert_config=AutoConfig.from_pretrained("bert-base-uncased"),
+                bert_config=AutoConfig.from_pretrained(config.model_name),
                 config=config
             )
-        self.model = BertForMaskedLM(self.bert_config)
+        self.model = AutoModelForMaskedLM.from_config(self.bert_config)
+        self.loss_type = config.loss_type
 
         if config.hg_pretrain:
-            self.model = BertForMaskedLM.from_pretrained("bert-base-uncased")
+            self.model = AutoModelForMaskedLM.from_pretrained(config.model_name)
         # if self.finetune:
         #     self.model.cls = torch.nn.Linear(self.bert_config.hidden_size, 1)
 
@@ -45,10 +46,11 @@ class BERTModel(L.LightningModule):
             mask = torch.ones(
                 inputs.shape[:-1],
                 requires_grad=False,
-                dtype=torch.int64,
+                dtype=torch.float,
                 device=inputs.device,
             )
 
+        #print("mask target", torch.sum(mask))
         losses = cross_entropy(
             input=inputs.reshape(-1, inputs.shape[-1]),
             target=outputs.reshape(-1),
@@ -58,13 +60,26 @@ class BERTModel(L.LightningModule):
         loss = torch.sum(losses) / torch.sum(mask)
         return loss
 
-    def get_loss(self, logits, targets):
-        mask = (targets != -100).float()
-        loss = self.recon_loss(logits, targets, mask)
-        return loss
+    def get_loss(self, logits, batch):
+        if self.loss_type == "mlm":
+            targets = batch["labels"]
+            mask = (targets != -100).float()
+            #print("mask target", torch.mean(mask).item())
+            loss = self.recon_loss(logits, targets, mask)
+            #print("loss", loss)
+            return loss
+        elif self.loss_type == "denoising":
+            mask = (batch["labels"] != -100).int()
+            targets = batch["labels"] * mask + batch["input_ids"] * (1 - mask)
+            mask = None
+            loss = self.recon_loss(logits, targets, mask)
+            return loss
+        else:
+            raise TypeError
 
     def forward(self, X):
-        logits = self.model(**X).logits
+        outputs = self.model(**X)
+        logits = outputs.logits
         return logits
 
     def training_step(self, batch):
@@ -76,10 +91,11 @@ class BERTModel(L.LightningModule):
         logits = self.forward({
             "input_ids": batch["input_ids"],
             "attention_mask": batch["attention_mask"],
+            "labels": target,
         })
-        loss = self.get_loss(logits, target)
+        loss = self.get_loss(logits, batch)
 
-        logs = {'loss': loss}
+        logs = {'loss': loss, "mask_percentage": torch.mean(batch["attention_mask"].float()).item()}
         self.log_dict(logs, is_train=True, sync_dist=True)
         return {'loss': loss}
 
@@ -153,7 +169,7 @@ class BERTModel(L.LightningModule):
             "input_ids": batch["input_ids"],
             "attention_mask": batch["attention_mask"]
         })
-        loss = self.get_loss(logits, target)
+        loss = self.get_loss(logits, batch)
 
         logs = {'loss_mask': loss}
         self.log_dict(logs, is_train=False, sync_dist=True)

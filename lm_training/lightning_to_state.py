@@ -45,18 +45,21 @@ def create_config():
     config.project_name = "lm-training"
     config.exp_name = f"bert-training-{bert_config.hidden_size}"
     config.seed = 0
+    config.finetune = False
     config.hg_pretrain = False
+    config.model_name = "bert-base-uncased"
+    config.loss_type = "denoising"
 
     return config
 
 
 config = create_config()
 
-path_dir = "./checkpoints/bert-training-768-0.15-3/"
+path_dir = "./checkpoints/bert-training-768-0.15-None-512-wiki_no_group+denoising/"
 
 bert = BERTModel.load_from_checkpoint(
     config=config,
-    checkpoint_path=f"{path_dir}/step_300000.ckpt"
+    checkpoint_path=f"{path_dir}/step_30000.ckpt"
 )
 
 # torch.save(bert.model.state_dict(), "../checkpoints/my_bert_pretrain.ckpt")

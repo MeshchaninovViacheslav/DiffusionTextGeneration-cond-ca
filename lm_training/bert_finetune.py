@@ -34,7 +34,7 @@ def create_config():
     optim.precision = "32"
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 310_000
+    training.training_iters = 50_000
     training.training_iters = training.training_iters
     training.checkpoint_freq = 1_000_000
     training.eval_freq = 100
@@ -52,11 +52,14 @@ def create_config():
     bert_config = config.bert_config = ml_collections.ConfigDict()
     bert_config.hidden_size = 768
 
-    config.project_name = "lm-training"
-    config.exp_name = f"bert-finetune-{bert_config.hidden_size}-{model.mlm_probability}-{model.pad_to_multiple_of}"
-    config.seed = 47
+    config.project_name = "lm-finetuning"
+    config.checkpoint_name = "bert-training-768-0.15-None-2048-wiki_no_group"
+    config.checkpoint_step = "130000"
+    config.seed = 0
     config.hg_pretrain = False
     config.finetune = True
+    config.model_name = "bert-base-uncased"
+    config.exp_name = f"bert-finetune-{config.checkpoint_name}-{config.checkpoint_step}-{config.seed}"
 
     return config
 
@@ -114,7 +117,7 @@ def main():
         model = BERTModel(config)
     else:
         model = BERTModel.load_from_checkpoint(
-            checkpoint_path="./checkpoints/bert-training-768-0.15-None/step_500000.ckpt",
+            checkpoint_path=f"./checkpoints/{config.checkpoint_name}/step_{config.checkpoint_step}.ckpt",
             config=config
         )
     model.model.cls = torch.nn.Linear(config.bert_config.hidden_size, 1)

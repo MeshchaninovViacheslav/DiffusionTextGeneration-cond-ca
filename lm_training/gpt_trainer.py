@@ -38,10 +38,12 @@ def create_config():
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 128
     data.num_workers = 16
+    data.bert_recon_dataset = False
 
     config.project_name = "lm-training"
-    config.exp_name = "gpt2-training"
+    config.exp_name = "gpt2-training-wiki"
     config.seed = 0
+    config.hg_pretrain = False
 
     return config
 

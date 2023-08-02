@@ -55,16 +55,19 @@ def create_config():
 
 config = create_config()
 
-path_dir = "./checkpoints/bert-training-768-0.15-None-512-wiki_no_group+denoising/"
+path_dir = "./checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/"
+step = 220000
 
 bert = BERTModel.load_from_checkpoint(
     config=config,
-    checkpoint_path=f"{path_dir}/step_30000.ckpt"
+    checkpoint_path=f"{path_dir}/step_{step}.ckpt"
 )
 
 # torch.save(bert.model.state_dict(), "../checkpoints/my_bert_pretrain.ckpt")
 
 
-os.makedirs(f"{path_dir}/bert/", exist_ok=True)
+path_bert_dir = f"bert-{step}"
 
-bert.model.save_pretrained(f"{path_dir}/bert/")
+os.makedirs(f"{path_dir}/{path_bert_dir}/", exist_ok=True)
+
+bert.model.save_pretrained(f"{path_dir}/{path_bert_dir}/")

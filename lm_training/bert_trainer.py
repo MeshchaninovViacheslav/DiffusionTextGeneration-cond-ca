@@ -15,13 +15,13 @@ from lm_training.bert_lightning import BERTModel
 
 import os
 
-os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = 'true'
+#os.environ['TRANSFORMERS_NO_ADVISORY_WARNINGS'] = 'true'
 
 
 def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
-    optim.grad_clip_norm = None
+    optim.grad_clip_norm = 5
     optim.linear_warmup = 5000
     optim.lr = 4e-4
     optim.min_lr = 4e-4

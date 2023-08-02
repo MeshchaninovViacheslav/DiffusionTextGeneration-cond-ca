@@ -1,4 +1,5 @@
 import os
+import sys
 import torch
 import psutil
 import datasets
@@ -15,10 +16,8 @@ from diffusion_holder import DiffusionRunner
 from utils.util import set_seed, _BERT_SMALL
 from diffusion_utils import schedulers
 
-disable_progress_bar()
-set_verbosity_error()
-
-import sys
+# disable_progress_bar()
+# set_verbosity_error()
 
 sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
 
@@ -60,7 +59,7 @@ def create_config():
 
     refresh = config.refresh = ml_collections.ConfigDict()
     refresh.true = False
-    refresh.prefix = "./checkpoints/wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-bert-384_100000_.pth"
+    refresh.prefix = "./checkpoints/wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-bert_400000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -85,26 +84,32 @@ def create_config():
     model.embeddings_type = "embeddings"
     model.dif_enc_type = "base"
     model.downstream_task = ""  # "qqp"
-    model.dataset = "wikipedia-clean"  # "glue"
+    model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-my_bert-768.pth"
+    model.mybert_step = 150000
+    model.decoder_path = f"decoder-my_bert-768-120-{model.mybert_step}.pth"
+    #model.decoder_path = "decoder-wikipedia-128.pth" #"decoder-my_bert-768.pth"
+    #model.decoder_path = "decoder-my_bert-768.pth"
+
+    model.my_bert_checkpoint = f"./lm_training/checkpoints/bert-training-768-120-0.15-None-2048-wiki_no_group/bert-{model.mybert_step}/"
+    #model.my_bert_checkpoint = "bert-base-uncased"
+    #model.my_bert_checkpoint = "./lm_training/checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert/"
     # "decoder-electra-wikipedia-128.pth" #"decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 96
     data.pos_begin = 0.0
     data.pos_end = 0.67
-    data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-mean.pt"
-    data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-std.pt"
-    data.enc_roberta_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-mean.pt"
-    data.enc_roberta_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-std.pt"
+    data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-120-{model.mybert_step}-wiki-mean.pt"
+    #data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-mean.pt"
+    #data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-mean.pt"
+    data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-120-{model.mybert_step}-wiki-std.pt"
+    #data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-std.pt"
+    #data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-std.pt"
+
     data.enc_t5_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-mean.pth"
     data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
-    data.enc_electra_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-electra-wiki-mean.pt"
-    data.enc_electra_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-electra-wiki-std.pt"
-    data.emb_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/embeddings-bert-wiki-mean.pt"
-    data.emb_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/embeddings-bert-wiki-std.pt"
 
     config.finetuning = False
     config.lin_input = True
@@ -119,7 +124,7 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "t5-bert"
+    suffix = f"t5-mybert-120"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"prediction={config.model.prediction}-" \

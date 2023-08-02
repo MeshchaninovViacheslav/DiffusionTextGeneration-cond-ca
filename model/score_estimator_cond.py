@@ -166,6 +166,20 @@ class ScoreEstimatorEMB(nn.Module):
         self.register_buffer("position_ids", torch.arange(self._max_position_embeddings).expand((1, -1)))
         self.position_embeddings = torch.nn.Embedding(self._max_position_embeddings, self._hidden_layer_dim)
 
+        self.input_up_proj = torch.nn.Sequential(
+            torch.nn.Linear(input_size, self._hidden_layer_dim),
+            torch.nn.Tanh(),
+            torch.nn.Linear(self._hidden_layer_dim, self._hidden_layer_dim)
+        )
+
+        self.output_down_proj = torch.nn.Sequential(
+            torch.nn.Linear(self._hidden_layer_dim, self._hidden_layer_dim),
+            torch.nn.Tanh(),
+            torch.nn.Linear(self._hidden_layer_dim, input_size)
+        )
+
+
+
     def get_extended_attention_mask(self, attention_mask, dtype):
         extended_attention_mask = attention_mask[:, None, None, :]
         extended_attention_mask = (1.0 - extended_attention_mask) * torch.finfo(dtype).min
@@ -189,7 +203,7 @@ class ScoreEstimatorEMB(nn.Module):
         position_ids = self.position_ids[:, : seq_length]
         emb_pos = self.position_embeddings(position_ids)
 
-        emb_x = x_t
+        emb_x = self.input_up_proj(x_t)
         hidden_state = emb_x + emb_pos
 
         if attention_mask is not None:
@@ -210,4 +224,5 @@ class ScoreEstimatorEMB(nn.Module):
             cond=cond,
             cond_mask=cond_mask,
         )
+        output = self.output_down_proj(output)
         return output

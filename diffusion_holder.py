@@ -120,6 +120,7 @@ class DiffusionRunner:
             enc_mean_path=self.config.data.enc_bert_mean,
             enc_std_path=self.config.data.enc_bert_std,
         )
+        from model.bert_encoder_llm import BertEncoderModel
         self.encoder_gen = BertEncoderModel.from_pretrained(
             config.model.my_bert_checkpoint,
             enc_normalizer=self.gen_enc_normalizer
@@ -139,11 +140,12 @@ class DiffusionRunner:
         bert_cfg = "bert-base-uncased"
         self.tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
 
-        # self.decoder = Decoder(
-        #     hidden_size=self.encoder_gen.config.hidden_size,
-        #     vocab_size=self.encoder_gen.config.vocab_size
-        # )
-        self.decoder = self.encoder_gen.cls.cpu()
+        self.decoder = Decoder(
+            input_size=120,#self.encoder_gen.config.hidden_size,
+            hidden_size=self.encoder_gen.config.hidden_size,
+            vocab_size=self.encoder_gen.config.vocab_size
+        )
+        # self.decoder = self.encoder_gen.cls.cpu()
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 
@@ -154,7 +156,7 @@ class DiffusionRunner:
         # self.load_sde()
         self.bert_config = config.bert_config
         self.score_estimator = ScoreEstimatorEMB(
-            input_size=self.encoder_gen.config.hidden_size,
+            input_size=120,#self.encoder_gen.config.hidden_size,
             config=self.bert_config
         ).cuda()
 
@@ -295,7 +297,7 @@ class DiffusionRunner:
         self.train_loader = DataLoader(
             self.train_dataset,
             batch_size=self.config.training.batch_size_per_gpu,
-            num_workers=30,
+            num_workers=10,
             pin_memory=False,
             shuffle=True,
         )
@@ -316,7 +318,7 @@ class DiffusionRunner:
             self.valid_dataset,
             sampler=sampler_valid,
             batch_size=self.config.validation.batch_size,
-            num_workers=10,
+            num_workers=5,
             pin_memory=False,
         )
 

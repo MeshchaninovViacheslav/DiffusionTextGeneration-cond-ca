@@ -44,7 +44,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen, exp_name):
     print(f"Num params: {total_number_params}")
 
     max_sequence_len = 128
-    batch_size = 512
+    batch_size = 1024
     # train_dataset = create_wiki_dataset()
 
     train_dataset = next(WikipediaCleanDatasetUnconditional(
@@ -63,7 +63,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen, exp_name):
     optimizer = torch.optim.AdamW(
         decoder.parameters(),
         lr=2e-4,
-        weight_decay=0.01,
+        weight_decay=0.001,
         # eps=1e-6,
         betas=(0.9, 0.98),
     )
@@ -98,8 +98,11 @@ def train(encoder, decoder, tokenizer, tokenizer_gen, exp_name):
             targets = X["input_ids"].type(torch.LongTensor).cuda()
             mask = X["attention_mask"]
             with torch.no_grad():
-                with torch.autocast(device_type='cuda', dtype=torch.float16):
-                    emb = encoder(**X)
+                with torch.autocast(device_type='cuda', dtype=torch.float32):
+                    emb = encoder(**{
+                        "input_ids": X["input_ids"],
+                        "attention_mask": X["attention_mask"]
+                    })
 
             if not eval_mode:
                 sigma = 0.1
@@ -128,7 +131,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen, exp_name):
                 wandb.log({f'valid accuracy': acc.item()}, step=step)
 
             T.set_description(f"Loss: {loss.item():0.6f}")
-            if step > 1000:
+            if step > 5000:
                 break
 
             if eval_mode:
@@ -154,18 +157,24 @@ def main():
 
     cfg = "bert-base-uncased"
     tokenizer_gen = BertTokenizerFast.from_pretrained(cfg)
+
+    from model.bert_encoder_llm import BertEncoderModel
     encoder = BertEncoderModel.from_pretrained(
-        "./lm_training/checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert-220000/",
+        "./lm_training/checkpoints/bert-training-768-120-0.15-None-2048-wiki_no_group/bert-150000/",
         enc_normalizer=None
     ).eval().cuda()
 
     decoder = torch.nn.DataParallel(
-        Decoder(input_size=encoder.config.hidden_size,
-                hidden_size=encoder.config.hidden_size,
-                vocab_size=encoder.config.vocab_size)
-                                    ).train().cuda()
+        Decoder(
+            input_size=120,
+            hidden_size=encoder.config.hidden_size,
+            vocab_size=encoder.config.vocab_size
+        )
+    ).train().cuda()
 
-    exp_name = "my_bert-768-220000"
+    encoder = torch.nn.DataParallel(encoder)
+
+    exp_name = "my_bert-768-120-150000"
     wandb.init(project="decoders", name=exp_name, mode="online")
     train(encoder, decoder, tokenizer, tokenizer_gen, exp_name=exp_name)
 

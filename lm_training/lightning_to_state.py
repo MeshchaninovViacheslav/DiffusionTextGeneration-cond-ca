@@ -41,6 +41,8 @@ def create_config():
 
     bert_config = config.bert_config = ml_collections.ConfigDict()
     bert_config.hidden_size = 768
+    bert_config.embedding_size = 120
+    bert_config.encoder_initialization = "./checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert/"
 
     config.project_name = "lm-training"
     config.exp_name = f"bert-training-{bert_config.hidden_size}"
@@ -55,8 +57,8 @@ def create_config():
 
 config = create_config()
 
-path_dir = "./checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/"
-step = 220000
+path_dir = "./checkpoints/bert-training-768-120-0.15-None-2048-wiki_no_group/"
+step = 150000
 
 bert = BERTModel.load_from_checkpoint(
     config=config,

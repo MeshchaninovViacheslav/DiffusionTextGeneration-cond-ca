@@ -9,6 +9,7 @@ from typing import Dict, Any
 from torch import FloatTensor, Tensor
 
 from lm_training.util import calc_model_grads_norm, MyAccuracy
+from lm_training.bert_arch import BERT
 
 import torch.distributed as dist
 
@@ -31,7 +32,10 @@ class BERTModel(L.LightningModule):
                 bert_config=AutoConfig.from_pretrained(config.model_name),
                 config=config
             )
-        self.model = AutoModelForMaskedLM.from_config(self.bert_config)
+        self.model = BERT(self.bert_config)
+        if self.bert_config.encoder_initialization is not None:
+            self.model.encoder.from_pretrained(self.bert_config.encoder_initialization)
+
         self.loss_type = config.loss_type
 
         if config.hg_pretrain:

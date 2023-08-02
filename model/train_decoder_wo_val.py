@@ -10,7 +10,6 @@ import sys
 
 sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
 
-from data.create_dataset import create_rocstory_dataset, create_wiki_dataset
 from data.dataset_clean_wiki import WikipediaCleanDatasetUnconditional
 
 from utils.util import dict_to_cuda
@@ -40,7 +39,10 @@ def reconstruction_loss(target, prediction_scores, mask):
     return ce_loss
 
 
-def train(encoder, decoder, tokenizer, tokenizer_gen):
+def train(encoder, decoder, tokenizer, tokenizer_gen, exp_name):
+    total_number_params = sum(p.numel() for p in decoder.parameters() if p.requires_grad)
+    print(f"Num params: {total_number_params}")
+
     max_sequence_len = 128
     batch_size = 512
     # train_dataset = create_wiki_dataset()
@@ -54,19 +56,19 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        num_workers=1,
+        num_workers=20,
         pin_memory=True,
     )
 
-    optimizer = torch.optim.Adam(
+    optimizer = torch.optim.AdamW(
         decoder.parameters(),
-        lr=5e-3,
-        # weight_decay=0.01,
+        lr=2e-4,
+        weight_decay=0.01,
         # eps=1e-6,
         betas=(0.9, 0.98),
     )
 
-    eval_freq = 1000
+    eval_freq = 100
     eval_mode = False
     step = 0
     epochs = 1
@@ -96,7 +98,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
             targets = X["input_ids"].type(torch.LongTensor).cuda()
             mask = X["attention_mask"]
             with torch.no_grad():
-                with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                with torch.autocast(device_type='cuda', dtype=torch.float16):
                     emb = encoder(**X)
 
             if not eval_mode:
@@ -126,7 +128,7 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
                 wandb.log({f'valid accuracy': acc.item()}, step=step)
 
             T.set_description(f"Loss: {loss.item():0.6f}")
-            if step > 2000:
+            if step > 1000:
                 break
 
             if eval_mode:
@@ -135,11 +137,11 @@ def train(encoder, decoder, tokenizer, tokenizer_gen):
                 step += 1
 
     checkpoints_folder = './checkpoints/'
-    name = os.path.join(checkpoints_folder, "decoder-my_bert-768.pth")
+    name = os.path.join(checkpoints_folder, f"decoder-{exp_name}.pth")
     decoder.eval()
     torch.save(
         {
-            "decoder": decoder.state_dict(),
+            "decoder": decoder.module.state_dict(),
         },
         name
     )
@@ -153,14 +155,19 @@ def main():
     cfg = "bert-base-uncased"
     tokenizer_gen = BertTokenizerFast.from_pretrained(cfg)
     encoder = BertEncoderModel.from_pretrained(
-        "./lm_training/checkpoints/bert-training-768/bert/",
+        "./lm_training/checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert-220000/",
         enc_normalizer=None
     ).eval().cuda()
 
-    decoder = encoder.cls.train() #Decoder(hidden_size=encoder.config.hidden_size, vocab_size=encoder.config.vocab_size).train().cuda()
+    decoder = torch.nn.DataParallel(
+        Decoder(input_size=encoder.config.hidden_size,
+                hidden_size=encoder.config.hidden_size,
+                vocab_size=encoder.config.vocab_size)
+                                    ).train().cuda()
 
-    wandb.init(project="decoders", name="my_bert-768", mode="online")
-    train(encoder, decoder, tokenizer, tokenizer_gen)
+    exp_name = "my_bert-768-220000"
+    wandb.init(project="decoders", name=exp_name, mode="online")
+    train(encoder, decoder, tokenizer, tokenizer_gen, exp_name=exp_name)
 
 
 main()

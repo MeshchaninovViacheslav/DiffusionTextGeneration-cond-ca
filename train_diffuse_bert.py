@@ -46,8 +46,8 @@ def create_config():
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 1_000_000
     training.training_iters = training.training_iters
-    training.checkpoint_freq = 100_000
-    training.eval_freq = 100_000
+    training.checkpoint_freq = 50_000
+    training.eval_freq = 50_000
     training.batch_size = 512  # * 8
 
     training.ode_sampling = False
@@ -87,7 +87,7 @@ def create_config():
     model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.mybert_step = 75000
+    model.mybert_step = 220000
     model.decoder_path = f"decoder-my_bert-768-{model.mybert_step}.pth"
     #model.decoder_path = "decoder-wikipedia-128.pth" #"decoder-my_bert-768.pth"
     #model.decoder_path = "decoder-my_bert-768.pth"
@@ -127,17 +127,6 @@ if __name__ == '__main__':
     suffix = f"t5-mybert-{config.model.mybert_step}"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
-                                f"prediction={config.model.prediction}-" \
-                                f"loss={config.model.loss}-" \
-                                f"seq_len={config.data.max_sequence_len}-" \
-                                f"cond_seg=[{config.data.pos_begin:0.2f}, {config.data.pos_end:0.2f}]-" \
-                                f"clipgrad={config.optim.grad_clip_norm}-" \
-                                f"lr={config.optim.lr}-" \
-                                f"min_lr={config.optim.min_lr}-" \
-                                f"seed={config.seed}-" \
-                                f"wd={config.optim.weight_decay}-" \
-                                f"batch={config.training.batch_size}-" \
-                                f"SD={config.sde.coef_d}-" \
                                 f"{suffix}"  # "end2end-enc-base-seqlen32-v.5"  # 'emb_bert_x0_bs=512_lr=2e-4'
     if "base" in config.model.dif_enc_type:
         config.bert_config = BertConfig.from_pretrained("bert-base-uncased")

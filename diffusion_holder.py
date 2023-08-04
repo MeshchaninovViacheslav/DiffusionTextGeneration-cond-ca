@@ -296,7 +296,7 @@ class DiffusionRunner:
         self.train_loader = DataLoader(
             self.train_dataset,
             batch_size=self.config.training.batch_size_per_gpu,
-            num_workers=50,
+            num_workers=30,
             pin_memory=False,
             shuffle=True,
         )

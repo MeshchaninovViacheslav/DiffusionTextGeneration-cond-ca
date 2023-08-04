@@ -33,7 +33,7 @@ def parse_option(config):
 def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
-    optim.grad_clip_norm = 10.
+    optim.grad_clip_norm = 1.
     optim.linear_warmup = 5000
     optim.lr = 2e-4
     optim.min_lr = 2e-4

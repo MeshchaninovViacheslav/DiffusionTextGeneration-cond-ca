@@ -15,6 +15,7 @@ from utils.util import set_seed, _BERT_SMALL
 from estimation_utils.util import estimate_model, reduce_metrics, gather_texts
 import diffusion_utils.schedulers as schedulers
 from metrics import BloomMetricConditional, GPTMetric, BloomMetric, RobertaMetric
+from estimation_utils.diversity_metrics import NGramStats
 
 disable_progress_bar()
 
@@ -38,7 +39,8 @@ def create_config():
     sde.beta_min = 0.1
     sde.beta_max = 20
     sde.ode_sampling = False
-    sde.scheduler = schedulers.CosineSD(d=10)
+    sde.coef_d = 10
+    sde.scheduler = schedulers.CosineSD(d=sde.coef_d)
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
@@ -46,32 +48,37 @@ def create_config():
     model.embeddings_type = "encodings"
     model.dif_enc_type = "base"
     model.downstream_task = "sst2"  # "qqp"
-    model.dataset = "wikipedia"  # "glue"
+    model.dataset = "wikipedia-clean"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-wikipedia-128.pth" #"decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth"
+    model.decoder_path = "decoder-wikipedia-128.pth"#"decoder-my_bert-768.pth"  # "decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth"
+    model.my_bert_checkpoint = "bert-base-uncased" #"../lm_training/checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert/"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 96
     data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-mean.pt"
+    #data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-mean.pt"
     data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-std.pt"
-    data.enc_roberta_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-mean.pt"
-    data.enc_roberta_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-std.pt"
+    #data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-std.pt"
+
     data.enc_t5_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-mean.pth"
     data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
+    data.pos_begin = 0.
+    data.pos_end = 0.67
 
     config.finetuning = False
     config.seed = 0
     config.ddp = True
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
 
-    config.project_name = "bert-conditional-exps"
+    config.project_name = "test"
+    config.classifier_guidance_scale = 0.
 
     return config
 
 
-num_texts_ = 512
-batch_size_ = 512
+num_texts_ = 8192
+batch_size_ = 1024
 
 metrics_json = dict()
 metrics_path = f"../metrics"
@@ -99,13 +106,25 @@ metric_roberta_fn = RobertaMetric(device=f"cuda:{dist.get_rank()}")
 
 model_names = [
     # "rocstory--encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=32-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.0-cond_launch-v1.0_100000_"
-    #"wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-ting-pretrain-t5-bert_encoder-wmask_200000_"
+    # "wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-ting-pretrain-t5-bert_encoder-wmask_200000_"
     # "wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain_200000_"
-    #"wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain_200000_",
-    #"wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain_500000_",
-    "wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-t5-bert-womask_1000000_",
-    #"wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-t5-roberta-womask_500000_"
-    ]
+    # "wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain_200000_",
+    # "wikipedia-sst2-encodings-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-ting-pretrain_500000_",
+    #"wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-t5-bert-womask_1000000_",
+    # "wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-t5-roberta-womask_500000_"
+    #"wikipedia-sst2-prediction=x_0-loss=L_x_0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_1000000_",
+    #"wikipedia-sst2-prediction=x_0-loss=L_x_0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_500000_",
+    #"wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_900000_",
+    # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_800000_",
+    # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_500000_",
+    # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_200000_"
+    #"wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_800000_"
+    #"wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert_10000_"
+    # "wikipedia-sst2-prediction=x_0-loss=L_x_0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_900000_",
+    # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_900000_",
+    #"wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-mybert_1000000_"
+    "wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-bert_800000_"
+]
 
 for model_name in model_names:
     config.checkpoints_prefix = model_name
@@ -113,12 +132,14 @@ for model_name in model_names:
     seed = config.seed + dist.get_rank()
     set_seed(seed)
 
-    num_texts_ = int(num_texts_ / dist.get_world_size())
+    num_texts = int(num_texts_ / dist.get_world_size())
     diffusion_ = DiffusionRunner(config, latent_mode=config.model.embeddings_type, eval=True)
+
     seed = config.seed + dist.get_rank()
     set_seed(seed)
+
     metrics, joint_texts, cond_texts, gen_texts, gt_texts = estimate_model(
-        diffusion_, num_texts_, batch_size_,
+        diffusion_, num_texts, batch_size_,
         metric_bloom_fn, metric_roberta_fn
     )
     metrics_json[model_name] = reduce_metrics(metrics)
@@ -132,7 +153,7 @@ for model_name in model_names:
         print(f"Bloom metric: {metrics['Bloom metric']:0.5f}")
         print(f"Roberta metric: {metrics['Roberta metric']:0.5f}")
         print(len(joint_texts))
-        prefix = f"num_texts={num_texts_}"
+        prefix = f"num_texts={num_texts_}-scale={config.classifier_guidance_scale:0.1f}-sd={config.sde.coef_d}"
         metrics_file = os.path.join(metrics_path, f"{model_name}-{prefix}.json")
         with open(metrics_file, "w") as file:
             json.dump(metrics_json, file)
@@ -151,5 +172,9 @@ for model_name in model_names:
         json.dump(text_list, open(file_name, "w"), indent=4)
 
         print(file_name)
+
+        metric_div = NGramStats()
+        metric_div.compute(gen_texts)
+        print(metric_div)
 
     del diffusion_

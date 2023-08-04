@@ -10,9 +10,12 @@ sys.path.insert(0, "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca")
 from utils.util import dict_to_cuda, make_mask_wo_SEP_CLS
 
 from data.create_dataset import create_rocstory_dataset, create_wiki_dataset
+from data.dataset_clean_wiki import WikipediaCleanDatasetUnconditional
+
 from model.roberta_encoder import RobertaEncoderModel
 from model.electra_encoder import ElectraEncoderModel
 from model.emb_encoder import EmbEncoderModel
+from model.bert_encoder import BertEncoderModel
 
 
 def compute_mean_std(
@@ -41,7 +44,10 @@ def compute_mean_std(
             )
             X = dict_to_cuda(X)
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                output = encoder(**X)
+                output = encoder(**{
+                        "input_ids": X["input_ids"],
+                        "attention_mask": X["attention_mask"]
+                    })
 
             mask = make_mask_wo_SEP_CLS(X["attention_mask"]) #torch.ones_like(X["attention_mask"])  # make_mask_wo_SEP_CLS(X["attention_mask"])
             output = output * mask[:, :, None]
@@ -57,14 +63,14 @@ def compute_mean_std(
             sqr_dif = (sqr_sum_ / num - cur_sqr_sum / cur_num)
             T.set_description(
                 f"dif mean: {torch.sum(torch.abs(mean_dif)).item()}, dif std2: {torch.sum(torch.abs(sqr_dif)).item()}")
-        if i == 1000:
+        if i == 10000:
             break
 
     mean = sum_ / num
     std = torch.sqrt(sqr_sum_ / num - mean ** 2)
 
-    torch.save(mean, f'./data/embeddings-{model_name}-{dataset_name}-mean.pt')
-    torch.save(std, f'./data/embeddings-{model_name}-{dataset_name}-std.pt')
+    torch.save(mean, f'./data/encodings-{model_name}-{dataset_name}-mean.pt')
+    torch.save(std, f'./data/encodings-{model_name}-{dataset_name}-std.pt')
 
 
 if __name__ == "__main__":
@@ -73,13 +79,20 @@ if __name__ == "__main__":
 
     cfg = "bert-base-uncased"
     tokenizer_gen = BertTokenizerFast.from_pretrained(cfg)
-    encoder = EmbEncoderModel.from_pretrained(
-        cfg, enc_normalizer=None
-    ).eval().cuda()
+    from model.bert_encoder_llm import BertEncoderModel
+    encoder = torch.nn.DataParallel(BertEncoderModel.from_pretrained(
+        "./lm_training/checkpoints/bert-training-768-120-0.15-None-2048-wiki_no_group/bert-150000/",
+        enc_normalizer=None
+    )).eval().cuda()
 
     max_sequence_len = 128
-    batch_size = 512
-    train_dataset = create_wiki_dataset()
+    batch_size = 2048
+    train_dataset = next(WikipediaCleanDatasetUnconditional(
+        split="train",
+        tokenizer=tokenizer,
+        max_sequence_len=max_sequence_len,
+    ).get_data())
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -92,6 +105,6 @@ if __name__ == "__main__":
         encoder,
         tokenizer, tokenizer_gen,
         max_sequence_len,
-        model_name="bert",
+        model_name="my_bert-768-120-150000",
         dataset_name="wiki"
     )

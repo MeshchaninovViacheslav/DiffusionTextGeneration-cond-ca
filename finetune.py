@@ -32,8 +32,8 @@ def create_config():
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
     optim.linear_warmup = 5_000
-    optim.lr = 2e-4
-    optim.min_lr = 2e-4
+    optim.lr = 5e-5
+    optim.min_lr = 5e-5
     optim.warmup_lr = 1e-6
     optim.weight_decay = 0.01
     optim.beta_1 = 0.9
@@ -47,7 +47,7 @@ def create_config():
     training.checkpoint_freq = 100_000
     training.eval_freq = 200
     training.batch_size = 512
-    training.val_iter_start = 5_000
+    training.val_iter_start = 0
 
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
@@ -58,7 +58,7 @@ def create_config():
 
     refresh = config.refresh = ml_collections.ConfigDict()
     refresh.true = True
-    refresh.prefix = "./checkpoints/wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-bert=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-t5-bert-womask_1000000_.pth"
+    refresh.prefix = "./checkpoints/wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-mybert_1000000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -86,19 +86,22 @@ def create_config():
     model.dataset = "glue"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-electra-wikipedia-128.pth"
+
+    model.decoder_path = "decoder-wikipedia-128.pth"
+    # model.decoder_path = "decoder-my_bert-768.pth"
+    model.my_bert_checkpoint = "bert-base-uncased"
+    #model.my_bert_checkpoint = "./lm_training/checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert/"
     # "decoder-electra-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 96
     data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-mean.pt"
+    #data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-mean.pt"
     data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-std.pt"
-    data.enc_roberta_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-mean.pt"
-    data.enc_roberta_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-std.pt"
+    #data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-std.pt"
+
     data.enc_t5_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-mean.pth"
     data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
-    data.enc_electra_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-electra-wiki-mean.pt"
-    data.enc_electra_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-electra-wiki-std.pt"
 
     config.finetuning = True
     config.lin_input = True
@@ -113,7 +116,7 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "electra-finetune-glue-sst2"
+    suffix = "bert-finetune-glue-sst2"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"{config.model.embeddings_type}-" \

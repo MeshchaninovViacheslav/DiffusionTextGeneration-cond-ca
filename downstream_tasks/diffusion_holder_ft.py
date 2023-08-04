@@ -79,16 +79,27 @@ class DiffusionRunner:
             enc_std_path=self.config.data.enc_t5_std,
         )
         self.t5_enc_normalizer.requires_grad_(requires_grad=True)
-        print(self.t5_enc_normalizer.enc_mean.requires_grad)
         self.encoder_cond = T5EncoderModel.from_pretrained(
             t5_cfg, enc_normalizer=self.t5_enc_normalizer
         ).cuda()
+
+        # bert_cfg = "bert-base-uncased"
+        # self.tokenizer_cond = BertTokenizerFast.from_pretrained(bert_cfg)
+        # self.bert_enc_normalizer = EncNormalizer(
+        #     enc_mean_path=self.config.data.enc_bert_mean,
+        #     enc_std_path=self.config.data.enc_bert_std,
+        # )
+        # self.bert_enc_normalizer.requires_grad_(requires_grad=True)
+        # self.encoder_cond = BertEncoderModel.from_pretrained(
+        #     bert_cfg, enc_normalizer=self.bert_enc_normalizer
+        # ).eval().cuda()
 
         if self.config.ddp:
             self.ddp_encoder_cond = torch.nn.parallel.DistributedDataParallel(
                 self.encoder_cond,
                 device_ids=[config.local_rank],
                 broadcast_buffers=False,
+                find_unused_parameters=True,
             )
 
         # bert_cfg = "bert-base-uncased"
@@ -103,15 +114,15 @@ class DiffusionRunner:
 
         # Encoder for generation
 
-        electra_cfg = "google/electra-base-discriminator"
-        self.tokenizer_gen = ElectraTokenizerFast.from_pretrained(electra_cfg)
-        self.gen_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.enc_electra_mean,
-            enc_std_path=self.config.data.enc_electra_std,
-        )
-        self.encoder_gen = ElectraEncoderModel.from_pretrained(
-            electra_cfg, enc_normalizer=self.gen_enc_normalizer
-        ).eval().cuda()
+        # electra_cfg = "google/electra-base-discriminator"
+        # self.tokenizer_gen = ElectraTokenizerFast.from_pretrained(electra_cfg)
+        # self.gen_enc_normalizer = EncNormalizer(
+        #     enc_mean_path=self.config.data.enc_electra_mean,
+        #     enc_std_path=self.config.data.enc_electra_std,
+        # )
+        # self.encoder_gen = ElectraEncoderModel.from_pretrained(
+        #     electra_cfg, enc_normalizer=self.gen_enc_normalizer
+        # ).eval().cuda()
 
         # roberta_cfg = "roberta-base"
         # self.tokenizer_gen = RobertaTokenizerFast.from_pretrained(roberta_cfg)
@@ -123,15 +134,16 @@ class DiffusionRunner:
         #     roberta_cfg, enc_normalizer=self.gen_enc_normalizer
         # ).eval().cuda()
 
-        # bert_cfg = "bert-base-uncased"
-        # self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
-        # self.gen_enc_normalizer = EncNormalizer(
-        #     enc_mean_path=self.config.data.enc_bert_mean,
-        #     enc_std_path=self.config.data.enc_bert_std,
-        # )
-        # self.encoder_gen = BertEncoderModel.from_pretrained(
-        #     bert_cfg, enc_normalizer=self.gen_enc_normalizer
-        # ).eval().cuda()
+        bert_cfg = "bert-base-uncased"
+        self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
+        self.gen_enc_normalizer = EncNormalizer(
+            enc_mean_path=self.config.data.enc_bert_mean,
+            enc_std_path=self.config.data.enc_bert_std,
+        )
+        self.encoder_gen = BertEncoderModel.from_pretrained(
+            config.model.my_bert_checkpoint,
+            enc_normalizer=self.gen_enc_normalizer
+        ).eval().cuda()
 
         # bert_cfg = "bert-base-uncased"
         # self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
@@ -147,11 +159,11 @@ class DiffusionRunner:
         bert_cfg = "bert-base-uncased"
         self.tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
 
-        self.decoder = Decoder(
-            hidden_size=self.encoder_gen.config.hidden_size,
-            vocab_size=self.encoder_gen.config.vocab_size
-        )
-        # self.decoder = self.encoder_gen.cls.cpu()
+        # self.decoder = Decoder(
+        #     hidden_size=self.encoder_gen.config.hidden_size,
+        #     vocab_size=self.encoder_gen.config.vocab_size
+        # )
+        self.decoder = self.encoder_gen.cls.cpu()
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 
@@ -203,7 +215,7 @@ class DiffusionRunner:
             dataset_name=config.model.dataset,
             downstream_task=config.model.downstream_task
         )(
-            split="test",
+            split="valid",
             tokenizer_bert=self.tokenizer_bert,
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,
@@ -815,7 +827,7 @@ class DiffusionRunner:
             self.config.data.max_sequence_len,
             self.encoder_gen.config.hidden_size
         )
-        scale = 2
+        scale = 3.
 
         with torch.no_grad():
             x_t = self.sde.prior_sampling(shape).to(self.device)

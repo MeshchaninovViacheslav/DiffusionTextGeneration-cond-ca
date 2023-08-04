@@ -1,44 +1,51 @@
 import os
 import sys
 
-sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration/")
+sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
 
+import json
 import torch
-from metrics import BloomMetric, GPTNEOMetric
+from metrics import BloomMetricConditional, RobertaMetric
 from estimation_utils.util import clear_text, compute_metric
+from estimation_utils.diversity_metrics import NGramStats
 
 
 def read_file(text_file):
-    with open(text_file, "r") as file:
-        texts = file.readlines()
-    return clear_text(texts)
+    texts = json.load(open(text_file, "r"))
+    return texts
 
 
 @torch.no_grad()
 def estimate_file(text_file):
     print(text_file)
     texts = read_file(text_file)
+    cond_texts = [d["CONDITION"] for d in texts]
+    gen_texts = [d["GEN"] for d in texts]
+    gt_texts = [d["GT"] for d in texts]
 
-    metric_bloom_fn = BloomMetric(device=f"cuda:0")
-    metric_gpt_fn = GPTNEOMetric(device=f"cuda:0")
+    metric_bloom_fn = BloomMetricConditional(device=f"cuda:0")
+    metric_roberta_fn = RobertaMetric(device=f"cuda:0")
     print(f"Metrics are loaded")
 
-    metric_bloom = compute_metric(metric_bloom_fn, texts)
-    metric_gpt = compute_metric(metric_gpt_fn, texts)
+    metric_bloom = compute_metric(metric_bloom_fn, cond_texts=cond_texts, gen_texts=gen_texts)
+    metric_gpt = metric_roberta_fn(texts=gen_texts)[0]
 
     print(f"Bloom metric: {metric_bloom:0.5f}")
-    print(f"GPTNEO metric: {metric_gpt:0.5f}")
+    print(f"Roberta score: {metric_gpt:0.5f}")
+
+    metric_div = NGramStats()
+    metric_div.compute(gen_texts)
+    print(metric_div)
 
 
 if __name__ == "__main__":
-    # for file in os.listdir("../generated_texts"):
-    #     text_file = f"../generated_texts/{file}"
-    #     estimate_file(text_file)
-
-    for file in ["conditioned_cosine.txt", "conditioned_cosine_lin.txt"]:
-        text_file = f"../generated_texts/{file}"
+    for file in [
+        #"wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_800000_-num_texts=8192-scale=3.0.json",
+        #"hg_pretrained-wikipedia-cond_seg=[0.50, 0.50].json",
+        #"hg_pretrained-wikipedia-clean-cond_seg=[0.00, 0.67].json",
+        #"pretrain-wikipedia-clean-num_beams=1=-cond_seg=[0.00, 0.67].json",
+        "hg_pretrained-wikipedia-clean-num_beams=1-num_texts=8192-cond_seg=[0.00, 0.67].json",
+    ]:
+        text_file = f"../lm_training/generated_texts/{file}"
+        #text_file = f"../generated_texts/{file}"
         estimate_file(text_file)
-
-    # f"/home/vmeshchaninov/DiffusionTextGeneration/generated_texts/encodings-x0-bs=512-wopad-mask-base-roc-lr=sch-ce_500000_.txt"
-    # "/home/vmeshchaninov/DiffusionTextGeneration/generated_texts/encodings-x0-bs=512-wopad-mask-base-roc-lr=sch-ce-seq=64_400000_.txt"
-    # f"/home/vmeshchaninov/DiffusionTextGeneration/generated_texts/encodings-x0-bs=512-wopad-mask-base-roc-lr=sch-ce_500000_.txt"

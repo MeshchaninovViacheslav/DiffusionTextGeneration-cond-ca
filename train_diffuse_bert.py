@@ -1,4 +1,5 @@
 import os
+import sys
 import torch
 import psutil
 import datasets
@@ -15,10 +16,8 @@ from diffusion_holder import DiffusionRunner
 from utils.util import set_seed, _BERT_SMALL
 from diffusion_utils import schedulers
 
-disable_progress_bar()
-set_verbosity_error()
-
-import sys
+# disable_progress_bar()
+# set_verbosity_error()
 
 sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
 
@@ -47,8 +46,8 @@ def create_config():
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 1_000_000
     training.training_iters = training.training_iters
-    training.checkpoint_freq = 100_000
-    training.eval_freq = 100_000
+    training.checkpoint_freq = 50_000
+    training.eval_freq = 50_000
     training.batch_size = 512  # * 8
 
     training.ode_sampling = False
@@ -59,14 +58,14 @@ def create_config():
     loss.ce_coef = 0.
 
     refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = False
-    refresh.prefix = "./checkpoints/wikipedia-sst2-prediction=x_0-loss=L_x_0-enc=base-kl_cf=0.0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=5-t5-roberta-womask_100000_.pth"
+    refresh.true = True
+    refresh.prefix = "./checkpoints/wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-mybert-75000_400000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
-    validation.batch_size = 512
+    validation.batch_size = 1024
     validation.validation_iters = int(10_000 / validation.batch_size)
-    validation.num_gen_texts = 1024
+    validation.num_gen_texts = 8192
     validation.p_uncond = 0.
 
     sde = config.sde = ml_collections.ConfigDict()
@@ -85,26 +84,32 @@ def create_config():
     model.embeddings_type = "embeddings"
     model.dif_enc_type = "base"
     model.downstream_task = ""  # "qqp"
-    model.dataset = "wikipedia-clean"  # "glue"
+    model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-wikipedia-128.pth"
+    model.mybert_step = 220000
+    model.decoder_path = f"decoder-my_bert-768-{model.mybert_step}.pth"
+    #model.decoder_path = "decoder-wikipedia-128.pth" #"decoder-my_bert-768.pth"
+    #model.decoder_path = "decoder-my_bert-768.pth"
+
+    model.my_bert_checkpoint = f"./lm_training/checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert-{model.mybert_step}/"
+    #model.my_bert_checkpoint = "bert-base-uncased"
+    #model.my_bert_checkpoint = "./lm_training/checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert/"
     # "decoder-electra-wikipedia-128.pth" #"decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 96
     data.pos_begin = 0.0
     data.pos_end = 0.67
-    data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-mean.pt"
-    data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-std.pt"
-    data.enc_roberta_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-mean.pt"
-    data.enc_roberta_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-std.pt"
+    data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-{model.mybert_step}-wiki-mean.pt"
+    #data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-mean.pt"
+    #data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-mean.pt"
+    data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-{model.mybert_step}-wiki-std.pt"
+    #data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-std.pt"
+    #data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-std.pt"
+
     data.enc_t5_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-mean.pth"
     data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
-    data.enc_electra_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-electra-wiki-mean.pt"
-    data.enc_electra_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-electra-wiki-std.pt"
-    data.emb_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/embeddings-bert-wiki-mean.pt"
-    data.emb_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/embeddings-bert-wiki-std.pt"
 
     config.finetuning = False
     config.lin_input = True
@@ -119,21 +124,9 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "bert-bert-womask"
+    suffix = f"t5-mybert-{config.model.mybert_step}"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
-                                f"prediction={config.model.prediction}-" \
-                                f"loss={config.model.loss}-" \
-                                f"seq_len={config.data.max_sequence_len}-" \
-                                f"cond_seg=[{config.data.pos_begin:0.2f}, {config.data.pos_end:0.2f}]-" \
-                                f"clipgrad={config.optim.grad_clip_norm}-" \
-                                f"lr={config.optim.lr}-" \
-                                f"min_lr={config.optim.min_lr}-" \
-                                f"lin_input={config.lin_input}-" \
-                                f"seed={config.seed}-" \
-                                f"wd={config.optim.weight_decay}-" \
-                                f"batch={config.training.batch_size}-" \
-                                f"SD={config.sde.coef_d}-" \
                                 f"{suffix}"  # "end2end-enc-base-seqlen32-v.5"  # 'emb_bert_x0_bs=512_lr=2e-4'
     if "base" in config.model.dif_enc_type:
         config.bert_config = BertConfig.from_pretrained("bert-base-uncased")

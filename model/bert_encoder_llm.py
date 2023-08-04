@@ -1,11 +1,12 @@
-from torch import FloatTensor
-from transformers.models.bert.modeling_bert import (
-    BertLMHeadModel as HuggingFaceBertLMHeadModel, \
-    BaseModelOutputWithPoolingAndCrossAttentions
-)
+import sys
+import torch
+
+sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
+
+from lm_training.bert_arch import BERT
 
 
-class BertEncoderModel(HuggingFaceBertLMHeadModel):
+class BertEncoderModel(BERT):
     def __init__(self, config, enc_normalizer):
         super().__init__(config)
         self.enc_normalizer = enc_normalizer
@@ -14,11 +15,11 @@ class BertEncoderModel(HuggingFaceBertLMHeadModel):
             self,
             *args, **kwargs
     ):
-        outputs: BaseModelOutputWithPoolingAndCrossAttentions = self.bert(
+        outputs = super().forward(
             *args, **kwargs
         )
 
-        sequence_output = outputs.last_hidden_state
+        sequence_output = outputs["embeddings"].type(dtype=torch.float)
         if self.enc_normalizer is not None:
             sequence_output = self.enc_normalizer.normalize(sequence_output)
         return sequence_output

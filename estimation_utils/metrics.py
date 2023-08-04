@@ -52,7 +52,8 @@ class BloomMetricConditional:
             target=inputs["input_ids"].reshape(-1)[1:],
             reduce=False,
         )
-        losses = losses[-torch.sum(inputs_gen["attention_mask"]).item():]
+
+        losses = losses[-int(torch.sum(inputs_gen["attention_mask"]).item()):]
         num_tokens = losses.shape[0]
         loss = torch.mean(losses)
 
@@ -107,12 +108,24 @@ class RobertaMetric:
         self.model = AutoModelForSequenceClassification.from_pretrained(self.name).eval().to(device)
         self.tokenizer = AutoTokenizer.from_pretrained(self.name)
         self.device = device
+        self.batch_size = 1024
 
     @torch.no_grad()
     def __call__(self, texts: List[str], reduce="mean"):
+        sum_naturalness = 0.
+        num_texts = 0.
+
         inputs = self.tokenizer(texts, padding=True, return_tensors="pt")
-        inputs = dict_to_device(inputs, self.device)
-        output = self.model(**inputs)
-        probs = torch.softmax(output.logits, -1)[:, 1]
-        naturalness = torch.mean(probs)
-        return naturalness.item(), probs
+
+        for i in range(0, len(texts), self.batch_size):
+            batch_inputs = dict()
+            for key in inputs:
+                batch_inputs[key] = inputs[key][i:i + self.batch_size]
+
+            batch_inputs = dict_to_device(batch_inputs, self.device)
+            batch_output = self.model(**batch_inputs)
+            probs = torch.softmax(batch_output.logits, -1)[:, 1]
+            sum_naturalness += torch.sum(probs)
+            num_texts += len(probs)
+
+        return sum_naturalness / num_texts, []

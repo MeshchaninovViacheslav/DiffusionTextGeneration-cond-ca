@@ -44,7 +44,7 @@ if __name__ == "__main__":
         #"hg_pretrained-wikipedia-cond_seg=[0.50, 0.50].json",
         #"hg_pretrained-wikipedia-clean-cond_seg=[0.00, 0.67].json",
         #"pretrain-wikipedia-clean-num_beams=1=-cond_seg=[0.00, 0.67].json",
-        "pretrain-wikipedia-clean-num_beams=1-num_texts=8192-cond_seg=[0.00, 0.67].json",
+        "hg_pretrained-wikipedia-clean-num_beams=1-num_texts=8192-cond_seg=[0.00, 0.67].json",
     ]:
         text_file = f"../lm_training/generated_texts/{file}"
         #text_file = f"../generated_texts/{file}"

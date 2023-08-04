@@ -1,7 +1,7 @@
 import json
 import torch
 from utils.util import dict_to_cuda
-
+import torch.distributed as dist
 
 @torch.no_grad()
 def estimate_sst2(diffusion):
@@ -20,7 +20,7 @@ def estimate_sst2(diffusion):
         config = json.load(open("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/config.json", "rb"))
 
         labels = config["data"][benchmark_name]["label_classes"]
-        #print(diffusion.tokenizer_gen.encode(labels[0]))
+
         negative_ind = diffusion.tokenizer_gen.encode(labels[0], add_special_tokens=False)[0]
         positive_ind = diffusion.tokenizer_gen.encode(labels[1], add_special_tokens=False)[0]
 

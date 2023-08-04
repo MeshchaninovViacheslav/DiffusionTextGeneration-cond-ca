@@ -39,7 +39,8 @@ def create_config():
     sde.beta_min = 0.1
     sde.beta_max = 20
     sde.ode_sampling = False
-    sde.scheduler = schedulers.CosineSD(d=10)
+    sde.coef_d = 10
+    sde.scheduler = schedulers.CosineSD(d=sde.coef_d)
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
@@ -50,14 +51,16 @@ def create_config():
     model.dataset = "wikipedia-clean"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-wikipedia-128.pth"  # "decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth"
+    model.decoder_path = "decoder-wikipedia-128.pth"#"decoder-my_bert-768.pth"  # "decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth"
+    model.my_bert_checkpoint = "bert-base-uncased" #"../lm_training/checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert/"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 96
     data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-mean.pt"
+    #data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-mean.pt"
     data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-std.pt"
-    data.enc_roberta_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-mean.pt"
-    data.enc_roberta_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-roberta_base-wiki-std.pt"
+    #data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-std.pt"
+
     data.enc_t5_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-mean.pth"
     data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
     data.pos_begin = 0.
@@ -69,7 +72,7 @@ def create_config():
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
 
     config.project_name = "test"
-    config.classifier_guidance_scale = 3.
+    config.classifier_guidance_scale = 0.
 
     return config
 
@@ -112,13 +115,15 @@ model_names = [
     #"wikipedia-sst2-prediction=x_0-loss=L_x_0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_1000000_",
     #"wikipedia-sst2-prediction=x_0-loss=L_x_0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_500000_",
     #"wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_900000_",
-    "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_800000_",
+    # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_800000_",
     # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_500000_",
     # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_200000_"
     #"wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert-womask_800000_"
     #"wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-t5-bert_10000_"
     # "wikipedia-sst2-prediction=x_0-loss=L_x_0-seq_len=96-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_900000_",
     # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_900000_",
+    #"wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-mybert_1000000_"
+    "wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-bert_800000_"
 ]
 
 for model_name in model_names:
@@ -148,7 +153,7 @@ for model_name in model_names:
         print(f"Bloom metric: {metrics['Bloom metric']:0.5f}")
         print(f"Roberta metric: {metrics['Roberta metric']:0.5f}")
         print(len(joint_texts))
-        prefix = f"num_texts={num_texts_}-scale={config.classifier_guidance_scale:0.1f}"
+        prefix = f"num_texts={num_texts_}-scale={config.classifier_guidance_scale:0.1f}-sd={config.sde.coef_d}"
         metrics_file = os.path.join(metrics_path, f"{model_name}-{prefix}.json")
         with open(metrics_file, "w") as file:
             json.dump(metrics_json, file)

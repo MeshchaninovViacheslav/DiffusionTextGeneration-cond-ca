@@ -72,28 +72,27 @@ class DiffusionRunner:
 
         # Encoder for condition
 
-        # t5_cfg = "t5-base"
-        # self.tokenizer_cond = T5TokenizerFast.from_pretrained(t5_cfg)
-        # self.t5_enc_normalizer = EncNormalizer(
-        #     enc_mean_path=self.config.data.enc_t5_mean,
-        #     enc_std_path=self.config.data.enc_t5_std,
-        # )
-        # self.t5_enc_normalizer.requires_grad_(requires_grad=True)
-        # print(self.t5_enc_normalizer.enc_mean.requires_grad)
-        # self.encoder_cond = T5EncoderModel.from_pretrained(
-        #     t5_cfg, enc_normalizer=self.t5_enc_normalizer
-        # ).cuda()
-
-        bert_cfg = "bert-base-uncased"
-        self.tokenizer_cond = BertTokenizerFast.from_pretrained(bert_cfg)
-        self.bert_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.enc_bert_mean,
-            enc_std_path=self.config.data.enc_bert_std,
+        t5_cfg = "t5-base"
+        self.tokenizer_cond = T5TokenizerFast.from_pretrained(t5_cfg)
+        self.t5_enc_normalizer = EncNormalizer(
+            enc_mean_path=self.config.data.enc_t5_mean,
+            enc_std_path=self.config.data.enc_t5_std,
         )
-        self.bert_enc_normalizer.requires_grad_(requires_grad=True)
-        self.encoder_cond = BertEncoderModel.from_pretrained(
-            bert_cfg, enc_normalizer=self.bert_enc_normalizer
-        ).eval().cuda()
+        self.t5_enc_normalizer.requires_grad_(requires_grad=True)
+        self.encoder_cond = T5EncoderModel.from_pretrained(
+            t5_cfg, enc_normalizer=self.t5_enc_normalizer
+        ).cuda()
+
+        # bert_cfg = "bert-base-uncased"
+        # self.tokenizer_cond = BertTokenizerFast.from_pretrained(bert_cfg)
+        # self.bert_enc_normalizer = EncNormalizer(
+        #     enc_mean_path=self.config.data.enc_bert_mean,
+        #     enc_std_path=self.config.data.enc_bert_std,
+        # )
+        # self.bert_enc_normalizer.requires_grad_(requires_grad=True)
+        # self.encoder_cond = BertEncoderModel.from_pretrained(
+        #     bert_cfg, enc_normalizer=self.bert_enc_normalizer
+        # ).eval().cuda()
 
         if self.config.ddp:
             self.ddp_encoder_cond = torch.nn.parallel.DistributedDataParallel(
@@ -142,7 +141,8 @@ class DiffusionRunner:
             enc_std_path=self.config.data.enc_bert_std,
         )
         self.encoder_gen = BertEncoderModel.from_pretrained(
-            bert_cfg, enc_normalizer=self.gen_enc_normalizer
+            config.model.my_bert_checkpoint,
+            enc_normalizer=self.gen_enc_normalizer
         ).eval().cuda()
 
         # bert_cfg = "bert-base-uncased"
@@ -215,7 +215,7 @@ class DiffusionRunner:
             dataset_name=config.model.dataset,
             downstream_task=config.model.downstream_task
         )(
-            split="test",
+            split="valid",
             tokenizer_bert=self.tokenizer_bert,
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,

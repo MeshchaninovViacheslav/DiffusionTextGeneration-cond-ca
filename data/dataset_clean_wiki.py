@@ -6,8 +6,8 @@ import gc
 import numpy as np
 from itertools import chain
 
-disable_progress_bar()
-set_verbosity_error()
+# disable_progress_bar()
+# set_verbosity_error()
 
 
 class WikipediaCleanDataset:
@@ -89,7 +89,7 @@ def conditional_preprocessing_wiki_text(
         truncation=True,
         max_length=max_sequence_len,
     )
-    #print(len(input_["input_ids"]))
+    # print(len(input_["input_ids"]))
 
     output = {
         "input_ids": input_["input_ids"],
@@ -147,6 +147,12 @@ class WikipediaCleanDatasetUnconditional:
             num_proc=30,
             remove_columns=['sentence', 'score', '__index_level_0__'],
         )
+        # self.dt = self.dt.map(
+        #     self.group_texts,
+        #     batched=True,
+        #     num_proc=30,
+        #     desc=f"Grouping texts in chunks of {self.max_sequence_len}",
+        # )
         self.dt.set_format("pt", columns=["input_ids", "attention_mask"])
         return self.dt
 

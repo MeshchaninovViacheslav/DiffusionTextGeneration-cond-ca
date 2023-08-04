@@ -1,16 +1,11 @@
-from datasets import Dataset, disable_progress_bar
-from datasets.utils.logging import set_verbosity_error
+from datasets import Dataset
 from itertools import cycle
-import json
 import gc
-import numpy as np
 from itertools import chain
 
-disable_progress_bar()
-#set_verbosity_error()
 
 
-class WikipediaDatasetUnconditional:
+class WikipediaBooksDatasetUnconditional:
     def __init__(
             self,
             split,
@@ -20,14 +15,14 @@ class WikipediaDatasetUnconditional:
         self.split = split
         self.tokenizer = tokenizer
         self.max_sequence_len = max_sequence_len
-        self.text_column_name = "sentence"
+        self.text_column_name = "sentences"
 
     def tokenize_function(self, examples):
         return self.tokenizer(
             text=examples[self.text_column_name],
             add_special_tokens=True,
-            padding="max_length",
-            truncation=True,
+            #padding="max_length",
+            #truncation=True,
             max_length=self.max_sequence_len,
         )
 
@@ -54,17 +49,17 @@ class WikipediaDatasetUnconditional:
             self.tokenize_function,
             batched=True,
             num_proc=30,
-            remove_columns=['sentence', 'score', '__index_level_0__'],
+            remove_columns=[self.text_column_name],
             desc=f"Tokenizing text",
-            load_from_cache_file=True,
+            #load_from_cache_file=False,
         )
-        # self.dt = self.dt.map(
-        #     self.group_texts,
-        #     batched=True,
-        #     num_proc=30,
-        #     desc=f"Grouping texts in chunks of {self.max_sequence_len}",
-        #     #load_from_cache_file=False,
-        # )
+        self.dt = self.dt.map(
+            self.group_texts,
+            batched=True,
+            num_proc=30,
+            desc=f"Grouping texts in chunks of {self.max_sequence_len}",
+            #load_from_cache_file=False,
+        )
         self.dt.set_format("pt", columns=["input_ids", "attention_mask"])
         return self.dt
 
@@ -74,13 +69,14 @@ class WikipediaDatasetUnconditional:
 
     def get_data(self):
         if self.split == "valid":
-            test_path = "/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128-text/test/data-00000-of-00001.arrow"
+            test_path = "/home/vmeshchaninov/nlp_models/data/wikipedia-books-128-text/test/data-00000-of-00001.arrow"
             for name_dt in cycle([test_path]):
                 yield self.load_data(name_dt)
         if self.split == "train":
             list_of_datasets = [
-                f"/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128-text/train/data-{i:05d}-of-00008.arrow"
-                for i in range(8)]
+                f"/home/vmeshchaninov/nlp_models/data/wikipedia-books-128-text/train/data-{i:05d}-of-00008.arrow"
+                for i in range(8)
+            ]
             for name_dt in cycle(list_of_datasets):
                 yield self.load_data(name_dt)
                 self.clear_data()

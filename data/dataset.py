@@ -8,7 +8,7 @@ import numpy as np
 import torch.distributed as dist
 
 # disable_progress_bar()
-set_verbosity_error()
+# set_verbosity_error()
 
 from data.preprocessing import glue_tokenize, glue_text_preprocessor, conditional_preprocessing_wiki
 from data.dataset_clean_wiki import WikipediaCleanDataset
@@ -41,16 +41,15 @@ class WikipediaDatasetDDP:
 
     def load_data(self, path):
         self.dt = Dataset.from_file(path)
-        # self.dt = self.dt.with_transform(
-        #     self.batch_preprocessing,
-        # )
         self.dt = self.dt.map(
             self.batch_preprocessing,
             batched=True,
             load_from_cache_file=False,
             num_proc=30,
-            desc="Dataset tokenization"
+            desc="Dataset tokenization",
+            batch_size=1000,
         )
+        self.dt = self.dt.with_format("pt", columns=["input_ids", "cond_ids", "input_mask", "cond_mask"])
         return self.dt
 
     def batch_preprocessing(self, batch):
@@ -96,8 +95,8 @@ class WikipediaDatasetDDP:
             "input_mask": input_["attention_mask"],
             "cond_mask": cond_["attention_mask"],
         }
-        for key in output:
-            output[key] = torch.tensor(output[key])
+        # for key in output:
+        #     output[key] = torch.tensor(output[key])
         return output
 
     def clear_data(self):

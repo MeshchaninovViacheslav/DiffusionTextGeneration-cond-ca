@@ -58,8 +58,8 @@ def create_config():
     loss.ce_coef = 0.
 
     refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = True
-    refresh.prefix = "./checkpoints/wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-mybert-75000_400000_.pth"
+    refresh.true = False
+    refresh.prefix = "./checkpoints/wikipedia--t5-mybert-ar_diffusion_5000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -75,7 +75,7 @@ def create_config():
     sde.beta_min = 0.1
     sde.beta_max = 20
     sde.ode_sampling = False
-    sde.coef_d = 10
+    sde.coef_d = 0
     sde.scheduler = schedulers.CosineSD(d=sde.coef_d)
 
     model = config.model = ml_collections.ConfigDict()
@@ -87,12 +87,12 @@ def create_config():
     model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.mybert_step = 220000
-    model.decoder_path = f"decoder-my_bert-768-{model.mybert_step}.pth"
+    #model.mybert_step = 220000
+    model.decoder_path = "decoder-bert-embs-wikipedia-128.pth"
     #model.decoder_path = "decoder-wikipedia-128.pth" #"decoder-my_bert-768.pth"
     #model.decoder_path = "decoder-my_bert-768.pth"
 
-    model.my_bert_checkpoint = f"./lm_training/checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert-{model.mybert_step}/"
+    #model.my_bert_checkpoint = f"./lm_training/checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert-{model.mybert_step}/"
     #model.my_bert_checkpoint = "bert-base-uncased"
     #model.my_bert_checkpoint = "./lm_training/checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert/"
     # "decoder-electra-wikipedia-128.pth" #"decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
@@ -101,12 +101,14 @@ def create_config():
     data.max_sequence_len = 96
     data.pos_begin = 0.0
     data.pos_end = 0.67
-    data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-{model.mybert_step}-wiki-mean.pt"
+    #data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-{model.mybert_step}-wiki-mean.pt"
     #data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-mean.pt"
     #data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-mean.pt"
-    data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-{model.mybert_step}-wiki-std.pt"
+    data.emb_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/embeddings-bert-wiki-mean.pt"
+    #data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-{model.mybert_step}-wiki-std.pt"
     #data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-std.pt"
     #data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-std.pt"
+    data.emb_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/embeddings-bert-wiki-std.pt"
 
     data.enc_t5_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-mean.pth"
     data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
@@ -117,14 +119,14 @@ def create_config():
     config.ddp = True
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
 
-    config.project_name = "bert-encoder-exps"
+    config.project_name = "architecture-exps"
 
     return config
 
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = f"t5-mybert-{config.model.mybert_step}"
+    suffix = f"t5-mybert-ar_diffusion"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"{suffix}"  # "end2end-enc-base-seqlen32-v.5"  # 'emb_bert_x0_bs=512_lr=2e-4'

@@ -114,26 +114,26 @@ class DiffusionRunner:
         #     roberta_cfg, enc_normalizer=self.gen_enc_normalizer
         # ).eval().cuda()
 
-        bert_cfg = "bert-base-uncased"
-        self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
-        self.gen_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.enc_bert_mean,
-            enc_std_path=self.config.data.enc_bert_std,
-        )
-        self.encoder_gen = BertEncoderModel.from_pretrained(
-            config.model.my_bert_checkpoint,
-            enc_normalizer=self.gen_enc_normalizer
-        ).eval().cuda()
-
         # bert_cfg = "bert-base-uncased"
         # self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
         # self.gen_enc_normalizer = EncNormalizer(
-        #     enc_mean_path=self.config.data.emb_bert_mean,
-        #     enc_std_path=self.config.data.emb_bert_std,
+        #     enc_mean_path=self.config.data.enc_bert_mean,
+        #     enc_std_path=self.config.data.enc_bert_std,
         # )
-        # self.encoder_gen = EmbEncoderModel.from_pretrained(
-        #     bert_cfg, enc_normalizer=self.gen_enc_normalizer
+        # self.encoder_gen = BertEncoderModel.from_pretrained(
+        #     config.model.my_bert_checkpoint,
+        #     enc_normalizer=self.gen_enc_normalizer
         # ).eval().cuda()
+
+        bert_cfg = "bert-base-uncased"
+        self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
+        self.gen_enc_normalizer = EncNormalizer(
+            enc_mean_path=self.config.data.emb_bert_mean,
+            enc_std_path=self.config.data.emb_bert_std,
+        )
+        self.encoder_gen = EmbEncoderModel.from_pretrained(
+            bert_cfg, enc_normalizer=self.gen_enc_normalizer
+        ).eval().cuda()
 
         #
         bert_cfg = "bert-base-uncased"
@@ -156,7 +156,7 @@ class DiffusionRunner:
         self.bert_config = config.bert_config
         self.score_estimator = ScoreEstimatorEMB(
             input_size=self.encoder_gen.config.hidden_size,
-            config=self.bert_config
+            config=self.bert_config,
         ).cuda()
 
         self.ddp_score_estimator = self.score_estimator
@@ -335,7 +335,8 @@ class DiffusionRunner:
 
         self.grad_scaler.unscale_(self.optimizer)
 
-        grad_norm = torch.sqrt(sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters()]))
+        grad_norm = torch.sqrt(
+            sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters() if t.requires_grad]))
 
         if self.grad_clip_norm is not None:
             torch.nn.utils.clip_grad_norm_(
@@ -343,7 +344,8 @@ class DiffusionRunner:
                 max_norm=self.grad_clip_norm
             )
 
-        clipped_grad_norm = torch.sqrt(sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters()]))
+        clipped_grad_norm = torch.sqrt(
+            sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters() if t.requires_grad]))
 
         self.log_metric('lr', 'train', self.optimizer.param_groups[0]['lr'])
         self.grad_scaler.step(self.optimizer)
@@ -378,7 +380,11 @@ class DiffusionRunner:
                 res[k] = X[k]
         return res
 
-    def bert_acc(self, targets, outputs, mask):
+    def bert_acc(self, inputs, targets, mask):
+        mask = mask[:, 1:]
+        inputs = inputs[:, :-1]
+        targets = targets[:, 1:]
+
         if mask is None:
             mask = torch.ones(
                 (targets.shape[0], targets.shape[1]),
@@ -386,14 +392,18 @@ class DiffusionRunner:
                 requires_grad=False,
                 dtype=torch.int64,
             )
-        pred_tokens = outputs.argmax(dim=-1)
+        pred_tokens = inputs.argmax(dim=-1)
 
-        mask = deepcopy(mask)
-        mask.scatter_(dim=1, index=(mask.sum(dim=1) - 1).reshape(-1, 1), src=torch.zeros_like(mask))
-        mask[:, 0] = 0
+        # mask = deepcopy(mask)
+        # mask.scatter_(dim=1, index=(mask.sum(dim=1) - 1).reshape(-1, 1), src=torch.zeros_like(mask))
+        # mask[:, 0] = 0
         return torch.sum(mask * (targets == pred_tokens)) / torch.sum(mask)
 
     def mse_loss(self, inputs, targets, mask):
+        mask = mask[:, 1:]
+        inputs = inputs[:, :-1]
+        targets = targets[:, 1:]
+
         if mask is None:
             mask = torch.ones(
                 (targets.shape[0], targets.shape[1]),
@@ -406,7 +416,11 @@ class DiffusionRunner:
         loss = torch.sum(losses) / torch.sum(mask)
         return loss
 
-    def recon_loss(self, inputs, outputs, mask):
+    def recon_loss(self, inputs, targets, mask):
+        mask = mask[:, 1:]
+        inputs = inputs[:, :-1]
+        targets = targets[:, 1:]
+
         if mask is None:
             mask = torch.ones(
                 (inputs.shape[0], inputs.shape[1]),
@@ -416,7 +430,7 @@ class DiffusionRunner:
             )
         losses = cross_entropy(
             input=inputs.reshape(-1, inputs.shape[-1]),
-            target=outputs.reshape(-1),
+            target=targets.reshape(-1),
             reduce=False,
         )
         losses = losses * mask.reshape(-1)
@@ -450,7 +464,12 @@ class DiffusionRunner:
             X=None,
             eps: float = 1e-5,
     ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
-        mask = None  # X["input_mask"]
+        # seq_len = clean_x.size(1)
+        # mask = torch.triu(
+        #     torch.ones((seq_len, seq_len), dtype=torch.uint8)
+        # ).view(1, seq_len, seq_len)
+        # None  # X["input_mask"]
+        mask = X["input_mask"]
 
         # Noizing
         batch_size = clean_x.size(0)
@@ -463,17 +482,21 @@ class DiffusionRunner:
         scores = self.sde.calc_score(self.ddp_score_estimator, x_t, t, cond=cond, cond_mask=X["cond_mask"],
                                      attention_mask=mask)
 
+        #mask = None
+
         # MSE losses
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
 
-        loss_x_0 = self.mse_loss(clean_x, x_0, mask)
-        loss_eps = self.mse_loss(noise, eps_theta, mask)
-        loss_score = self.mse_loss(score_clean, score, mask)
+        loss_x_0 = self.mse_loss(targets=clean_x, inputs=x_0, mask=mask)
+        loss_eps = self.mse_loss(targets=noise, inputs=eps_theta, mask=mask)
+        loss_score = self.mse_loss(targets=score_clean, inputs=score, mask=mask)
 
         # Decoder reconstruction
 
         logits = self.pred_logits(pred_embeddings=x_0, input_ids=X["input_ids"])
-        ce_loss = self.recon_loss(logits, X["input_ids"], mask)
+        # print("logits", logits.argmax(dim=-1))
+        # print("input_ids", X["input_ids"])
+        ce_loss = self.recon_loss(inputs=logits, targets=X["input_ids"], mask=mask)
 
         if self.config.model.loss == "L_x_0":
             loss = loss_x_0
@@ -489,7 +512,7 @@ class DiffusionRunner:
             'loss_x_0': loss_x_0,
             'loss_score': loss_score,
             'loss_ce': ce_loss,
-            'accuracy': self.bert_acc(targets=X["input_ids"], outputs=logits, mask=mask)
+            'accuracy': self.bert_acc(inputs=logits, targets=X["input_ids"], mask=mask)
         }
 
         stat_dict = {}
@@ -529,8 +552,8 @@ class DiffusionRunner:
         if self.config.refresh.true:
             self.refresh_checkpoint()
 
-            self.estimate()
-            self.validate()
+            # self.estimate()
+            # self.validate()
 
         self.train_range = trange(self.step + 1, self.config.training.training_iters + 1)
         self.train_range_iter = iter(self.train_range)

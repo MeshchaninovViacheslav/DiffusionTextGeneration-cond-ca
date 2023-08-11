@@ -35,8 +35,8 @@ class WikipediaDatasetDDP:
         self.max_sequence_len = max_sequence_len
         self.pos_begin = pos_begin
         self.pos_end = pos_end
-        self.device_number = dist.get_rank()
-        self.total_device_number = dist.get_world_size()
+        self.device_number = dist.get_rank() if torch.distributed.is_initialized() else 0
+        self.total_device_number = dist.get_world_size() if torch.distributed.is_initialized() else 1
         self.number_of_datasets = 8
 
     def load_data(self, path):

@@ -46,9 +46,9 @@ def create_config():
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 500_000
     training.training_iters = training.training_iters
-    training.checkpoint_freq = 50_000
+    training.checkpoint_freq = 100_000
     training.eval_freq = 50_000
-    training.batch_size = 32  # * 8
+    training.batch_size = 512  # * 8
 
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
@@ -87,26 +87,14 @@ def create_config():
     model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.mybert_step = 220000
-    model.decoder_path = f"decoder-my_bert-768-{model.mybert_step}.pth"
-    #model.decoder_path = "decoder-wikipedia-128.pth" #"decoder-my_bert-768.pth"
-    #model.decoder_path = "decoder-my_bert-768.pth"
-
-    model.my_bert_checkpoint = f"./lm_training/checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert-{model.mybert_step}/"
-    #model.my_bert_checkpoint = "bert-base-uncased"
-    #model.my_bert_checkpoint = "./lm_training/checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert/"
-    # "decoder-electra-wikipedia-128.pth" #"decoder-roberta_base-wikipedia-128.pth" # "decoder-wikipedia-128.pth"  # "decoder-t5_base-wikipedia-128.pth" "decoder-roberta_base-wikipedia-128.pth"
+    model.decoder_path = "decoder-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
     data.pos_begin = 0.0
     data.pos_end = 0.67
-    data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-{model.mybert_step}-wiki-mean.pt"
-    #data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-mean.pt"
-    #data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-mean.pt"
-    data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-{model.mybert_step}-wiki-std.pt"
-    #data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-std.pt"
-    #data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-my_bert-768-wiki-std.pt"
+    data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-mean.pt"
+    data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-bert_base-wiki-std.pt"
 
     data.enc_t5_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-mean.pth"
     data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
@@ -117,14 +105,14 @@ def create_config():
     config.ddp = True
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
 
-    config.project_name = "test"#"bert-encoder-exps"
+    config.project_name = "dtg-exps-1.0"
 
     return config
 
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = f"t5-mybert-{config.model.mybert_step}"
+    suffix = f"t5-bert-initial"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"{suffix}"  # "end2end-enc-base-seqlen32-v.5"  # 'emb_bert_x0_bs=512_lr=2e-4'

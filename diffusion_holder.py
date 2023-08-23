@@ -175,8 +175,6 @@ class DiffusionRunner:
                 mode="online"
             )
 
-        self.dict_to_save = dict()
-
     def restore_parameters(self, device: Optional[torch.device] = None) -> None:
         checkpoints_folder: str = self.checkpoints_folder
         if device is None:
@@ -470,16 +468,6 @@ class DiffusionRunner:
         for key in x_0_dict_SPT:
             stat_dict[f"x_0_woSPT_{key}"] = x_0_dict_SPT[key]
 
-        self.dict_to_save[self.step] = {
-            "clean_x": clean_x,
-            **scores,
-            "t": t,
-            "x_t": x_t,
-            "noise": noise,
-            "cond": cond,
-            "cond_mask": X["cond_mask"],
-        }
-
         return loss_dict, stat_dict
 
     def train(
@@ -589,11 +577,6 @@ class DiffusionRunner:
                 clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
                 cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
             loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
-
-        if self.step % 10 == 0:
-            torch.save(self.dict_to_save, "data_xt.pth")
-            import sys
-            sys.exit(0)
 
         stat_dict["grad_norm"], stat_dict["clipped_grad_norm"] = self.optimizer_step(loss_dict['total_loss'])
         stat_dict["scale_factor"] = torch.Tensor([self.grad_scaler._scale])

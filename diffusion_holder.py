@@ -143,7 +143,7 @@ class DiffusionRunner:
             dataset_name=config.model.dataset,
             downstream_task=config.model.downstream_task
         )(
-            split="valid",
+            split="train",
             tokenizer_bert=self.tokenizer_bert,
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,
@@ -761,6 +761,7 @@ class DiffusionRunner:
                     x_0_self_cond=x_0_self_cond,
                 )
                 x, x_mean = output["x"], output["x_mean"]
+                x_0_self_cond = output["x_0"]
 
             pred_embeddings = x_mean
 

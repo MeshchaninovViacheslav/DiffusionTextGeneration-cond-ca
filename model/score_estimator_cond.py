@@ -92,6 +92,9 @@ class TransformerEncoder(torch.nn.Module):
         self.time_layers = torch.nn.ModuleList(
             [nn.Linear(self.hidden_size, self.hidden_size) for _ in range(0, self.num_hidden_layers)]
         )
+        self.self_cond_layers = torch.nn.ModuleList(
+            [nn.Linear(self.hidden_size, self.hidden_size) for _ in range(0, self.num_hidden_layers)]
+        )
 
     def forward(
             self,
@@ -100,13 +103,14 @@ class TransformerEncoder(torch.nn.Module):
             emb_t=None,
             cond=None,
             cond_mask=None,
+            x_0_self_cond=None,
     ):
 
         x_input_list = []
 
         for i, block in enumerate(self.input_blocks):
             x_input_list.append(x)
-            x = x + self.time_layers[i](emb_t)
+            x = x + self.time_layers[i](emb_t) + self.self_cond_layers[i](x_0_self_cond)
             x = block(
                 hidden_states=x,
                 attention_mask=attention_mask,
@@ -115,7 +119,8 @@ class TransformerEncoder(torch.nn.Module):
             )
 
         for i, block in enumerate(self.output_blocks):
-            x = x + x_input_list.pop() + self.time_layers[i + self.num_hidden_layers // 2](emb_t)
+            ind = i + self.num_hidden_layers // 2
+            x = x + x_input_list.pop() + self.time_layers[ind](emb_t) + self.self_cond_layers[ind](x_0_self_cond)
             x = block(
                 hidden_states=x,
                 attention_mask=attention_mask,
@@ -178,6 +183,7 @@ class ScoreEstimatorEMB(nn.Module):
             cond=None,
             attention_mask=None,
             cond_mask=None,
+            x_0_self_cond=None,
     ):
         assert time_t is not None
 
@@ -209,5 +215,6 @@ class ScoreEstimatorEMB(nn.Module):
             emb_t=hidden_t,
             cond=cond,
             cond_mask=cond_mask,
+            x_0_self_cond=x_0_self_cond,
         )
         return output

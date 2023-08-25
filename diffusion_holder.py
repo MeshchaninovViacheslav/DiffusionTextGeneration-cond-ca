@@ -2,6 +2,7 @@ import os
 import torch
 import wandb
 import numpy as np
+import random
 import torch.distributed as dist
 from ml_collections import ConfigDict
 from typing import Optional, Union, Dict, Tuple
@@ -66,7 +67,7 @@ class DiffusionRunner:
         self.config = config
         self.latent_mode = latent_mode
         self.eval = eval
-
+        self.use_self_cond = config.use_self_cond
         self.checkpoints_folder = config.training.checkpoints_folder
 
         # Encoder for condition
@@ -91,7 +92,6 @@ class DiffusionRunner:
             bert_cfg,
             enc_normalizer=self.gen_enc_normalizer
         ).eval().cuda()
-
 
         #
         bert_cfg = "bert-base-uncased"
@@ -143,7 +143,7 @@ class DiffusionRunner:
             dataset_name=config.model.dataset,
             downstream_task=config.model.downstream_task
         )(
-            split="train",
+            split="valid",
             tokenizer_bert=self.tokenizer_bert,
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,
@@ -286,14 +286,10 @@ class DiffusionRunner:
     def optimizer_step(self, loss: torch.Tensor):
         self.optimizer.zero_grad()
         self.grad_scaler.scale(loss).backward()
-
-        # grad_norm = torch.sqrt(sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters()]))
-        # if torch.any(torch.isnan(grad_norm)):
-        #     return grad_norm, grad_norm
-
         self.grad_scaler.unscale_(self.optimizer)
 
-        grad_norm = torch.sqrt(sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters()]))
+        grad_norm = torch.sqrt(
+            sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters() if t.requires_grad]))
 
         if self.grad_clip_norm is not None:
             torch.nn.utils.clip_grad_norm_(
@@ -301,7 +297,8 @@ class DiffusionRunner:
                 max_norm=self.grad_clip_norm
             )
 
-        clipped_grad_norm = torch.sqrt(sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters()]))
+        clipped_grad_norm = torch.sqrt(
+            sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters() if t.requires_grad]))
 
         self.log_metric('lr', 'train', self.optimizer.param_groups[0]['lr'])
         self.grad_scaler.step(self.optimizer)
@@ -417,9 +414,27 @@ class DiffusionRunner:
         marg_forward = self.sde.marginal_forward(clean_x, t)
         x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
 
+        # self-cond estimate
+        x_0_self_cond = torch.zeros_like(x_t, dtype=x_t.dtype)
+        if self.use_self_cond and random.random() > 0.5:
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                with torch.no_grad():
+                    x_0_self_cond = self.ddp_score_estimator(
+                        x_t=x_t, time_t=t, cond=cond,
+                        attention_mask=mask, cond_mask=X["cond_mask"],
+                        x_0_self_cond=x_0_self_cond
+                    ).detach()
+
         # model prediction
-        scores = self.sde.calc_score(self.ddp_score_estimator, x_t, t, cond=cond, cond_mask=X["cond_mask"],
-                                     attention_mask=mask)
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            scores = self.sde.calc_score(
+                self.ddp_score_estimator,
+                x_t, t,
+                cond=cond,
+                cond_mask=X["cond_mask"],
+                attention_mask=mask,
+                x_0_self_cond=x_0_self_cond,
+            )
 
         # MSE losses
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
@@ -576,7 +591,8 @@ class DiffusionRunner:
             with torch.no_grad():
                 clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
                 cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
-            loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
+
+        loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
 
         stat_dict["grad_norm"], stat_dict["clipped_grad_norm"] = self.optimizer_step(loss_dict['total_loss'])
         stat_dict["scale_factor"] = torch.Tensor([self.grad_scaler._scale])
@@ -730,6 +746,7 @@ class DiffusionRunner:
 
         with torch.no_grad():
             x = self.sde.prior_sampling(shape).to(self.device)
+            x_0_self_cond = torch.zeros_like(x, dtype=x.dtype)
             eps_t = 1 / self.diff_eq_solver.sde.N
             timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N, device=self.device)
             for i in tqdm(range(self.sde.N)):
@@ -740,7 +757,8 @@ class DiffusionRunner:
                     x_t=x, t=vec_t,
                     cond=cond_X,
                     cond_mask=cond_mask,
-                    attention_mask=attention_mask
+                    attention_mask=attention_mask,
+                    x_0_self_cond=x_0_self_cond,
                 )
                 x, x_mean = output["x"], output["x_mean"]
 

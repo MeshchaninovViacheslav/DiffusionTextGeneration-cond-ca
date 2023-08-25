@@ -100,11 +100,10 @@ def create_config():
     data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
 
     config.finetuning = False
-    config.lin_input = True
     config.seed = 0
     config.ddp = True
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
-
+    config.use_self_cond = True
     config.project_name = "dtg-exps-1.0"
 
     return config
@@ -112,7 +111,7 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = f"t5-bert-initial"
+    suffix = f"t5-bert-self_cond"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"{suffix}"  # "end2end-enc-base-seqlen32-v.5"  # 'emb_bert_x0_bs=512_lr=2e-4'

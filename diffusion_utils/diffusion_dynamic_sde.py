@@ -81,27 +81,27 @@ class DDPM_SDE:
             "score": -noise / std,
         }
 
-    def __marginal_params_scalar(self, t: float) -> Dict[str, torch.Tensor]:
-        """
-        x_t = x_0 * alpha + eps * std
-        beta(s) = (beta_max - beta_min) * s + beta_min
-        alpha_real = exp(-integrate(beta(s) ds)) = exp(-1/2 * (beta_max - beta_min) * t**2 - beta_min * t)
-        here alpha = sqrt(alpha_real) in order to multiply x without sqrt
-        std = sqrt(1 - alpha_real)
-        """
-        log_mean_coeff = -0.25 * t ** 2 * (self.beta_1 - self.beta_0) - 0.5 * t * self.beta_0
-        log_gamma_coeff = log_mean_coeff * 2
-        alpha = torch.exp(log_mean_coeff)
-        std = torch.sqrt(1. - torch.exp(log_gamma_coeff))
-        return {
-            "alpha": alpha,
-            "std": std
-        }
-
-    def __marginal_std(self, t: torch.Tensor) -> torch.Tensor:
-        log_gamma_coeff = -0.5 * t ** 2 * (self.beta_1 - self.beta_0) - t * self.beta_0
-        std = torch.sqrt(1. - torch.exp(log_gamma_coeff)).to(t.device)[:, None, None]
-        return std
+    # def __marginal_params_scalar(self, t: float) -> Dict[str, torch.Tensor]:
+    #     """
+    #     x_t = x_0 * alpha + eps * std
+    #     beta(s) = (beta_max - beta_min) * s + beta_min
+    #     alpha_real = exp(-integrate(beta(s) ds)) = exp(-1/2 * (beta_max - beta_min) * t**2 - beta_min * t)
+    #     here alpha = sqrt(alpha_real) in order to multiply x without sqrt
+    #     std = sqrt(1 - alpha_real)
+    #     """
+    #     log_mean_coeff = -0.25 * t ** 2 * (self.beta_1 - self.beta_0) - 0.5 * t * self.beta_0
+    #     log_gamma_coeff = log_mean_coeff * 2
+    #     alpha = torch.exp(log_mean_coeff)
+    #     std = torch.sqrt(1. - torch.exp(log_gamma_coeff))
+    #     return {
+    #         "alpha": alpha,
+    #         "std": std
+    #     }
+    #
+    # def _-marginal_std(self, t: torch.Tensor) -> torch.Tensor:
+    #     log_gamma_coeff = -0.5 * t ** 2 * (self.beta_1 - self.beta_0) - t * self.beta_0
+    #     std = torch.sqrt(1. - torch.exp(log_gamma_coeff)).to(t.device)[:, None, None]
+    #     return std
 
     def prior_sampling(self, shape) -> torch.Tensor:
         return torch.randn(*shape)

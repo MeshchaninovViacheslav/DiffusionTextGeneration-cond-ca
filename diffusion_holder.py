@@ -502,7 +502,7 @@ class DiffusionRunner:
         if self.config.refresh.true:
             self.refresh_checkpoint()
 
-            # self.estimate()
+            self.estimate()
             self.validate()
 
         self.train_range = trange(self.step + 1, self.config.training.training_iters + 1)
@@ -666,6 +666,7 @@ class DiffusionRunner:
                     "scheduler": self.scheduler.state_dict(),
                     "scaler": self.grad_scaler.state_dict(),
                     "step": self.step,
+                    "decoder": self.decoder,
                 },
                 os.path.join(self.checkpoints_folder, prefix + ".pth")
             )
@@ -681,7 +682,7 @@ class DiffusionRunner:
         self.ema.cuda()
         self.switch_to_ema()
 
-        self.optimizer.load_state_dict(load["optimizer"])
+        #self.optimizer.load_state_dict(load["optimizer"])
         self.scheduler.load_state_dict(load["scheduler"])
         self.grad_scaler.load_state_dict(load["scaler"])
         self.step = load["step"]

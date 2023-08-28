@@ -58,7 +58,7 @@ def create_config():
     loss.ce_coef = 0.
 
     refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = True
+    refresh.true = False
     refresh.prefix = "./checkpoints/wikipedia--t5-bert-self_cond_500000_.pth"
     refresh.wand_id = "g5fb4af3"
 

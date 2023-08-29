@@ -110,16 +110,16 @@ def train(config):
 
     optimizer = torch.optim.AdamW(
         decoder.parameters(),
-        lr=2e-4,
-        weight_decay=0.001,
-        # eps=1e-6,
+        lr=5e-5,
+        weight_decay=0.01,
+        eps=1e-6,
         betas=(0.9, 0.98),
     )
 
     eval_freq = 100
     eval_mode = False
     step = 0
-    epochs = 2
+    epochs = 1
     for epoch in range(epochs):
         diffusion.set_train_data_generator()
         decoder.train()
@@ -132,7 +132,7 @@ def train(config):
             else:
                 step += 1
 
-            with torch.autocast(device_type='cuda', dtype=torch.float16):
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 with torch.no_grad():
                     X = dict_to_cuda(X)
                     clean_X = diffusion.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
@@ -174,7 +174,7 @@ def train(config):
             if not eval_mode:
                 optimizer.zero_grad()
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(
+                grad_norm = torch.nn.utils.clip_grad_norm_(
                     decoder.parameters(),
                     max_norm=1.0
                 )
@@ -187,6 +187,7 @@ def train(config):
                 if not eval_mode:
                     wandb.log({f'train loss': loss.item()}, step=step)
                     wandb.log({f'train accuracy': acc.item()}, step=step)
+                    wandb.log({f'grad_norm': grad_norm.item()}, step=step)
                 else:
                     wandb.log({f'valid loss': loss.item()}, step=step)
                     wandb.log({f'valid accuracy': acc.item()}, step=step)

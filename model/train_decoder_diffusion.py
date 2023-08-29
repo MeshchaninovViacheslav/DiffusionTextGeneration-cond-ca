@@ -144,7 +144,7 @@ def train(config):
                     batch_size = clean_X.size(0)
 
                     t = diffusion.sample_time(batch_size, eps=1e-5)
-                    marg_forward = diffusion.sde.marginal_forward(clean_X, t)
+                    marg_forward = diffusion.dynamic.marginal_forward(clean_X, t)
                     x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
 
                     # self-cond estimate
@@ -157,7 +157,7 @@ def train(config):
                         ).detach()
 
                     # model prediction
-                    x_0 = diffusion.sde.calc_score(
+                    x_0 = diffusion.dynamic.calc_score(
                         diffusion.ddp_score_estimator,
                         x_t, t,
                         cond=cond,
@@ -200,12 +200,12 @@ def train(config):
                 step += 1
 
     if dist.get_rank() == 0:
-        checkpoints_folder = './checkpoints/'
+        checkpoints_folder = '/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/'
         name = os.path.join(checkpoints_folder, f"decoder-{exp_name}.pth")
         decoder.eval()
         torch.save(
             {
-                "decoder": decoder.module.state_dict(),
+                "decoder": decoder.state_dict(),
             },
             name
         )

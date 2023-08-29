@@ -10,7 +10,7 @@ from tqdm.auto import trange
 from torch.utils.data import DataLoader
 from transformers import BertTokenizerFast, T5TokenizerFast, RobertaTokenizerFast, ElectraTokenizerFast
 from tqdm import tqdm
-from torch.nn.functional import cross_entropy
+
 from copy import deepcopy
 from timm.scheduler.cosine_lr import CosineLRScheduler
 from collections import defaultdict
@@ -26,16 +26,14 @@ from data.dataset import create_dataset
 from model.score_estimator_cond import ScoreEstimatorEMB
 from model.t5_encoder import T5EncoderModel
 from model.bert_encoder import BertEncoderModel
-from model.roberta_encoder import RobertaEncoderModel
-from model.electra_encoder import ElectraEncoderModel
-from model.emb_encoder import EmbEncoderModel
 from model.enc_normalizer import EncNormalizer
 from model.decoder import Decoder
 
+from utils.util import mse_loss, get_stat, recon_loss, bert_acc
+
 from estimation_utils.util import estimate_model, gather_texts, reduce_metrics, reduce_sum_metrics
-from estimation_utils.metrics import BloomMetric
-from estimation_utils.estimate_glue import estimate_sst2
-from estimation_utils.metrics import BloomMetricConditional, GPTMetric, BloomMetric, RobertaMetric
+
+from estimation_utils.metrics import BloomMetricConditional, RobertaMetric
 
 
 class Loss_ema_tracker:
@@ -233,23 +231,9 @@ class DiffusionRunner:
         self.grad_scaler = GradScaler()
 
     def set_train_data_generator(self) -> None:
-        num_tasks = 1
         del self.train_dataset
         self.train_dataset = next(self.train_datasets_iter)
         print("Dataset length:", len(self.train_dataset))
-
-        # if self.config.ddp:
-        #     num_tasks = dist.get_world_size()
-        #     global_rank = dist.get_rank()
-        #
-        #     sampler_train = torch.utils.data.DistributedSampler(
-        #         self.train_dataset,
-        #         num_replicas=num_tasks,
-        #         rank=global_rank,
-        #         shuffle=True,
-        #     )
-        # else:
-        #     sampler_train = None
 
         self.train_loader = DataLoader(
             self.train_dataset,
@@ -260,10 +244,7 @@ class DiffusionRunner:
         )
 
     def set_valid_data_generator(self) -> None:
-        num_tasks = 1
-
         if self.config.ddp:
-            num_tasks = dist.get_world_size()
             sampler_valid = torch.utils.data.distributed.DistributedSampler(
                 self.valid_dataset,
                 shuffle=False
@@ -319,84 +300,30 @@ class DiffusionRunner:
         # return torch.rand(batch_size) * (0.05 - eps) + eps
         return torch.cuda.FloatTensor(batch_size).uniform_() * (self.sde.T - eps) + eps
 
-    def get_dict_to_emb(self, X: Dict) -> Dict:
-        keys = [
-            'input_ids',
-            'token_type_ids',
-            'position_ids',
-            'inputs_embeds',
-            'past_key_values_length'
-        ]
-        res = dict()
-        for k in keys:
-            if k in X:
-                res[k] = X[k]
-        return res
-
-    def bert_acc(self, targets, outputs, mask):
-        if mask is None:
-            mask = torch.ones(
-                (targets.shape[0], targets.shape[1]),
-                device=f"cuda:{dist.get_rank()}",
-                requires_grad=False,
-                dtype=torch.int64,
-            )
-        pred_tokens = outputs.argmax(dim=-1)
-
-        mask = deepcopy(mask)
-        mask.scatter_(dim=1, index=(mask.sum(dim=1) - 1).reshape(-1, 1), src=torch.zeros_like(mask))
-        mask[:, 0] = 0
-        return torch.sum(mask * (targets == pred_tokens)) / torch.sum(mask)
-
-    def mse_loss(self, inputs, targets, mask):
-        if mask is None:
-            mask = torch.ones(
-                (targets.shape[0], targets.shape[1]),
-                device=f"cuda:{dist.get_rank()}",
-                requires_grad=False,
-                dtype=torch.int64,
-            )
-        losses = torch.mean(torch.square(inputs - targets), dim=-1)
-        losses = losses * mask
-        loss = torch.sum(losses) / torch.sum(mask)
-        return loss
-
-    def recon_loss(self, inputs, outputs, mask):
-        if mask is None:
-            mask = torch.ones(
-                (inputs.shape[0], inputs.shape[1]),
-                device=f"cuda:{dist.get_rank()}",
-                requires_grad=False,
-                dtype=torch.int64,
-            )
-        losses = cross_entropy(
-            input=inputs.reshape(-1, inputs.shape[-1]),
-            target=outputs.reshape(-1),
-            reduce=False,
-        )
-        losses = losses * mask.reshape(-1)
-        loss = torch.sum(losses) / torch.sum(mask)
-        return loss
-
-    def get_stat(self, z, mask):
-        if mask is None:
-            mask = torch.ones(
-                (z.shape[0], z.shape[1]),
-                device=f"cuda:{dist.get_rank()}",
-                requires_grad=False,
-                dtype=torch.int64,
-            )
-        else:
-            mask = make_mask_wo_SEP_CLS(mask)
-        mean = masked_mean(z, mask)
-        std = masked_std(z, mask)
-        norm = torch.sum(torch.norm(z, dim=2) * mask) / torch.sum(mask)
-        stat_dict = {
-            "mean": torch.mean(mean),
-            "std": torch.mean(std),
-            "norm": norm
+    def calc_score(
+            self,
+            model,
+            x_t, t,
+            cond=None,
+            attention_mask=None,
+            cond_mask=None,
+            x_0_self_cond=None
+    ) -> Dict[str, torch.Tensor]:
+        """
+        x_0 - prediction x_0(x_t, t)
+        eps = (x_t - sqrt(alpha_t) * x_0) / std
+        score = (-x_t + sqrt(alpha_t) * x_0) / std**2
+        """
+        params = self.sde.marginal_params_tensor(x_t, t)
+        x_0 = model(x_t=x_t, time_t=t, cond=cond, attention_mask=attention_mask, cond_mask=cond_mask,
+                    x_0_self_cond=x_0_self_cond)
+        eps_theta = (x_t - params["alpha"] * x_0) / params["std"]
+        score = -eps_theta / params["std"]
+        return {
+            "score": score,
+            "x_0": x_0,
+            "eps_theta": eps_theta
         }
-        return stat_dict
 
     def calc_loss(
             self,
@@ -439,21 +366,16 @@ class DiffusionRunner:
         # MSE losses
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
 
-        loss_x_0 = self.mse_loss(clean_x, x_0, mask)
-        loss_eps = self.mse_loss(noise, eps_theta, mask)
-        loss_score = self.mse_loss(score_clean, score, mask)
+        loss_x_0 = mse_loss(clean_x, x_0, mask)
+        loss_eps = mse_loss(noise, eps_theta, mask)
+        loss_score = mse_loss(score_clean, score, mask)
 
         # Decoder reconstruction
-
         logits = self.pred_logits(pred_embeddings=x_0, input_ids=X["input_ids"])
-        ce_loss = self.recon_loss(logits, X["input_ids"], mask)
+        ce_loss = recon_loss(logits, X["input_ids"], mask)
 
-        if self.config.model.loss == "L_x_0":
-            loss = loss_x_0
-        elif self.config.model.loss == "L_eps":
-            loss = loss_eps
-        elif self.config.model.loss == "L_score":
-            loss = loss_score
+        loss = loss_x_0
+
         loss = loss + ce_loss * self.config.loss.ce_coef
         loss_dict = {
             'loss': loss,
@@ -462,24 +384,24 @@ class DiffusionRunner:
             'loss_x_0': loss_x_0,
             'loss_score': loss_score,
             'loss_ce': ce_loss,
-            'accuracy': self.bert_acc(targets=X["input_ids"], outputs=logits, mask=mask)
+            'accuracy': bert_acc(targets=X["input_ids"], outputs=logits, mask=mask)
         }
 
         stat_dict = {}
-        clean_x_dict = self.get_stat(clean_x, mask)
+        clean_x_dict = get_stat(clean_x, mask)
         for key in clean_x_dict:
             stat_dict[f"clean_x_{key}"] = clean_x_dict[key]
 
-        x_0_dict = self.get_stat(x_0, mask)
+        x_0_dict = get_stat(x_0, mask)
         for key in x_0_dict:
             stat_dict[f"x_0_{key}"] = x_0_dict[key]
 
         mask = X["input_mask"]
-        clean_x_dict_SPT = self.get_stat(clean_x, mask)
+        clean_x_dict_SPT = get_stat(clean_x, mask)
         for key in clean_x_dict_SPT:
             stat_dict[f"clean_x_woSPT_{key}"] = clean_x_dict_SPT[key]
 
-        x_0_dict_SPT = self.get_stat(x_0, mask)
+        x_0_dict_SPT = get_stat(x_0, mask)
         for key in x_0_dict_SPT:
             stat_dict[f"x_0_woSPT_{key}"] = x_0_dict_SPT[key]
 
@@ -490,7 +412,6 @@ class DiffusionRunner:
             project_name: str = 'bert_diffusion',
             experiment_name: str = 'bert_emb'
     ) -> None:
-        self.tracker = Loss_ema_tracker()
         self.set_optimizer()
         self.set_scheduler()
         self.set_grad_scaler()
@@ -520,37 +441,6 @@ class DiffusionRunner:
         self.save_checkpoint(last=True)
         self.switch_to_ema()
 
-    def finetune(self):
-        self.tracker = Loss_ema_tracker()
-        self.set_optimizer()
-        self.set_scheduler()
-        self.set_grad_scaler()
-        self.step = 0
-        self.set_valid_data_generator()
-        self.file = open("log.txt", "w")
-        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
-
-        if self.config.refresh.true:
-            self.refresh_finetune_checkpoint()
-
-            self.estimate_finetuning()
-            self.validate()
-
-        self.train_range = trange(self.step + 1, self.config.training.training_iters + 1)
-        self.train_range_iter = iter(self.train_range)
-
-        while True:
-            self.set_train_data_generator()
-            self.ddp_score_estimator.train()
-            self.train_epoch()
-
-            if self.step >= self.config.training.training_iters:
-                break
-
-        self.score_estimator.eval()
-        self.save_checkpoint(last=True)
-        self.switch_to_ema()
-
     def train_epoch(self):
         for _, X in enumerate(self.train_loader):
             if self.step >= self.config.training.training_iters:
@@ -558,24 +448,19 @@ class DiffusionRunner:
             _ = next(self.train_range_iter)
 
             loss_dict, stat_dict = self.train_step(X)
-            loss = loss_dict["loss"]
+
 
             if self.step % self.config.training.checkpoint_freq == 0:
                 self.save_checkpoint()
 
             if self.step % self.config.training.eval_freq == 0:
-                if self.config.finetuning:
-                    self.estimate_finetuning()
-                else:
-                    self.estimate()
+                self.estimate()
                 self.validate()
                 # self.compute_restoration_loss(suffix="train")
                 # self.compute_restoration_loss(suffix="valid")
 
-            self.tracker.update(loss.item())
+
             self.train_range.set_description(
-                f"loss: {self.tracker.loss:0.4f}, "
-                f"loss_eps: {loss_dict['loss_eps'].item():0.4f}, "
                 f"loss_x_0: {loss_dict['loss_x_0'].item():0.4f}, "
                 f"grad_norm: {stat_dict['grad_norm'].item():0.4f}, "
                 f"accuracy: {loss_dict['accuracy'].item():0.4f}"
@@ -687,18 +572,6 @@ class DiffusionRunner:
         self.step = load["step"]
         print(f"Checkpoint refreshed {self.config.refresh.prefix}")
 
-    def refresh_finetune_checkpoint(self):
-        if not self.config.refresh.true:
-            return
-        load = torch.load(f'{self.config.refresh.prefix}', map_location="cpu")
-        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
-        self.ema.load_state_dict(load["ema"])
-        self.ema.cuda()
-        self.ema.decay = self.config.model.ema_rate
-
-        self.switch_to_ema()
-        print(f"Checkpoint refreshed {self.config.refresh.prefix}")
-
     @torch.no_grad()
     def generate_text(self, batch_size, cond=None, way="sde", attention_mask=None):
         cond_X, cond_mask = None, None
@@ -748,7 +621,13 @@ class DiffusionRunner:
             x = self.sde.prior_sampling(shape).to(self.device)
             x_0_self_cond = torch.zeros_like(x, dtype=x.dtype)
             eps_t = 1 / self.diff_eq_solver.sde.N
-            timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N, device=self.device)
+
+            if self.config.timesteps == "linear":
+                timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N, device=self.device)
+            elif self.config.timesteps == "quad":
+                timesteps = torch.linspace(self.sde.T - eps_t, 0, self.sde.N,
+                                           device=self.device) ** 2 + eps_t
+
             for i in tqdm(range(self.sde.N)):
                 t = timesteps[i]
                 vec_t = torch.ones(shape[0], device=t.device) * t
@@ -766,356 +645,6 @@ class DiffusionRunner:
             pred_embeddings = x_mean
 
         return pred_embeddings
-
-    @torch.no_grad()
-    def pred_embeddings_classifier_guidance(
-            self,
-            batch_size,
-            cond_X=None,
-            cond_mask=None,
-            attention_mask=None,
-    ):
-        def q_x_t_rev(x_t, x_0, t):
-            dt = 1 / self.diff_eq_solver.sde.N
-            alpha_t = self.sde.scheduler.alpha_std(t)[0] ** 2
-            alpha_t_1 = self.sde.scheduler.alpha_std(t - dt)[0] ** 2
-            beta_t = self.sde.scheduler.beta_t(t)[:, None, None] * dt
-
-            mu = torch.sqrt(alpha_t_1) * beta_t / (1 - alpha_t) * x_0 + \
-                 torch.sqrt(1 - beta_t) * (1 - alpha_t_1) / (1 - alpha_t) * x_t
-            std = torch.sqrt((1 - alpha_t_1) / (1 - alpha_t) * beta_t)
-            return mu, std
-
-        cond_null = self.tokenizer_cond.encode_plus(
-            text="",
-            add_special_tokens=True,
-            padding="max_length",
-            truncation=True,
-            max_length=self.config.data.max_sequence_len,
-            return_tensors="pt",
-        )
-        cond_null = dict_to_cuda(cond_null)
-        cond_null["input_ids"] = cond_null["input_ids"].repeat(batch_size, 1)
-        cond_null["attention_mask"] = cond_null["attention_mask"].repeat(batch_size, 1)
-
-        cond_null_X = self.encoder_cond(**{
-            "input_ids": cond_null["input_ids"],
-            "attention_mask": cond_null["attention_mask"]
-        })
-        cond_null_mask = cond_null["attention_mask"]
-
-        shape = (
-            batch_size,
-            self.config.data.max_sequence_len,
-            self.encoder_gen.config.hidden_size
-        )
-        scale = self.config.classifier_guidance_scale
-
-        with torch.no_grad():
-            x_t = self.sde.prior_sampling(shape).to(self.device)
-            n = 2
-            eps_t = n / self.diff_eq_solver.sde.N
-            timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N - n + 1, device=self.device)
-            for i in tqdm(range(self.sde.N - n + 1)):
-                t = timesteps[i]
-                vec_t = torch.ones(shape[0], device=t.device) * t
-                # print(f"{t:0.3f}: {torch.mean(torch.norm(x_t, dim=-1)):0.3f}")
-
-                x_0_null = self.sde.calc_score(
-                    self.score_estimator, x_t, vec_t,
-                    cond=cond_null_X, cond_mask=cond_null_mask, attention_mask=attention_mask
-                )["x_0"]
-
-                x_0_cond = self.sde.calc_score(
-                    self.score_estimator, x_t, vec_t,
-                    cond=cond_X, cond_mask=cond_mask, attention_mask=attention_mask
-                )["x_0"]
-
-                x_0 = x_0_cond + scale * (x_0_cond - x_0_null)
-                mu, std = q_x_t_rev(x_t, x_0, vec_t)
-                x_t = mu + std * torch.randn_like(x_t)
-
-            pred_embeddings = mu
-        return pred_embeddings
-
-    @torch.no_grad()
-    def pred_embeddings_DDPM(
-            self,
-            batch_size,
-            cond_X=None,
-            cond_mask=None,
-            attention_mask=None,
-    ):
-        def q_x_t_rev(x_t, x_0, t):
-            dt = 1 / self.diff_eq_solver.sde.N
-            alpha_t = self.sde.scheduler.alpha_std(t)[0] ** 2
-            alpha_t_1 = self.sde.scheduler.alpha_std(t - dt)[0] ** 2
-            beta_t = self.sde.scheduler.beta_t(t)[:, None, None] * dt
-
-            mu = torch.sqrt(alpha_t_1) * beta_t / (1 - alpha_t) * x_0 + \
-                 torch.sqrt(1 - beta_t) * (1 - alpha_t_1) / (1 - alpha_t) * x_t
-            std = torch.sqrt((1 - alpha_t_1) / (1 - alpha_t) * beta_t)
-            return mu, std
-
-        shape = (
-            batch_size,
-            self.config.data.max_sequence_len,
-            self.encoder_gen.config.hidden_size
-        )
-        with torch.no_grad():
-            x_t = self.sde.prior_sampling(shape).to(self.device)
-            n = 4
-            eps_t = n / self.diff_eq_solver.sde.N
-            timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N - n + 1, device=self.device)
-            for i in tqdm(range(self.sde.N - n + 1)):
-                t = timesteps[i]
-                vec_t = torch.ones(shape[0], device=t.device) * t
-                # print(f"{t:0.3f}: {torch.mean(torch.norm(x_t, dim=-1)):0.3f}")
-
-                scores = self.sde.calc_score(
-                    self.score_estimator,
-                    x_t, vec_t,
-                    cond=cond_X, cond_mask=cond_mask, attention_mask=attention_mask
-                )
-                x_0 = scores.pop("x_0")
-                mu, std = q_x_t_rev(x_t, x_0, vec_t)
-                x_t = mu + std * torch.randn_like(x_t)
-
-            pred_embeddings = mu
-        return pred_embeddings
-
-    @torch.no_grad()
-    def pred_embeddings_DDIM(
-            self,
-            batch_size,
-            cond_X=None,
-            cond_mask=None,
-            attention_mask=None,
-    ):
-        def q_x_t_rev(x_t, x_0, t, sigma_t):
-            dt = 1 / self.diff_eq_solver.sde.N
-            alpha_t = self.sde.scheduler.alpha_std(t)[0] ** 2
-            alpha_t_1 = self.sde.scheduler.alpha_std(t - dt)[0] ** 2
-
-            sigma_t = torch.zeros_like(
-                alpha_t)  # torch.sqrt((1 - alpha_t_1) / (1 - alpha_t)) * torch.sqrt(1 - alpha_t / alpha_t_1) * 0.1
-
-            noise_t = (x_t - torch.sqrt(alpha_t) * x_0) / torch.sqrt(1 - alpha_t)
-            mu = torch.sqrt(alpha_t_1) * x_0 + \
-                 torch.sqrt(1 - alpha_t_1 - sigma_t ** 2) * noise_t
-            std = sigma_t
-            return mu, std
-
-        sigma_t = 0
-        shape = (
-            batch_size,
-            self.config.data.max_sequence_len,
-            self.encoder_gen.config.hidden_size
-        )
-        with torch.no_grad():
-            x_t = self.sde.prior_sampling(shape).to(self.device)
-            n = 3
-            eps_t = n / self.diff_eq_solver.sde.N
-            timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N - n + 1, device=self.device)
-            for i in tqdm(range(self.sde.N - n + 1)):
-                t = timesteps[i]
-
-                # sigma_t = torch.sqrt(30 * t ** 2 / 1000)
-                vec_t = torch.ones(shape[0], device=t.device) * t
-                # print(f"{t:0.3f}: {torch.mean(torch.norm(x_t, dim=-1)):0.3f}")
-
-                x_0 = self.sde.calc_score(
-                    self.score_estimator, x_t, vec_t,
-                    cond=cond_X, cond_mask=cond_mask, attention_mask=attention_mask
-                )["x_0"]
-                mu, std = q_x_t_rev(x_t, x_0, vec_t, sigma_t)
-                x_t = mu + std * torch.randn_like(x_t)
-
-            pred_embeddings = mu
-        return pred_embeddings
-
-    @torch.no_grad()
-    def restore_text(self, X, mask):
-        X = dict_to_cuda(X)
-        mask = mask.cuda()
-
-        clean_X = self.encoder_gen(**{key: X[key] for key in ["input_ids", "attention_mask"]})
-        mask = mask[:, :, None]
-        clean_X = clean_X * mask
-        pred_embeddings = self.restore_embeddings(mask.shape[0], clean_X, mask)
-        tokens = self.pred_logits(pred_embeddings, X["input_ids"]).argmax(dim=-1)
-        text = self.tokenizer_gen.batch_decode(tokens)
-        return text, tokens
-
-    @torch.no_grad()
-    def restore_embeddings(
-            self, batch_size: int,
-            masked_x, mask,
-            eta: float = 0.2,
-            verbose: bool = True
-    ) -> torch.Tensor:
-        shape = (
-            batch_size,
-            self.config.data.max_sequence_len,
-            768
-        )
-        device = torch.device(self.config.device)
-        eps_t = 1 / self.diff_eq_solver.sde.N
-        gamma = 1
-
-        with torch.no_grad():
-            x = x_mean = self.sde.prior_sampling(shape).to(device)
-
-            timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N, device=self.device)
-            rang = tqdm(range(self.sde.N))
-
-            for idx in rang:
-                t = timesteps[idx]
-                vec_t = t * torch.ones(shape[0], device=device)
-
-                y_t = self.sde.marginal_forward(masked_x, vec_t)['x_t']
-                x_t = x
-                input_t = gamma * mask * y_t + (1 - gamma) * mask * x_t + (1 - mask) * x_t
-                output = self.diff_eq_solver.step(model=self.score_estimator, x_t=input_t, t=vec_t)
-                x, x_mean = output["x"], output["x_mean"]
-
-        return x_mean
-
-    # def generate_latent(self, embs, mask):
-    #     def get_x_t_next(x_t, vec_t, mask):
-    #         params = self.sde.sde(x_t, vec_t)
-    #         drift, dif = params["drift"], params["diffusion"]
-    #         dt = 1. / self.diff_eq_solver.rsde.N
-    #         if torch.allclose(t, torch.zeros_like(t)):
-    #             fn = drift
-    #         else:
-    #             score = self.sde.calc_score(self.score_estimator, x_t, vec_t, mask)["score"]
-    #             fn = drift - 0.5 * dif[:, None, None] ** 2 * score
-    #         x_t_next = x_t + fn * dt
-    #         return x_t_next
-    #
-    #     norm_xt = []
-    #     batch_size = embs.shape[0]
-    #     x_t = embs
-    #     timesteps = torch.linspace(0, self.sde.T, self.sde.N + 1, device=self.device)
-    #
-    #     with torch.no_grad():
-    #         for t in tqdm(timesteps):
-    #             vec_t = torch.ones(batch_size, device=t.device) * t
-    #             x_t = get_x_t_next(x_t, vec_t, mask)
-    #             norm_xt.append(torch.mean(torch.norm(x_t, dim=[2])).item())
-    #
-    #     return x_t, norm_xt
-
-    # def compute_likelihood(self, embs, mask):
-    #     def get_x_t_next_drift(x_t, vec_t, mask):
-    #         params = self.sde.sde(x_t, vec_t)
-    #         drift, dif = params["drift"], params["diffusion"]
-    #         if torch.allclose(t, torch.zeros_like(t)):
-    #             fn = drift
-    #         else:
-    #             score = self.sde.calc_score(self.score_estimator, x_t, vec_t, mask)["score"]
-    #             fn = drift - 0.5 * dif[:, None, None] ** 2 * score
-    #         return fn
-    #
-    #     def get_x_t_next(x_t, vec_t, mask):
-    #         params = self.sde.sde(x_t, vec_t)
-    #         drift, dif = params["drift"], params["diffusion"]
-    #         dt = 1. / self.diff_eq_solver.rsde.N
-    #         if torch.allclose(t, torch.zeros_like(t)):
-    #             fn = drift
-    #         else:
-    #             score = self.sde.calc_score(self.score_estimator, x_t, vec_t, mask)["score"]
-    #             fn = drift - 0.5 * dif[:, None, None] ** 2 * score
-    #         x_t_next = x_t + fn * dt
-    #         return x_t_next
-    #
-    #     def compute_trace(x_t, t, mask):
-    #         eps = torch.randn_like(x_t)
-    #         with torch.enable_grad():
-    #             x_t.requires_grad_(True)
-    #             fn = get_x_t_next_drift(x_t, t, mask)
-    #             fn_eps = torch.sum(fn * eps)
-    #             grad_fn_eps = torch.autograd.grad(fn_eps, x_t)[0]
-    #         x_t.requires_grad_(False)
-    #         trace = torch.sum(grad_fn_eps * eps, dim=[1, 2])
-    #         return trace
-    #
-    #     def prior_logp(z):
-    #         shape = z.shape
-    #         N = np.prod(shape[1:])
-    #         return -N / 2. * np.log(2 * np.pi) - torch.sum(z ** 2, dim=(1, 2)) / 2.
-    #
-    #     x_t = embs
-    #     batch_size = embs.shape[0]
-    #     dt = 1 / self.diff_eq_solver.sde.N
-    #     timesteps = torch.linspace(0, self.sde.T, self.sde.N + 1, device=self.device)
-    #     probability = torch.zeros(batch_size).to("cuda:0")
-    #
-    #     with torch.no_grad():
-    #         for t in tqdm(timesteps):
-    #             vec_t = torch.ones(batch_size, device=t.device) * t
-    #             proba = compute_trace(x_t, vec_t, mask) * dt
-    #             probability += proba
-    #             x_t = get_x_t_next(x_t, vec_t, mask)
-    #
-    #     probability = probability + prior_logp(x_t)
-    #     return probability, x_t
-
-    @torch.no_grad()
-    def compute_restoration_loss(self, suffix="valid"):
-        if dist.get_rank() != 0:
-            return
-
-        self.score_estimator.eval()
-        self.switch_to_ema()
-
-        if suffix == "train":
-            X = next(iter(self.train_loader))
-        elif suffix == "valid":
-            X = next(iter(self.valid_loader))
-        X = dict_to_cuda(X)
-        clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
-        cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
-        batch_size = clean_X.shape[0]
-        mask = X["input_mask"]
-
-        losses_x_0 = []
-        losses_eps = []
-        losses_score = []
-        losses_ce = []
-
-        for t in range(0, self.diff_eq_solver.sde.N):
-            t = t * 1. / self.diff_eq_solver.sde.N
-            vec_t = t * torch.ones(batch_size, device=self.device)
-            marg_forward = self.sde.marginal_forward(clean_X, vec_t)
-            x_t = marg_forward['x_t']
-            noise, score_clean = marg_forward['noise'], marg_forward['score']
-
-            scores = self.sde.calc_score(self.score_estimator, x_t=x_t, t=vec_t, cond=cond,
-                                         attention_mask=X["input_mask"], cond_mask=X["cond_mask"])
-            x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
-
-            loss_x_0 = self.mse_loss(clean_X, x_0, mask)
-            loss_eps = self.mse_loss(noise, eps_theta, mask)
-            loss_score = self.mse_loss(score_clean, score, mask)
-            loss_ce = self.recon_loss(self.pred_logits(pred_embeddings=x_0), X["input_ids"], mask)
-
-            losses_x_0.append(loss_x_0.item())
-            losses_eps.append(loss_eps.item())
-            losses_score.append(loss_score.item())
-            losses_ce.append(loss_ce.item())
-
-        self.score_estimator.train()
-        self.switch_back_from_ema()
-
-        timesteps = np.arange(0., 1., 1. / self.diff_eq_solver.sde.N)
-        keys = ["losses_x_0", "losses_eps", "losses_score", "losses_ce"]
-        for i, loss in enumerate([losses_x_0, losses_eps, losses_score, losses_ce]):
-            data = [[x, y] for (x, y) in zip(timesteps, loss)]
-            table = wandb.Table(data=data, columns=["time", "loss"])
-            wandb.log({f"{suffix}-{keys[i]}": wandb.plot.line(table, "time", "loss", title=f"{suffix}-{keys[i]}")},
-                      step=self.step)
 
     @torch.no_grad()
     def estimate(self):
@@ -1169,21 +698,3 @@ class DiffusionRunner:
         self.switch_back_from_ema()
         self.score_estimator.train()
         self.config.training.batch_size_per_gpu = self.config.training.batch_size // dist.get_world_size()
-
-    @torch.no_grad()
-    def estimate_finetuning(self):
-        self.switch_to_ema()
-        self.score_estimator.eval()
-
-        num_right, num = estimate_sst2(self)
-        dict_ = {"num_right": num_right, "num": num}
-        dict_ = reduce_sum_metrics(dict_)
-        accuracy = 0.
-        if dist.get_rank() == 0:
-            accuracy = dict_["num_right"] / dict_["num"]
-            print(f"accuracy: {accuracy}, num: {dict_['num']}")
-            self.log_metric(metric_name=f"accuracy {self.config.model.downstream_task}", loader_name="", value=accuracy)
-
-        self.score_estimator.train()
-        self.switch_back_from_ema()
-        return accuracy

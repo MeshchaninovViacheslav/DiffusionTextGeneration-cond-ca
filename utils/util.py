@@ -4,6 +4,7 @@ import numpy as np
 from copy import deepcopy
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
+from torch.nn.functional import cross_entropy
 
 
 def set_seed(seed: int = 0):
@@ -45,6 +46,7 @@ def reduce_tensor(tensor):
     dist.all_reduce(rt, op=dist.ReduceOp.SUM)
     rt /= dist.get_world_size()
     return rt
+
 
 def reduce_sum_tensor(tensor):
     rt = tensor.clone()
@@ -89,6 +91,75 @@ def get_ravel_grad(model):
     for par in model.parameters():
         ww.append(par.grad.detach().cpu().data.numpy().ravel())
     return np.concatenate(ww)
+
+
+def bert_acc(targets, outputs, mask):
+    if mask is None:
+        mask = torch.ones(
+            (targets.shape[0], targets.shape[1]),
+            device=f"cuda:{dist.get_rank()}",
+            requires_grad=False,
+            dtype=torch.int64,
+        )
+    pred_tokens = outputs.argmax(dim=-1)
+
+    mask = deepcopy(mask)
+    mask.scatter_(dim=1, index=(mask.sum(dim=1) - 1).reshape(-1, 1), src=torch.zeros_like(mask))
+    mask[:, 0] = 0
+    return torch.sum(mask * (targets == pred_tokens)) / torch.sum(mask)
+
+
+def mse_loss(inputs, targets, mask):
+    if mask is None:
+        mask = torch.ones(
+            (targets.shape[0], targets.shape[1]),
+            device=f"cuda:{dist.get_rank()}",
+            requires_grad=False,
+            dtype=torch.int64,
+        )
+    losses = torch.mean(torch.square(inputs - targets), dim=-1)
+    losses = losses * mask
+    loss = torch.sum(losses) / torch.sum(mask)
+    return loss
+
+
+def recon_loss(inputs, outputs, mask):
+    if mask is None:
+        mask = torch.ones(
+            (inputs.shape[0], inputs.shape[1]),
+            device=f"cuda:{dist.get_rank()}",
+            requires_grad=False,
+            dtype=torch.int64,
+        )
+    losses = cross_entropy(
+        input=inputs.reshape(-1, inputs.shape[-1]),
+        target=outputs.reshape(-1),
+        reduce=False,
+    )
+    losses = losses * mask.reshape(-1)
+    loss = torch.sum(losses) / torch.sum(mask)
+    return loss
+
+
+def get_stat(z, mask):
+    if mask is None:
+        mask = torch.ones(
+            (z.shape[0], z.shape[1]),
+            device=f"cuda:{dist.get_rank()}",
+            requires_grad=False,
+            dtype=torch.int64,
+        )
+    else:
+        mask = make_mask_wo_SEP_CLS(mask)
+    mean = masked_mean(z, mask)
+    std = masked_std(z, mask)
+    norm = torch.sum(torch.norm(z, dim=2) * mask) / torch.sum(mask)
+    stat_dict = {
+        "mean": torch.mean(mean),
+        "std": torch.mean(std),
+        "norm": norm
+    }
+    return stat_dict
 
 
 _BERT_SMALL = {

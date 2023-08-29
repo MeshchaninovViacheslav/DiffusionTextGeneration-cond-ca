@@ -44,10 +44,10 @@ def create_config():
     optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 550_000
+    training.training_iters = 500_000
     training.training_iters = training.training_iters
     training.checkpoint_freq = 50_000
-    training.eval_freq = 5_000
+    training.eval_freq = 100#5_000
     training.batch_size = 512  # * 8
 
     training.ode_sampling = False
@@ -68,15 +68,14 @@ def create_config():
     validation.num_gen_texts = 8192
     validation.p_uncond = 0.
 
-    sde = config.sde = ml_collections.ConfigDict()
-    sde.typename = 'vp-sde'
-    sde.solver = 'euler'
-    sde.N = 200
-    sde.beta_min = 0.1
-    sde.beta_max = 20
-    sde.ode_sampling = False
-    sde.coef_d = 10
-    sde.scheduler = schedulers.CosineSD(d=sde.coef_d)
+    dynamic = config.dynamic = ml_collections.ConfigDict()
+    dynamic.solver = 'euler'
+    dynamic.scheduler = "sd"
+    dynamic.N = 200
+    dynamic.beta_min = 0.1
+    dynamic.beta_max = 20
+    dynamic.ode_sampling = False
+    dynamic.coef_d = 10
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
@@ -104,14 +103,15 @@ def create_config():
     config.ddp = True
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
     config.use_self_cond = True
-    config.project_name = "dtg-exps-1.0"
+    config.project_name = "test" #"dtg-exps-1.0"
+    config.timesteps = "linear"
 
     return config
 
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = f"t5-bert-decoder"
+    suffix = "test"#f"t5-bert-decoder"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"{suffix}"  # "end2end-enc-base-seqlen32-v.5"  # 'emb_bert_x0_bs=512_lr=2e-4'

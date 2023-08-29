@@ -32,15 +32,14 @@ def create_config():
     validation = config.validation = ml_collections.ConfigDict()
     validation.batch_size = 512
 
-    sde = config.sde = ml_collections.ConfigDict()
-    sde.typename = 'vp-sde'
-    sde.solver = 'euler'
-    sde.N = 200
-    sde.beta_min = 0.1
-    sde.beta_max = 20
-    sde.ode_sampling = False
-    sde.coef_d = 10
-    sde.scheduler = schedulers.CosineSD(d=sde.coef_d)
+    dynamic = config.dynamic = ml_collections.ConfigDict()
+    dynamic.solver = 'euler'
+    dynamic.scheduler = "sd"
+    dynamic.N = 200
+    dynamic.beta_min = 0.1
+    dynamic.beta_max = 20
+    dynamic.ode_sampling = False
+    dynamic.coef_d = 10
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
@@ -71,11 +70,12 @@ def create_config():
     config.project_name = "test"
     config.classifier_guidance_scale = 0.
     config.use_self_cond = True
+    config.timesteps = "linear"
 
     return config
 
 
-num_texts_ = 8192
+num_texts_ = 1024#8192
 batch_size_ = 1024
 
 metrics_json = dict()
@@ -122,8 +122,8 @@ model_names = [
     # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_900000_",
     #"wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-mybert_1000000_"
     #"wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-bert_800000_"
-    #"wikipedia--t5-bert-self_cond_last_"
-    "wikipedia--t5-bert-initial_last_"
+    "wikipedia--t5-bert-self_cond_last_"
+    #"wikipedia--t5-bert-initial_last_"
 ]
 
 for model_name in model_names:
@@ -153,7 +153,7 @@ for model_name in model_names:
         print(f"Bloom metric: {metrics['Bloom metric']:0.5f}")
         print(f"Roberta metric: {metrics['Roberta metric']:0.5f}")
         print(len(joint_texts))
-        prefix = f"num_texts={num_texts_}-scale={config.classifier_guidance_scale:0.1f}-sd={config.sde.coef_d}"
+        prefix = f"num_texts={num_texts_}-scale={config.classifier_guidance_scale:0.1f}-sd={config.dynamic.coef_d}"
         metrics_file = os.path.join(metrics_path, f"{model_name}-{prefix}.json")
         with open(metrics_file, "w") as file:
             json.dump(metrics_json, file)

@@ -72,8 +72,8 @@ def loop_generation(diffusion, batch_size):
         diffusion.config.data.max_sequence_len,
         diffusion.encoder.config.hidden_size
     )
-    eps_t = 1 / diffusion.diff_eq_solver.sde.N
-    timesteps = torch.linspace(diffusion.sde.T - 20 * eps_t, eps_t, diffusion.sde.N, device=diffusion.device)
+    eps_t = 1 / diffusion.diff_eq_solver.dynamic.N
+    timesteps = torch.linspace(diffusion.dynamic.T - 20 * eps_t, eps_t, diffusion.dynamic.N, device=diffusion.device)
     #timesteps = torch.linspace(diffusion.sde.T, eps_t, diffusion.sde.N, device=diffusion.device)
 
     t_map = []
@@ -81,15 +81,15 @@ def loop_generation(diffusion, batch_size):
 
         #alpha, _ = schedulers.cosine(t, diffusion.sde.beta_0, diffusion.sde.beta_1)
         alpha, _ = schedulers.linear(t)
-        t_map.append(schedulers.cosine_rev(alpha.item(), diffusion.sde.beta_0, diffusion.sde.beta_1))
+        t_map.append(schedulers.cosine_rev(alpha.item(), diffusion.dynamic.beta_0, diffusion.dynamic.beta_1))
 
         #alpha, _ = schedulers.linear(t)
         #t_map.append(schedulers.linear_rev(alpha))
 
 
     with torch.no_grad():
-        x = diffusion.sde.prior_sampling(shape).to(diffusion.device)
-        for i in tqdm(range(diffusion.sde.N)):
+        x = diffusion.dynamic.prior_sampling(shape).to(diffusion.device)
+        for i in tqdm(range(diffusion.dynamic.N)):
             t_scale = t_map[i]# + 0.01
             t = timesteps[i]
             vec_t_scale = torch.ones(shape[0], device=diffusion.device) * t_scale

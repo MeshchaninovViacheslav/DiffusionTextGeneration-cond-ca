@@ -13,11 +13,11 @@ class DDPM_SDE:
           beta_max: value of beta(1)
           N: number of discretization steps
         """
-        self.N = config.sde.N
-        self.beta_0 = config.sde.beta_min
-        self.beta_1 = config.sde.beta_max
+        self.N = config.dynamic.N
+        self.beta_0 = config.dynamic.beta_min
+        self.beta_1 = config.dynamic.beta_max
         self.prediction = config.model.prediction
-        self.scheduler = config.sde.scheduler
+        self.scheduler = config.dynamic.scheduler
 
     @property
     def T(self):
@@ -126,7 +126,8 @@ class DDPM_SDE:
             def T(self):
                 return T
 
-            def sde(self, model, x_t, t, cond=None, attention_mask=None, cond_mask=None, x_0_self_cond=None) -> Dict[str, torch.Tensor]:
+            def sde(self, model, x_t, t, cond=None, attention_mask=None, cond_mask=None, x_0_self_cond=None) -> Dict[
+                str, torch.Tensor]:
                 """Create the drift and diffusion functions for the reverse SDE/ODE.
                 SDE:
                     dx = (-1/2 * beta * x_t - beta * score) * dt + sqrt(beta) * dw
@@ -151,22 +152,6 @@ class DDPM_SDE:
                 }
 
         return RSDE()
-
-    def calc_score(self, model, x_t, t, cond=None, attention_mask=None, cond_mask=None, x_0_self_cond=None) -> Dict[str, torch.Tensor]:
-        """
-        x_0 - prediction x_0(x_t, t)
-        eps = (x_t - sqrt(alpha_t) * x_0) / std
-        score = (-x_t + sqrt(alpha_t) * x_0) / std**2
-        """
-        params = self.marginal_params_tensor(x_t, t)
-        x_0 = model(x_t=x_t, time_t=t, cond=cond, attention_mask=attention_mask, cond_mask=cond_mask, x_0_self_cond=x_0_self_cond)
-        eps_theta = (x_t - params["alpha"] * x_0) / params["std"]
-        score = -eps_theta / params["std"]
-        return {
-            "score": score,
-            "x_0": x_0,
-            "eps_theta": eps_theta
-        }
 
 
 class EulerDiffEqSolver:
@@ -200,11 +185,11 @@ def create_sde(config):
     possible_sde = {
         "vp-sde": DDPM_SDE,
     }
-    return possible_sde[config.sde.typename](config)
+    return possible_sde[config.dynamic.typename](config)
 
 
 def create_solver(config, *solver_args, **solver_kwargs):
     possible_solver = {
         "euler": EulerDiffEqSolver,
     }
-    return possible_solver[config.sde.solver](*solver_args, **solver_kwargs)
+    return possible_solver[config.dynamic.solver](*solver_args, **solver_kwargs)

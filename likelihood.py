@@ -61,7 +61,7 @@ def get_likelihood_fn(sde, inverse_scaler, hutchinson_type='Rademacher',
         score_fn = mutils.get_score_fn(sde, model, train=False, continuous=True)
         # Probability flow ODE is a special case of Reverse SDE
         rsde = sde.reverse(score_fn, probability_flow=True)
-        return rsde.sde(x, t)[0]
+        return rsde.dynamic(x, t)[0]
 
     def div_fn(model, x, t, noise):
         return get_div_fn(lambda xx, tt: drift_fn(model, xx, tt))(x, t, noise)

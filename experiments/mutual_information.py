@@ -126,7 +126,7 @@ def main():
     with torch.no_grad():
         for t in t_linspace:
             vec_t = torch.ones(batch_size).to(clean_X.device) * t
-            marg_forward = diffusion.sde.marginal_forward(clean_X, vec_t)
+            marg_forward = diffusion.dynamic.marginal_forward(clean_X, vec_t)
             x_t, noise = marg_forward['x_t'], marg_forward['noise']
             pred_embeddings = diffusion.denormalize(x_t)
             tokens = diffusion.decoder(pred_embeddings).argmax(dim=-1)

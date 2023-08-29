@@ -8,19 +8,19 @@ from ml_collections import ConfigDict
 from typing import Optional, Union, Dict, Tuple
 from tqdm.auto import trange
 from torch.utils.data import DataLoader
-from transformers import BertTokenizerFast, T5TokenizerFast, RobertaTokenizerFast, ElectraTokenizerFast
+from transformers import BertTokenizerFast, T5TokenizerFast
 from tqdm import tqdm
-
+from functools import partial
 from copy import deepcopy
 from timm.scheduler.cosine_lr import CosineLRScheduler
 from collections import defaultdict
 from torch.cuda.amp import GradScaler
 import json
 
-from diffusion_utils.diffusion_dynamic_sde import create_sde, create_solver
+from diffusion_utils.dynamic import DynamicSDE
+from diffusion_utils.solvers import create_solver
+
 from utils.ema_model import ExponentialMovingAverage
-from utils.util import dict_to_cuda, reduce_tensor, masked_mean, \
-    masked_std, make_mask_wo_SEP_CLS, set_seed
 from data.dataset import create_dataset
 
 from model.score_estimator_cond import ScoreEstimatorEMB
@@ -29,30 +29,11 @@ from model.bert_encoder import BertEncoderModel
 from model.enc_normalizer import EncNormalizer
 from model.decoder import Decoder
 
-from utils.util import mse_loss, get_stat, recon_loss, bert_acc
+from utils.util import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, reduce_tensor, set_seed
 
 from estimation_utils.util import estimate_model, gather_texts, reduce_metrics, reduce_sum_metrics
 
 from estimation_utils.metrics import BloomMetricConditional, RobertaMetric
-
-
-class Loss_ema_tracker:
-    def __init__(self):
-        self.alpha = 0.001
-        self.num_step_to_fill = 100
-        self._loss = 0.
-        self.num_steps = 0
-
-    def update(self, loss):
-        self.num_steps += 1
-        if self.num_steps < self.num_step_to_fill:
-            self._loss = (self._loss * (self.num_steps - 1) + loss) / self.num_steps
-        else:
-            self._loss = self._loss * (1 - self.alpha) + loss * self.alpha
-
-    @property
-    def loss(self):
-        return self._loss
 
 
 class DiffusionRunner:
@@ -126,8 +107,12 @@ class DiffusionRunner:
         self.config.model.total_number_params = self.total_number_params
         self.device = next(self.score_estimator.parameters()).device
 
-        self.sde = create_sde(config=config)
-        self.diff_eq_solver = create_solver(config, self.sde, ode_sampling=config.sde.ode_sampling)
+        self.dynamic = DynamicSDE(config=config)
+        self.diff_eq_solver = create_solver(config)(
+            dynamic=self.dynamic,
+            score_fn=partial(self.calc_score, model=self.ddp_score_estimator),
+            ode_sampling=config.training.ode_sampling
+        )
 
         if eval:
             self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), config.model.ema_rate)
@@ -141,7 +126,7 @@ class DiffusionRunner:
             dataset_name=config.model.dataset,
             downstream_task=config.model.downstream_task
         )(
-            split="train",
+            split="valid",
             tokenizer_bert=self.tokenizer_bert,
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,
@@ -297,8 +282,7 @@ class DiffusionRunner:
         return grad_norm, clipped_grad_norm
 
     def sample_time(self, batch_size: int, eps: float = 1e-5):
-        # return torch.rand(batch_size) * (0.05 - eps) + eps
-        return torch.cuda.FloatTensor(batch_size).uniform_() * (self.sde.T - eps) + eps
+        return torch.cuda.FloatTensor(batch_size).uniform_() * (self.dynamic.T - eps) + eps
 
     def calc_score(
             self,
@@ -314,10 +298,13 @@ class DiffusionRunner:
         eps = (x_t - sqrt(alpha_t) * x_0) / std
         score = (-x_t + sqrt(alpha_t) * x_0) / std**2
         """
-        params = self.sde.marginal_params_tensor(x_t, t)
-        x_0 = model(x_t=x_t, time_t=t, cond=cond, attention_mask=attention_mask, cond_mask=cond_mask,
-                    x_0_self_cond=x_0_self_cond)
-        eps_theta = (x_t - params["alpha"] * x_0) / params["std"]
+        params = self.dynamic.marginal_params(t)
+        x_0 = model(
+            x_t=x_t, time_t=t, cond=cond,
+            attention_mask=attention_mask, cond_mask=cond_mask,
+            x_0_self_cond=x_0_self_cond
+        )
+        eps_theta = (x_t - params["mu"] * x_0) / params["std"]
         score = -eps_theta / params["std"]
         return {
             "score": score,
@@ -338,7 +325,7 @@ class DiffusionRunner:
         batch_size = clean_x.size(0)
 
         t = self.sample_time(batch_size, eps=eps)
-        marg_forward = self.sde.marginal_forward(clean_x, t)
+        marg_forward = self.dynamic.marginal(clean_x, t)
         x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
 
         # self-cond estimate
@@ -354,9 +341,10 @@ class DiffusionRunner:
 
         # model prediction
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            scores = self.sde.calc_score(
-                self.ddp_score_estimator,
-                x_t, t,
+            scores = self.calc_score(
+                model=self.ddp_score_estimator,
+                x_t=x_t,
+                t=t,
                 cond=cond,
                 cond_mask=X["cond_mask"],
                 attention_mask=mask,
@@ -449,7 +437,6 @@ class DiffusionRunner:
 
             loss_dict, stat_dict = self.train_step(X)
 
-
             if self.step % self.config.training.checkpoint_freq == 0:
                 self.save_checkpoint()
 
@@ -458,7 +445,6 @@ class DiffusionRunner:
                 self.validate()
                 # self.compute_restoration_loss(suffix="train")
                 # self.compute_restoration_loss(suffix="valid")
-
 
             self.train_range.set_description(
                 f"loss_x_0: {loss_dict['loss_x_0'].item():0.4f}, "
@@ -618,22 +604,25 @@ class DiffusionRunner:
         )
 
         with torch.no_grad():
-            x = self.sde.prior_sampling(shape).to(self.device)
+            x = self.dynamic.prior_sampling(shape).to(self.device)
             x_0_self_cond = torch.zeros_like(x, dtype=x.dtype)
-            eps_t = 1 / self.diff_eq_solver.sde.N
+            eps_t = 1 / self.diff_eq_solver.dynamic.N
 
             if self.config.timesteps == "linear":
-                timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N, device=self.device)
+                timesteps = torch.linspace(self.dynamic.T, eps_t, self.dynamic.N, device=self.device)
             elif self.config.timesteps == "quad":
-                timesteps = torch.linspace(self.sde.T - eps_t, 0, self.sde.N,
+                timesteps = torch.linspace(self.dynamic.T - eps_t, 0, self.dynamic.N,
                                            device=self.device) ** 2 + eps_t
 
-            for i in tqdm(range(self.sde.N)):
-                t = timesteps[i]
-                vec_t = torch.ones(shape[0], device=t.device) * t
+            for idx in tqdm(range(self.dynamic.N)):
+                t = timesteps[idx]
+                next_t = timesteps[idx + 1] if idx < self.dynamic.N - 1 else torch.zeros_like(t)
+
+                input_t = t * torch.ones(shape[0], device=self.device)
+                next_input_t = next_t * torch.ones(shape[0], device=self.device)
+
                 output = self.diff_eq_solver.step(
-                    model=self.score_estimator,
-                    x_t=x, t=vec_t,
+                    x_t=x, t=input_t, next_t=next_input_t,
                     cond=cond_X,
                     cond_mask=cond_mask,
                     attention_mask=attention_mask,

@@ -106,10 +106,10 @@ def compute_restoration_loss(diffusion, loader, timesteps):
 
     for t in tqdm(timesteps):
         vec_t = t * torch.ones(batch_size, device=diffusion.device)
-        marg_forward = diffusion.sde.marginal_forward(clean_X, vec_t)
+        marg_forward = diffusion.dynamic.marginal_forward(clean_X, vec_t)
         x_t = marg_forward['x_t']
 
-        scores = diffusion.sde.calc_score(diffusion.score_estimator, x_t=x_t, t=vec_t)
+        scores = diffusion.dynamic.calc_score(diffusion.score_estimator, x_t=x_t, t=vec_t)
         x_0 = scores["x_0"]
 
         loss_x_0 = diffusion.mse_loss(clean_X, x_0, mask)
@@ -136,14 +136,14 @@ def main():
 
     alphas_cosine = []
     eps = 1e-6
-    for t in tqdm(torch.linspace(0 + eps, 1 - eps, diffusion.diff_eq_solver.sde.N)):
-        alpha, _ = cosine(t, diffusion.sde.beta_0, diffusion.sde.beta_1)
+    for t in tqdm(torch.linspace(0 + eps, 1 - eps, diffusion.diff_eq_solver.dynamic.N)):
+        alpha, _ = cosine(t, diffusion.dynamic.beta_0, diffusion.dynamic.beta_1)
         alphas_cosine.append(alpha.item())
 
     t_map = []
     for alpha in alphas_cosine:
         if suffix == "cosine":
-            t_map.append(cosine_rev(alpha, diffusion.sde.beta_0, diffusion.sde.beta_1))
+            t_map.append(cosine_rev(alpha, diffusion.dynamic.beta_0, diffusion.dynamic.beta_1))
         elif suffix == "linear":
             t_map.append(linear_rev(alpha))
         elif suffix == "quadratic":

@@ -785,7 +785,7 @@ class DiffusionRunner:
 
         with torch.no_grad():
             x = self.sde.prior_sampling(shape).to(self.device)
-            eps_t = 1 / self.diff_eq_solver.sde.N
+            eps_t = 1 / self.diff_eq_solver.dynamic.N
             timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N, device=self.device)
             for i in tqdm(range(self.sde.N)):
                 t = timesteps[i]
@@ -812,7 +812,7 @@ class DiffusionRunner:
             attention_mask=None,
     ):
         def q_x_t_rev(x_t, x_0, t):
-            dt = 1 / self.diff_eq_solver.sde.N
+            dt = 1 / self.diff_eq_solver.dynamic.N
             alpha_t = self.sde.scheduler.alpha_std(t)[0] ** 2
             alpha_t_1 = self.sde.scheduler.alpha_std(t - dt)[0] ** 2
             beta_t = self.sde.scheduler.beta_t(t)[:, None, None] * dt
@@ -832,7 +832,7 @@ class DiffusionRunner:
         with torch.no_grad():
             x_t = self.sde.prior_sampling(shape).to(self.device)
             n = 4
-            eps_t = n / self.diff_eq_solver.sde.N
+            eps_t = n / self.diff_eq_solver.dynamic.N
             timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N - n + 1, device=self.device)
             for i in tqdm(range(self.sde.N - n + 1)):
                 t = timesteps[i]
@@ -864,7 +864,7 @@ class DiffusionRunner:
             attention_mask=None,
     ):
         def q_x_t_rev(x_t, x_0, t):
-            dt = 1 / self.diff_eq_solver.sde.N
+            dt = 1 / self.diff_eq_solver.dynamic.N
             alpha_t = self.sde.scheduler.alpha_std(t)[0] ** 2
             alpha_t_1 = self.sde.scheduler.alpha_std(t - dt)[0] ** 2
             beta_t = self.sde.scheduler.beta_t(t)[:, None, None] * dt
@@ -882,7 +882,7 @@ class DiffusionRunner:
         with torch.no_grad():
             x_t = self.sde.prior_sampling(shape).to(self.device)
             n = 4
-            eps_t = n / self.diff_eq_solver.sde.N
+            eps_t = n / self.diff_eq_solver.dynamic.N
             timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N - n + 1, device=self.device)
             for i in tqdm(range(self.sde.N - n + 1)):
                 t = timesteps[i]
@@ -910,7 +910,7 @@ class DiffusionRunner:
             attention_mask=None,
     ):
         def q_x_t_rev(x_t, x_0, t, sigma_t):
-            dt = 1 / self.diff_eq_solver.sde.N
+            dt = 1 / self.diff_eq_solver.dynamic.N
             alpha_t = self.sde.scheduler.alpha_std(t)[0] ** 2
             alpha_t_1 = self.sde.scheduler.alpha_std(t - dt)[0] ** 2
 
@@ -932,7 +932,7 @@ class DiffusionRunner:
         with torch.no_grad():
             x_t = self.sde.prior_sampling(shape).to(self.device)
             n = 3
-            eps_t = n / self.diff_eq_solver.sde.N
+            eps_t = n / self.diff_eq_solver.dynamic.N
             timesteps = torch.linspace(self.sde.T, eps_t, self.sde.N - n + 1, device=self.device)
             for i in tqdm(range(self.sde.N - n + 1)):
                 t = timesteps[i]
@@ -977,7 +977,7 @@ class DiffusionRunner:
             768
         )
         device = torch.device(self.config.device)
-        eps_t = 1 / self.diff_eq_solver.sde.N
+        eps_t = 1 / self.diff_eq_solver.dynamic.N
         gamma = 1
 
         with torch.no_grad():
@@ -1102,8 +1102,8 @@ class DiffusionRunner:
         losses_score = []
         losses_ce = []
 
-        for t in range(0, self.diff_eq_solver.sde.N):
-            t = t * 1. / self.diff_eq_solver.sde.N
+        for t in range(0, self.diff_eq_solver.dynamic.N):
+            t = t * 1. / self.diff_eq_solver.dynamic.N
             vec_t = t * torch.ones(batch_size, device=self.device)
             marg_forward = self.sde.marginal_forward(clean_X, vec_t)
             x_t = marg_forward['x_t']
@@ -1126,7 +1126,7 @@ class DiffusionRunner:
         self.score_estimator.train()
         self.switch_back_from_ema()
 
-        timesteps = np.arange(0., 1., 1. / self.diff_eq_solver.sde.N)
+        timesteps = np.arange(0., 1., 1. / self.diff_eq_solver.dynamic.N)
         keys = ["losses_x_0", "losses_eps", "losses_score", "losses_ce"]
         for i, loss in enumerate([losses_x_0, losses_eps, losses_score, losses_ce]):
             data = [[x, y] for (x, y) in zip(timesteps, loss)]

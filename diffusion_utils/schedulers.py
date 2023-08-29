@@ -3,52 +3,11 @@ import numpy as np
 from abc import ABCMeta, abstractmethod
 
 
-def cosine(t, beta_0, beta_1):
-    if t.shape:
-        t = t[:, None, None]
-    log_mean_coeff = -0.25 * t ** 2 * (beta_1 - beta_0) - 0.5 * t * beta_0
-    log_gamma_coeff = log_mean_coeff * 2
-    alpha = torch.exp(log_mean_coeff)
-    std = torch.sqrt(1. - torch.exp(log_gamma_coeff))
-    return alpha, std
-
-
-def cosine_rev(alpha, beta_0, beta_1):
-    t = (-1 / 2 * beta_0 + np.sqrt((1 / 2 * beta_0) ** 2 - (beta_1 - beta_0) * np.log(alpha))) / (
-            1 / 2 * (beta_1 - beta_0))
-    return t
-
-
-def linear(t):
-    # t = t[:, None, None]
-    alpha_sqrt = 1 - t
-    std = torch.sqrt(1 - torch.square(alpha_sqrt))
-    return alpha_sqrt, std
-
-
-def linear_rev(alpha):
-    return 1 - alpha
-
-
-def quadratic(t):
-    t = t[:, None, None]
-    alpha_sqrt = ((1 - t) ** 2)
-    std = torch.sqrt(1 - torch.square(alpha_sqrt))
-    return alpha_sqrt, std
-
-
-def quadratic_rev(alpha):
-    return 1 - np.sqrt(alpha)
-
-
-def linear_exp(t, beta_0, beta_1):
-    beta = beta_0 ** 2 / (beta_1 - beta_0) + 2 * beta_0 / (beta_1 - beta_0) * np.sqrt(
-        beta_0 ** 2 / 4 - (beta_1 - beta_0) * np.log(1 - t))
-    if not t.shape:
-        t = t[:, None, None]
-    alpha_sqrt = (1 - t) * np.exp(-beta)
-    std = torch.sqrt(1 - torch.square(alpha_sqrt))
-    return alpha_sqrt, std
+def create_scheduler(config):
+    if config.dynamic.scheduler == "cosine":
+        return Cosine(config.dynamic.beta_min, config.dynamic.beta_max)
+    elif config.dynamic.scheduler == "sd":
+        return CosineSD(config.dynamic.coef_d)
 
 
 class Scheduler(metaclass=ABCMeta):
@@ -57,7 +16,7 @@ class Scheduler(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def alpha_std(self, t):
+    def params(self, t):
         pass
 
     def reverse(self, alpha):
@@ -72,7 +31,7 @@ class Cosine(Scheduler):
     def beta_t(self, t):
         return self.beta_0 + (self.beta_1 - self.beta_0) * t
 
-    def alpha_std(self, t):
+    def params(self, t):
         t = t[:, None, None]
         log_mean_coeff = -0.25 * t ** 2 * (self.beta_1 - self.beta_0) - 0.5 * t * self.beta_0
         log_gamma_coeff = log_mean_coeff * 2
@@ -80,11 +39,6 @@ class Cosine(Scheduler):
         std = torch.sqrt(1. - torch.exp(log_gamma_coeff))
         return alpha, std
 
-    def reverse(self, alpha):
-        t = (-1 / 2 * self.beta_0 + np.sqrt(
-            (1 / 2 * self.beta_0) ** 2 - (self.beta_1 - self.beta_0) * np.log(alpha))) / (
-                    1 / 2 * (self.beta_1 - self.beta_0))
-        return t
 
 class CosineSD(Scheduler):
     def __init__(self, d=1):
@@ -97,7 +51,7 @@ class CosineSD(Scheduler):
         beta_t = np.pi * self.d ** 2 * tan * (1 + tan ** 2) / (1 + self.d ** 2 * tan ** 2)
         return beta_t
 
-    def alpha_std(self, t):
+    def params(self, t):
         t = t[:, None, None]
         tan = torch.tan(np.pi * t / 2)
         alpha_t = 1 / torch.sqrt(1 + tan ** 2 * self.d ** 2)

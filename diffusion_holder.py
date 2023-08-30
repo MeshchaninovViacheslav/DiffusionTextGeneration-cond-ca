@@ -328,28 +328,9 @@ class DiffusionRunner:
         marg_forward = self.dynamic.marginal(clean_x, t)
         x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
 
-        # self-cond estimate
-        x_0_self_cond = torch.zeros_like(x_t, dtype=x_t.dtype)
-        if self.use_self_cond and random.random() > 0.5:
-            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                with torch.no_grad():
-                    x_0_self_cond = self.ddp_score_estimator(
-                        x_t=x_t, time_t=t, cond=cond,
-                        attention_mask=mask, cond_mask=X["cond_mask"],
-                        x_0_self_cond=x_0_self_cond
-                    ).detach()
-
         # model prediction
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            scores = self.calc_score(
-                model=self.ddp_score_estimator,
-                x_t=x_t,
-                t=t,
-                cond=cond,
-                cond_mask=X["cond_mask"],
-                attention_mask=mask,
-                x_0_self_cond=x_0_self_cond,
-            )
+        scores = self.sde.calc_score(self.ddp_score_estimator, x_t, t, cond=cond, cond_mask=X["cond_mask"],
+                                     attention_mask=mask)
 
         # MSE losses
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
@@ -611,12 +592,12 @@ class DiffusionRunner:
             if self.config.timesteps == "linear":
                 timesteps = torch.linspace(self.dynamic.T, eps_t, self.dynamic.N, device=self.device)
             elif self.config.timesteps == "quad":
-                deg = 0.9
+                deg = 2
                 timesteps = torch.linspace(1, 0, self.dynamic.N, device=self.device) ** deg * (self.dynamic.T - eps_t) + eps_t
 
             for idx in tqdm(range(self.dynamic.N)):
                 t = timesteps[idx]
-                next_t = timesteps[idx + 1] if idx < self.dynamic.N - 1 else torch.zeros_like(t)
+                next_t = timesteps[idx + 1] if idx < self.dynamic.N - 1 else eps_t#torch.zeros_like(t)
 
                 input_t = t * torch.ones(shape[0], device=self.device)
                 next_input_t = next_t * torch.ones(shape[0], device=self.device)
@@ -628,6 +609,7 @@ class DiffusionRunner:
                     attention_mask=attention_mask,
                     x_0_self_cond=x_0_self_cond,
                 )
+
                 x, x_mean = output["x"], output["x_mean"]
                 x_0_self_cond = output["x_0"]
 

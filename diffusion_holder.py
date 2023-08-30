@@ -126,7 +126,7 @@ class DiffusionRunner:
             dataset_name=config.model.dataset,
             downstream_task=config.model.downstream_task
         )(
-            split="valid",
+            split="train",
             tokenizer_bert=self.tokenizer_bert,
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,
@@ -611,8 +611,8 @@ class DiffusionRunner:
             if self.config.timesteps == "linear":
                 timesteps = torch.linspace(self.dynamic.T, eps_t, self.dynamic.N, device=self.device)
             elif self.config.timesteps == "quad":
-                timesteps = torch.linspace(self.dynamic.T - eps_t, 0, self.dynamic.N,
-                                           device=self.device) ** 2 + eps_t
+                deg = 0.9
+                timesteps = torch.linspace(1, 0, self.dynamic.N, device=self.device) ** deg * (self.dynamic.T - eps_t) + eps_t
 
             for idx in tqdm(range(self.dynamic.N)):
                 t = timesteps[idx]

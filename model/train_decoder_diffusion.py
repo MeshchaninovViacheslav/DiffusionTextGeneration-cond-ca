@@ -47,15 +47,14 @@ def create_config():
     validation = config.validation = ml_collections.ConfigDict()
     validation.batch_size = 512
 
-    sde = config.sde = ml_collections.ConfigDict()
-    sde.typename = 'vp-sde'
-    sde.solver = 'euler'
-    sde.N = 200
-    sde.beta_min = 0.1
-    sde.beta_max = 20
-    sde.ode_sampling = False
-    sde.coef_d = 10
-    sde.scheduler = schedulers.CosineSD(d=sde.coef_d)
+    dynamic = config.dynamic = ml_collections.ConfigDict()
+    dynamic.solver = 'euler'
+    dynamic.scheduler = "sd"
+    dynamic.N = 200
+    dynamic.beta_min = 0.1
+    dynamic.beta_max = 20
+    dynamic.ode_sampling = False
+    dynamic.coef_d = 10
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
@@ -144,7 +143,7 @@ def train(config):
                     batch_size = clean_X.size(0)
 
                     t = diffusion.sample_time(batch_size, eps=1e-5)
-                    marg_forward = diffusion.dynamic.marginal_forward(clean_X, t)
+                    marg_forward = diffusion.dynamic.marginal(clean_X, t)
                     x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
 
                     # self-cond estimate
@@ -157,7 +156,7 @@ def train(config):
                         ).detach()
 
                     # model prediction
-                    x_0 = diffusion.dynamic.calc_score(
+                    x_0 = diffusion.calc_score(
                         diffusion.ddp_score_estimator,
                         x_t, t,
                         cond=cond,

@@ -50,7 +50,7 @@ def create_config():
     model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-wikipedia-128.pth"
+    model.decoder_path = "decoder-noisy-diffusion.pth" #"decoder-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
@@ -75,7 +75,7 @@ def create_config():
     return config
 
 
-num_texts_ = 1024#8192
+num_texts_ = 8192
 batch_size_ = 1024
 
 metrics_json = dict()

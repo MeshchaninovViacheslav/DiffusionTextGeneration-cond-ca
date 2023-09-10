@@ -47,7 +47,7 @@ def create_config():
     training.training_iters = 500_000
     training.training_iters = training.training_iters
     training.checkpoint_freq = 50_000
-    training.eval_freq = 100#5_000
+    training.eval_freq = 5_000
     training.batch_size = 512  # * 8
 
     training.ode_sampling = False

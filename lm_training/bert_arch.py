@@ -32,8 +32,8 @@ class BERT(BertPreTrainedModel):
 
         from transformers import BertModel
 
+        self.config = config
         self.encoder = BertModel(config, add_pooling_layer=False)
-        self.projector = torch.nn.Linear(config.hidden_size, config.embedding_size)
         self.cls = BertLMPredictionHead(config)
 
         # Initialize weights and apply final processing
@@ -52,10 +52,11 @@ class BERT(BertPreTrainedModel):
         )[0]
 
         return_dict["last_hidden_state"] = outputs
+        if self.config.norm_output:
+            outputs = torch.nn.functional.normalize(outputs, dim=-1)
 
-        embeddings = self.projector(outputs)
-        return_dict["embeddings"] = embeddings
+        logits = self.cls(outputs)
+        
 
-        logits = self.cls(embeddings)
         return_dict["logits"] = logits
         return return_dict

@@ -33,14 +33,16 @@ def create_config():
     optim.precision = "16"
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 150_000
-    training.checkpoint_freq = 10_000
-    training.eval_freq = 100
-    training.batch_size = 2048 // torch.cuda.device_count()
-
+    training.training_iters = 300_000
+    training.checkpoint_freq = 20_000
+    training.eval_freq = 20_000
+    training.accumulate_grad_batches = 2
+    training.device_count = torch.cuda.device_count()
+    training.batch_size = 2048 // (training.device_count * training.accumulate_grad_batches)
+    
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 128
-    data.num_workers = 24
+    data.num_workers = 15
     data.bert_recon_dataset = True
 
     model = config.model = ml_collections.ConfigDict()
@@ -49,13 +51,14 @@ def create_config():
 
     bert_config = config.bert_config = ml_collections.ConfigDict()
     bert_config.hidden_size = 768
-    bert_config.embedding_size = 120
-    bert_config.encoder_initialization = "./checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert/"
+    bert_config.embedding_size = 768
+    bert_config.encoder_initialization = None #"./checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/bert/"
+    bert_config.norm_output = True
 
     config.project_name = "lm-training"
     config.exp_name = f"bert-training-" \
                       f"{bert_config.hidden_size}-{bert_config.embedding_size}-{model.mlm_probability}-{model.pad_to_multiple_of}-" \
-                      f"{training.batch_size * torch.cuda.device_count()}-wiki_no_group-dec"
+                      f"{training.batch_size * training.device_count * training.accumulate_grad_batches}-wiki_no_group-norm_output"
     config.seed = 0
     config.hg_pretrain = False
     config.finetune = False
@@ -101,6 +104,7 @@ def main():
         precision=config.optim.precision,
         strategy=strategy,
         enable_checkpointing=True,
+        accumulate_grad_batches=config.training.accumulate_grad_batches,
         callbacks=[
             ModelCheckpoint(
                 dirpath=f"./checkpoints/{config.exp_name}/",

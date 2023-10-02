@@ -68,9 +68,7 @@ class BERTModel(L.LightningModule):
         if self.loss_type == "mlm":
             targets = batch["labels"]
             mask = (targets != -100).float()
-            #print("mask target", torch.mean(mask).item())
             loss = self.recon_loss(logits, targets, mask)
-            #print("loss", loss)
             return loss
         elif self.loss_type == "denoising":
             mask = (batch["labels"] != -100).int()
@@ -83,7 +81,7 @@ class BERTModel(L.LightningModule):
 
     def forward(self, X):
         outputs = self.model(**X)
-        logits = outputs.logits
+        logits = outputs["logits"]
         return logits
 
     def training_step(self, batch):
@@ -95,7 +93,6 @@ class BERTModel(L.LightningModule):
         logits = self.forward({
             "input_ids": batch["input_ids"],
             "attention_mask": batch["attention_mask"],
-            "labels": target,
         })
         loss = self.get_loss(logits, batch)
 

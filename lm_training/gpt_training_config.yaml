@@ -1,0 +1,10 @@
+max_steps: 200_000
+seed: 1337
+every_n_train_steps: 5_000
+grad_clip_norm: 1.0
+project: light_diffusion
+exp_name: None
+pretrained_path:
+max_epochs: 50
+every_n_epochs: 1
+precision: bf16-mixed

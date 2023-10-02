@@ -1,20 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="vmeshchaninov@cluster.hpc.hse.ru:2222 password" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="hse" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
     <option name="confirmBeforeUploading" value="false" />
     <serverData>
       <paths name="hse">
         <serverdata>
           <mappings>
-            <mapping deploy="/home/vmeshchaninov/DiffusionTextGeneration" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/home/vmeshchaninov/DiffusionTextGeneration-cond-ca" local="$PROJECT_DIR$" web="/" />
           </mappings>
-        </serverdata>
-      </paths>
-      <paths name="vmeshchaninov@cluster.hpc.hse.ru:2222 password">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/home/vmeshchaninov/DiffusionTextGeneration" local="$PROJECT_DIR$" />
-          </mappings>
+          <excludedPaths>
+            <excludedPath path="/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/lm_training/generated_texts/gpt2-500_000.json" />
+          </excludedPaths>
         </serverdata>
       </paths>
     </serverData>

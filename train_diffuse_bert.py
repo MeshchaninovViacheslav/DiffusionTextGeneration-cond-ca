@@ -46,8 +46,8 @@ def create_config():
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 500_000
     training.training_iters = training.training_iters
-    training.checkpoint_freq = 50_000
-    training.eval_freq = 5_000
+    training.checkpoint_freq = 100_000
+    training.eval_freq = 50_000
     training.batch_size = 512  # * 8
 
     training.ode_sampling = False
@@ -103,7 +103,7 @@ def create_config():
     config.ddp = True
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
     config.use_self_cond = True
-    config.project_name = "test" #"dtg-exps-1.0"
+    config.project_name = "dtg-exps-1.0"
     config.timesteps = "linear"
 
     return config
@@ -111,7 +111,7 @@ def create_config():
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = "test"#f"t5-bert-decoder"
+    suffix = "self_cond_time_shift"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
                                 f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"{suffix}"  # "end2end-enc-base-seqlen32-v.5"  # 'emb_bert_x0_bs=512_lr=2e-4'

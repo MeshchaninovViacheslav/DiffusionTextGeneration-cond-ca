@@ -2,7 +2,7 @@ from subprocess import run, STDOUT, PIPE, Popen
 
 
 p1 = Popen(["ps", "aux"], stdout=PIPE)
-p2 = Popen(["grep", "/home/vmeshchaninov/.conda/envs/fap2_env/bin/python -u train_diffuse_bert.py"], stdin=p1.stdout,
+p2 = Popen(["grep", "/home/vmeshchaninov/.conda/envs/fap2_env/bin/python3.9 -u train_diffuse_bert.py"], stdin=p1.stdout,
            stdout=PIPE, text=True)
 
 p1.stdout.close()

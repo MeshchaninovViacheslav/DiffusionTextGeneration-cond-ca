@@ -325,12 +325,35 @@ class DiffusionRunner:
         batch_size = clean_x.size(0)
 
         t = self.sample_time(batch_size, eps=eps)
+
+        # self-cond estimate
+        x_0_self_cond = torch.zeros_like(clean_x, dtype=clean_x.dtype)
+        if self.use_self_cond and random.random() > 0.5:
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                t_next = torch.clip(t + 1 / self.config.dynamic.N, max=self.dynamic.T)
+                marg_forward = self.dynamic.marginal(clean_x, t_next)
+                x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
+                with torch.no_grad():
+                    x_0_self_cond = self.ddp_score_estimator(
+                        x_t=x_t, time_t=t_next, cond=cond,
+                        attention_mask=mask, cond_mask=X["cond_mask"],
+                        x_0_self_cond=x_0_self_cond
+                    ).detach()
+
         marg_forward = self.dynamic.marginal(clean_x, t)
         x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
 
         # model prediction
-        scores = self.sde.calc_score(self.ddp_score_estimator, x_t, t, cond=cond, cond_mask=X["cond_mask"],
-                                     attention_mask=mask)
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            scores = self.calc_score(
+                model=self.ddp_score_estimator,
+                x_t=x_t,
+                t=t,
+                cond=cond,
+                cond_mask=X["cond_mask"],
+                attention_mask=mask,
+                x_0_self_cond=x_0_self_cond,
+            )
 
         # MSE losses
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
@@ -551,7 +574,7 @@ class DiffusionRunner:
             if attention_mask is not None:
                 attention_mask = attention_mask.cuda()
 
-            pred_embeddings = self.pred_embeddings_classifier_guidance(
+            pred_embeddings = self.pred_embeddings(
                 batch_size,
                 cond_X=cond_X,
                 cond_mask=cond_mask,
@@ -587,7 +610,6 @@ class DiffusionRunner:
         with torch.no_grad():
             x = self.dynamic.prior_sampling(shape).to(self.device)
             x_0_self_cond = torch.zeros_like(x, dtype=x.dtype)
-            x_0_init = torch.zeros_like(x, dtype=x.dtype)
             eps_t = 1 / self.diff_eq_solver.dynamic.N
 
             if self.config.timesteps == "linear":
@@ -617,82 +639,6 @@ class DiffusionRunner:
 
             pred_embeddings = x_mean
 
-        return pred_embeddings
-
-    @torch.no_grad()
-    def pred_embeddings_classifier_guidance(
-            self,
-            batch_size,
-            cond_X=None,
-            cond_mask=None,
-            attention_mask=None,
-    ):
-        def q_x_t_reverse(x_t, x_0, t, next_t=None):
-            alpha_t = torch.clip(self.dynamic.marginal_params(t)["mu"] ** 2, min=0, max=1)
-            alpha_t_1 = torch.clip(self.dynamic.marginal_params(next_t)["mu"] ** 2, min=0, max=1)
-            beta_t = 1 - alpha_t / alpha_t_1
-
-            mu = torch.sqrt(alpha_t_1) * beta_t / (1 - alpha_t) * x_0 + \
-                 torch.sqrt(1 - beta_t) * (1 - alpha_t_1) / (1 - alpha_t) * x_t
-            std = torch.sqrt((1 - alpha_t_1) / (1 - alpha_t) * beta_t)
-            return mu, std
-
-        cond_null = self.tokenizer_cond.encode_plus(
-            text="",
-            add_special_tokens=True,
-            padding="max_length",
-            truncation=True,
-            max_length=self.config.data.max_sequence_len,
-            return_tensors="pt",
-        )
-        cond_null = dict_to_cuda(cond_null)
-        cond_null["input_ids"] = cond_null["input_ids"].repeat(batch_size, 1)
-        cond_null["attention_mask"] = cond_null["attention_mask"].repeat(batch_size, 1)
-
-        cond_null_X = self.encoder_cond(**{
-            "input_ids": cond_null["input_ids"],
-            "attention_mask": cond_null["attention_mask"]
-        })
-        cond_null_mask = cond_null["attention_mask"]
-
-        shape = (
-            batch_size,
-            self.config.data.max_sequence_len,
-            self.encoder_gen.config.hidden_size
-        )
-        scale = 0.7  # self.config.classifier_guidance_scale
-
-        with torch.no_grad():
-            x_t = self.dynamic.prior_sampling(shape).to(self.device)
-            x_0_self_cond = torch.zeros_like(x_t, dtype=x_t.dtype)
-            n = 2
-            eps_t = n / self.diff_eq_solver.dynamic.N
-            timesteps = torch.linspace(self.dynamic.T, eps_t, self.dynamic.N - n + 1, device=self.device)
-            for idx in tqdm(range(self.dynamic.N - n + 1)):
-                t = timesteps[idx]
-                next_t = timesteps[idx + 1] if idx < self.dynamic.N - n else eps_t  # torch.zeros_like(t)
-
-                input_t = t * torch.ones(shape[0], device=self.device)
-                next_input_t = next_t * torch.ones(shape[0], device=self.device)
-
-                x_0_null = self.calc_score(
-                    self.score_estimator, x_t, input_t,
-                    cond=cond_X, cond_mask=cond_mask, attention_mask=attention_mask,
-                    x_0_self_cond=torch.zeros_like(x_t, dtype=x_t.dtype)
-                )["x_0"]
-
-                x_0_cond = self.calc_score(
-                    self.score_estimator, x_t, input_t,
-                    cond=cond_X, cond_mask=cond_mask, attention_mask=attention_mask,
-                    x_0_self_cond=x_0_self_cond
-                )["x_0"]
-
-                x_0 = x_0_null + scale * (x_0_cond - x_0_null)
-                x_0_self_cond = x_0
-                mu, std = q_x_t_reverse(x_t=x_t, x_0=x_0, t=input_t, next_t=next_input_t)
-                x_t = mu + std * torch.randn_like(x_t)
-
-            pred_embeddings = mu
         return pred_embeddings
 
     @torch.no_grad()

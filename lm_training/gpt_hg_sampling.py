@@ -116,4 +116,3 @@ if __name__ == "__main__":
     metric_div = NGramStats()
     metric_div.compute(gen_texts)
     print(metric_div)
-

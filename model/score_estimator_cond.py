@@ -81,6 +81,8 @@ TransformerBlock = BertBlock
 class TransformerEncoder(torch.nn.Module):
     def __init__(self, config):
         super().__init__()
+
+        self.use_self_cond = config.use_self_cond
         self.num_hidden_layers = 12
         self.hidden_size = 768
         self.input_blocks = torch.nn.ModuleList(
@@ -92,9 +94,10 @@ class TransformerEncoder(torch.nn.Module):
         self.time_layers = torch.nn.ModuleList(
             [nn.Linear(self.hidden_size, self.hidden_size) for _ in range(0, self.num_hidden_layers)]
         )
-        self.self_cond_layers = torch.nn.ModuleList(
-            [nn.Linear(self.hidden_size, self.hidden_size) for _ in range(0, self.num_hidden_layers)]
-        )
+        if self.use_self_cond:
+            self.self_cond_layers = torch.nn.ModuleList(
+                [nn.Linear(self.hidden_size, self.hidden_size) for _ in range(0, self.num_hidden_layers)]
+            )
 
     def forward(
             self,
@@ -110,7 +113,9 @@ class TransformerEncoder(torch.nn.Module):
 
         for i, block in enumerate(self.input_blocks):
             x_input_list.append(x)
-            x = x + self.time_layers[i](emb_t) + self.self_cond_layers[i](x_0_self_cond)
+            x = x + self.time_layers[i](emb_t)
+            if self.use_self_cond:
+                x += self.self_cond_layers[i](x_0_self_cond)
             x = block(
                 hidden_states=x,
                 attention_mask=attention_mask,
@@ -120,7 +125,9 @@ class TransformerEncoder(torch.nn.Module):
 
         for i, block in enumerate(self.output_blocks):
             ind = i + self.num_hidden_layers // 2
-            x = x + x_input_list.pop() + self.time_layers[ind](emb_t) + self.self_cond_layers[ind](x_0_self_cond)
+            x = x + x_input_list.pop() + self.time_layers[ind](emb_t)
+            if self.use_self_cond:
+                x += self.self_cond_layers[ind](x_0_self_cond)
             x = block(
                 hidden_states=x,
                 attention_mask=attention_mask,
@@ -155,6 +162,7 @@ class ScoreEstimatorEMB(nn.Module):
     def __init__(self, input_size, config):
         super(ScoreEstimatorEMB, self).__init__()
 
+        self.use_self_cond = config.use_self_cond
         self.input_size = input_size
         self.config = config
         hidden_layer_dim = self.config.hidden_size

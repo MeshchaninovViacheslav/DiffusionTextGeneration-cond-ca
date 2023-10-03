@@ -97,7 +97,7 @@ def bert_acc(targets, outputs, mask):
     if mask is None:
         mask = torch.ones(
             (targets.shape[0], targets.shape[1]),
-            device=f"cuda:{dist.get_rank()}",
+            device=f"cuda:{dist.get_rank()}" if dist.is_initialized() else "cuda:0",
             requires_grad=False,
             dtype=torch.int64,
         )
@@ -113,7 +113,7 @@ def mse_loss(inputs, targets, mask):
     if mask is None:
         mask = torch.ones(
             (targets.shape[0], targets.shape[1]),
-            device=f"cuda:{dist.get_rank()}",
+            device=f"cuda:{dist.get_rank()}" if dist.is_initialized() else "cuda:0",
             requires_grad=False,
             dtype=torch.int64,
         )
@@ -127,7 +127,7 @@ def recon_loss(inputs, outputs, mask):
     if mask is None:
         mask = torch.ones(
             (inputs.shape[0], inputs.shape[1]),
-            device=f"cuda:{dist.get_rank()}",
+            device=f"cuda:{dist.get_rank()}" if dist.is_initialized() else "cuda:0",
             requires_grad=False,
             dtype=torch.int64,
         )
@@ -145,7 +145,7 @@ def get_stat(z, mask):
     if mask is None:
         mask = torch.ones(
             (z.shape[0], z.shape[1]),
-            device=f"cuda:{dist.get_rank()}",
+            device=f"cuda:{dist.get_rank()}" if dist.is_initialized() else "cuda:0",
             requires_grad=False,
             dtype=torch.int64,
         )

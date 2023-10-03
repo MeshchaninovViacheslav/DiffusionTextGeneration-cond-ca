@@ -91,6 +91,7 @@ class DiffusionRunner:
 
         # self.load_sde()
         self.bert_config = config.bert_config
+        self.bert_config.use_self_cond = config.use_self_cond
         self.score_estimator = ScoreEstimatorEMB(
             input_size=self.encoder_gen.config.hidden_size,
             config=self.bert_config
@@ -325,23 +326,23 @@ class DiffusionRunner:
         batch_size = clean_x.size(0)
 
         t = self.sample_time(batch_size, eps=eps)
+        marg_forward = self.dynamic.marginal(clean_x, t)
+        x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
 
         # self-cond estimate
         x_0_self_cond = torch.zeros_like(clean_x, dtype=clean_x.dtype)
         if self.use_self_cond and random.random() > 0.5:
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 t_next = torch.clip(t + 1 / self.config.dynamic.N, max=self.dynamic.T)
-                marg_forward = self.dynamic.marginal(clean_x, t_next)
-                x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
+                params_next = self.marginal_params(t_next)
+                x_t_next = params_next["mu"] * clean_x + params_next["std"] * noise
+
                 with torch.no_grad():
                     x_0_self_cond = self.ddp_score_estimator(
-                        x_t=x_t, time_t=t_next, cond=cond,
+                        x_t=x_t_next, time_t=t_next, cond=cond,
                         attention_mask=mask, cond_mask=X["cond_mask"],
                         x_0_self_cond=x_0_self_cond
                     ).detach()
-
-        marg_forward = self.dynamic.marginal(clean_x, t)
-        x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
 
         # model prediction
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):

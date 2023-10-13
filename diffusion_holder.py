@@ -300,6 +300,8 @@ class DiffusionRunner:
         score = (-x_t + sqrt(alpha_t) * x_0) / std**2
         """
         params = self.dynamic.marginal_params(t)
+        delta = 0.1
+        t = torch.clip(t + delta, max=self.dynamic.T)
         x_0 = model(
             x_t=x_t, time_t=t, cond=cond,
             attention_mask=attention_mask, cond_mask=cond_mask,
@@ -334,7 +336,7 @@ class DiffusionRunner:
         if self.use_self_cond and random.random() > 0.5:
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 t_next = torch.clip(t + 1 / self.config.dynamic.N, max=self.dynamic.T)
-                params_next = self.marginal_params(t_next)
+                params_next = self.dynamic.marginal_params(t_next)
                 x_t_next = params_next["mu"] * clean_x + params_next["std"] * noise
 
                 with torch.no_grad():
@@ -657,7 +659,7 @@ class DiffusionRunner:
         num_texts = int(self.config.validation.num_gen_texts / dist.get_world_size())
         seed = self.config.seed + dist.get_rank()
         set_seed(seed)
-        metrics, joint_texts, cond_texts, gen_texts, gt_texts = estimate_model(
+        metrics, metrics_list, joint_texts, cond_texts, gen_texts, gt_texts = estimate_model(
             self, num_texts,
             self.config.validation.batch_size,
             self.metric_bloom_fn, self.metric_roberta_fn,
@@ -666,6 +668,8 @@ class DiffusionRunner:
         cond_texts = gather_texts(cond_texts)
         gen_texts = gather_texts(gen_texts)
         gt_texts = gather_texts(gt_texts)
+        for key in metrics_list:
+            metrics_list[key] = gather_texts(metrics_list[key])
 
         metrics = reduce_metrics(metrics)
         if dist.get_rank() == 0:
@@ -679,7 +683,8 @@ class DiffusionRunner:
                     {
                         "CONDITION": cond_texts[i],
                         "GEN": gen_texts[i],
-                        "GT": gt_texts[i]
+                        "GT": gt_texts[i],
+                        "Bloom metric": metrics_list["Bloom metric"][i],
                     }
                 )
             file_name = f"{texts_path}/{self.config.checkpoints_prefix}-{self.step}.json"

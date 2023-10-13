@@ -26,6 +26,7 @@ def clear_text(text):
 def compute_metric(metric_fn, cond_texts=None, gen_texts=None, texts=None):
     num_tokens = 0.0
     metric = 0.0
+    metric_list = []
     length = len(cond_texts) if texts is None else len(texts)
     T = tqdm(range(length))
     for i in T:
@@ -34,11 +35,12 @@ def compute_metric(metric_fn, cond_texts=None, gen_texts=None, texts=None):
         else:
             t_metric, t_num = metric_fn(text=texts[i], reduce="sum")
         if t_metric is None or np.isnan(t_metric) or t_num == 0:
-            continue
+            t_metric, t_num = 0, 0
         metric += t_metric
         num_tokens += t_num
         T.set_description(f"metric: {metric_fn.name}, {metric / num_tokens:0.4f}")
-    return metric / num_tokens
+        metric_list.append(t_metric / max(t_num, 1.))
+    return metric / num_tokens, metric_list
 
 @torch.no_grad()
 def generate_text(diffusion, num_texts, batch_size):
@@ -125,7 +127,7 @@ def estimate_model(diffusion, num_texts, batch_size, metric_bloom_fn, metric_rob
     joint_texts, cond_texts, gen_texts, gt_texts = generate_text_conditional(diffusion, num_texts, batch_size)
 
     if metric_bloom_fn:
-        metric_bloom = compute_metric(metric_bloom_fn, cond_texts, gen_texts)
+        metric_bloom, metric_bloom_list = compute_metric(metric_bloom_fn, cond_texts, gen_texts)
     else:
         metric_bloom = np.nan
 
@@ -133,8 +135,14 @@ def estimate_model(diffusion, num_texts, batch_size, metric_bloom_fn, metric_rob
         metric_roberta = metric_roberta_fn(texts=gen_texts)[0]
     else:
         metric_roberta = np.nan
-    return {"Bloom metric": metric_bloom,
-            "Roberta metric": metric_roberta}, joint_texts, cond_texts, gen_texts, gt_texts
+    return {
+            "Bloom metric": metric_bloom,
+            "Roberta metric": metric_roberta
+        }, \
+        {
+            "Bloom metric": metric_bloom_list
+        }, \
+        joint_texts, cond_texts, gen_texts, gt_texts
 
 
 def reduce_metrics(metrics):

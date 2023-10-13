@@ -69,13 +69,13 @@ def create_config():
 
     config.project_name = "test"
     config.classifier_guidance_scale = 0.
-    config.use_self_cond = True
+    config.use_self_cond = False
     config.timesteps = "linear"
 
     return config
 
 
-num_texts_ = 512
+num_texts_ = 8196
 batch_size_ = 1024
 
 metrics_json = dict()
@@ -122,8 +122,8 @@ model_names = [
     # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_900000_",
     #"wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-mybert_1000000_"
     #"wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-bert_800000_"
-    "wikipedia--t5-bert-self_cond_last_"
-    #"wikipedia--t5-bert-initial_last_"
+    #"wikipedia--t5-bert-self_cond_last_"
+    "wikipedia--t5-bert-initial_last_"
 ]
 
 for model_name in model_names:
@@ -138,7 +138,7 @@ for model_name in model_names:
     seed = config.seed + dist.get_rank()
     set_seed(seed)
 
-    metrics, joint_texts, cond_texts, gen_texts, gt_texts = estimate_model(
+    metrics, metrics_list, joint_texts, cond_texts, gen_texts, gt_texts = estimate_model(
         diffusion_, num_texts, batch_size_,
         metric_bloom_fn, metric_roberta_fn
     )
@@ -147,13 +147,15 @@ for model_name in model_names:
     cond_texts = gather_texts(cond_texts)
     gen_texts = gather_texts(gen_texts)
     gt_texts = gather_texts(gt_texts)
+    for key in metrics_list:
+        metrics_list[key] = gather_texts(metrics_list[key])
 
     if dist.get_rank() == 0:
         print(model_name)
         print(f"Bloom metric: {metrics['Bloom metric']:0.5f}")
         print(f"Roberta metric: {metrics['Roberta metric']:0.5f}")
         print(len(joint_texts))
-        prefix = f"num_texts={num_texts_}-scale={config.classifier_guidance_scale:0.1f}-sd={config.dynamic.coef_d}"
+        prefix = f"num_texts={num_texts_}-scale={config.classifier_guidance_scale:0.1f}-delta=0.1"
         metrics_file = os.path.join(metrics_path, f"{model_name}-{prefix}.json")
         with open(metrics_file, "w") as file:
             json.dump(metrics_json, file)
@@ -164,7 +166,8 @@ for model_name in model_names:
                 {
                     "CONDITION": cond_texts[i],
                     "GEN": gen_texts[i],
-                    "GT": gt_texts[i]
+                    "GT": gt_texts[i],
+                    "Bloom metric": metrics_list["Bloom metric"][i],
                 }
             )
 

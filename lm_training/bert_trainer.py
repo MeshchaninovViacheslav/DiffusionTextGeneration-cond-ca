@@ -23,14 +23,14 @@ def create_config():
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 5
     optim.linear_warmup = 5000
-    optim.lr = 4e-4
-    optim.min_lr = 4e-4
+    optim.lr = 2e-4
+    optim.min_lr = 2e-4
     optim.warmup_lr = 1e-8
     optim.weight_decay = 0.01
     optim.beta_1 = 0.9
     optim.beta_2 = 0.98
     optim.eps = 1e-6
-    optim.precision = "16"
+    optim.precision = "bf16-mixed"
 
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 300_000
@@ -125,14 +125,14 @@ def main():
         check_val_every_n_epoch=None,
     )
     # model = BERTModel.load_from_checkpoint(
-    #     checkpoint_path="./checkpoints/bert-training-768-0.15-None-512-wiki_no_group+denoising/step_30000.ckpt",
+    #     checkpoint_path="./checkpoints/bert-training-768-768-0.15-None-2048-wiki_no_group-norm_output/step_140000.ckpt",
     #     config=config
     # )
     model = BERTModel(config)
     trainer.fit(
         model,
         datamodule=datamodule,
-        #ckpt_path="./checkpoints/bert-training-768-0.15-None-2048-wiki_no_group/step_5000.ckpt",
+        #ckpt_path="./checkpoints/bert-training-768-768-0.15-None-2048-wiki_no_group-norm_output/step_140000.ckpt",
     )
 
 

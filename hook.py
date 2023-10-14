@@ -1,10 +1,8 @@
 import torch
 from tqdm import tqdm
 
-n = 1000
+n = 10000
 A = torch.randn(n, n).cuda()
 
-for i in tqdm(range(n ** 3)):
+for i in tqdm(range(n ** 2)):
     A = A @ A
-    if i % n == 0:
-        A = torch.random.randn(n, n).cuda()

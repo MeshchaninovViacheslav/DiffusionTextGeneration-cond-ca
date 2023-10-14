@@ -105,8 +105,9 @@ class WikipediaDatasetDDP:
 
     def get_data(self):
         if self.split == "valid":
-            test_path = "/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128/test/data-00000-of-00001.arrow"
-            yield self.load_data(test_path)
+            while True:
+                test_path = "/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128/test/data-00000-of-00001.arrow"
+                yield self.load_data(test_path)
         elif self.split == "train":
             list_of_datasets = [
                 f"/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128/train/data-{i:05d}-of-{self.number_of_datasets:05d}.arrow"

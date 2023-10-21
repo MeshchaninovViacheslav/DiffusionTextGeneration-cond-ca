@@ -88,6 +88,7 @@ class DiffusionRunner:
         self.optimizer = None
         self.scheduler = None
         self.step = 0
+        self.delta = config.model.delta
 
         # self.load_sde()
         self.bert_config = config.bert_config
@@ -300,8 +301,7 @@ class DiffusionRunner:
         score = (-x_t + sqrt(alpha_t) * x_0) / std**2
         """
         params = self.dynamic.marginal_params(t)
-        delta = 0.1
-        t = torch.clip(t + delta, max=self.dynamic.T)
+        t = torch.clip(t + self.delta, max=self.dynamic.T)
         x_0 = model(
             x_t=x_t, time_t=t, cond=cond,
             attention_mask=attention_mask, cond_mask=cond_mask,

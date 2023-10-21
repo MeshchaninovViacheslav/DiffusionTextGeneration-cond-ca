@@ -67,6 +67,7 @@ def create_config():
     model.prediction = "x_0"
     model.loss = "L_x_0"
     model.decoder_path = "decoder-wikipedia-128.pth"
+    model.delta = 0.
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64

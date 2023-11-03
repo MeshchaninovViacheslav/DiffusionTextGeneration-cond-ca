@@ -68,9 +68,10 @@ def create_config():
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
 
     config.project_name = "test"
-    config.classifier_guidance_scale = 0.
-    config.use_self_cond = False
+    config.classifier_guidance_scale = 2.
+    config.use_self_cond = True
     config.timesteps = "linear"
+    config.model.delta = 0.05
 
     return config
 
@@ -122,8 +123,8 @@ model_names = [
     # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_900000_",
     #"wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-mybert_1000000_"
     #"wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-bert_800000_"
-    #"wikipedia--t5-bert-self_cond_last_"
-    "wikipedia--t5-bert-initial_last_"
+    "wikipedia--t5-bert-self_cond_last_"
+    #"wikipedia--t5-bert-initial_last_"
 ]
 
 for model_name in model_names:
@@ -155,7 +156,7 @@ for model_name in model_names:
         print(f"Bloom metric: {metrics['Bloom metric']:0.5f}")
         print(f"Roberta metric: {metrics['Roberta metric']:0.5f}")
         print(len(joint_texts))
-        prefix = f"num_texts={num_texts_}-scale={config.classifier_guidance_scale:0.1f}-delta=0.1"
+        prefix = f"num_texts={num_texts_}-scale={config.classifier_guidance_scale:0.1f}-delta=0.05"
         metrics_file = os.path.join(metrics_path, f"{model_name}-{prefix}.json")
         with open(metrics_file, "w") as file:
             json.dump(metrics_json, file)

@@ -123,6 +123,34 @@ def mse_loss(inputs, targets, mask):
     return loss
 
 
+def l1_loss(inputs, targets, mask):
+    if mask is None:
+        mask = torch.ones(
+            (targets.shape[0], targets.shape[1]),
+            device=f"cuda:{dist.get_rank()}" if dist.is_initialized() else "cuda:0",
+            requires_grad=False,
+            dtype=torch.int64,
+        )
+    losses = torch.mean(torch.nn.functional.l1_loss(inputs, targets, reduction="none"), dim=-1)
+    losses = losses * mask
+    loss = torch.sum(losses) / torch.sum(mask)
+    return loss
+
+
+def smooth_l1_loss(inputs, targets, mask):
+    if mask is None:
+        mask = torch.ones(
+            (targets.shape[0], targets.shape[1]),
+            device=f"cuda:{dist.get_rank()}" if dist.is_initialized() else "cuda:0",
+            requires_grad=False,
+            dtype=torch.int64,
+        )
+    losses = torch.mean(torch.nn.functional.smooth_l1_loss(inputs, targets, reduction="none"), dim=-1)
+    losses = losses * mask
+    loss = torch.sum(losses) / torch.sum(mask)
+    return loss
+
+
 def recon_loss(inputs, outputs, mask):
     if mask is None:
         mask = torch.ones(

@@ -84,7 +84,7 @@ def create_config():
     config.ddp = True
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
     config.use_self_cond = True
-    config.project_name = "dtg-exps-1.0"
+    config.project_name = "new_wiki-exps"
     config.timesteps = "linear"
 
     return config

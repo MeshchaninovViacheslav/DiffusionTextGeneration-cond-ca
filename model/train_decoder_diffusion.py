@@ -16,6 +16,7 @@ from utils.util import dict_to_cuda
 import diffusion_utils.schedulers as schedulers
 from diffusion_holder import DiffusionRunner
 from utils.util import set_seed
+from model.transformer_decoder import Decoder
 
 
 def reconstruction_loss(target, prediction_scores, mask):
@@ -66,6 +67,7 @@ def create_config():
     model.prediction = "x_0"
     model.loss = "L_x_0"
     model.decoder_path = "decoder-wikipedia-128.pth"
+    model.delta = 0
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
@@ -94,13 +96,13 @@ def train(config):
     seed = config.seed + dist.get_rank()
     set_seed(seed)
 
-    exp_name = "noisy-diffusion"
+    exp_name = "transformer-noisy"
     if dist.get_rank() == 0:
-        wandb.init(project=config.project_name, name=exp_name, mode="online")
+        wandb.init(project=config.project_name, name=f"decoder-{exp_name}", mode="online")
 
     diffusion = DiffusionRunner(config, latent_mode=config.model.embeddings_type, eval=True)
 
-    decoder = diffusion.decoder.train()
+    decoder = Decoder().train().cuda()
     ddp_decoder = torch.nn.parallel.DistributedDataParallel(
         decoder,
         device_ids=[config.local_rank],

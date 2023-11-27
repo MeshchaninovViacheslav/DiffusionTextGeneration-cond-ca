@@ -43,17 +43,17 @@ def create_config():
     training.batch_size = 512 // torch.cuda.device_count()
 
     data = config.data = ml_collections.ConfigDict()
-    data.max_sequence_len = 128
+    data.max_sequence_len = 64
     data.num_workers = 16
     data.pos_begin = 0.
     data.pos_end = 0.67
 
     config.project_name = "lm-training"
     config.exp_name = "gpt2-training"
-    config.dataset_name = "wikipedia-clean"
+    config.dataset_name = "wikipedia"
     config.num_beams = 1
     config.seed = 0
-    config.hg_pretrain = True
+    config.hg_pretrain = False
 
     return config
 
@@ -75,7 +75,7 @@ def get_dataloader(config, tokenizer, batch_size):
     valid_dataset = next(create_dataset(
         dataset_name=config.dataset_name,
     )(
-        split="test",
+        split="valid",
         tokenizer_bert=tokenizer_bert,
         tokenizer_cond=tokenizer,
         tokenizer_gen=tokenizer,
@@ -129,7 +129,7 @@ def main():
         outputs = gpt.generate_text(
             tokenizer=tokenizer,
             text_inputs=text_cond,
-            max_new_tokens=64,
+            max_new_tokens=60,
             num_beams=config.num_beams
         )
 

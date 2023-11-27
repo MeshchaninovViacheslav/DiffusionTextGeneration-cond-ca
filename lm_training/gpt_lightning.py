@@ -7,6 +7,7 @@ from timm.scheduler.cosine_lr import CosineLRScheduler
 
 from typing import Dict, Any, List
 from torch import FloatTensor, Tensor
+import torch.distributed as dist
 
 from lm_training.util import calc_model_grads_norm
 
@@ -119,7 +120,7 @@ class GPTModel(L.LightningModule):
                 'text-generation',
                 model=self.model.cuda(),
                 use_fast=True,
-                device="cuda:0",
+                device=self.model.device,
                 tokenizer=tokenizer
             )
 

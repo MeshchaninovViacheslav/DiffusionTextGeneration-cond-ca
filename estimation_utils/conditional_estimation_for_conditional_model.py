@@ -50,7 +50,7 @@ def create_config():
     model.dataset = "wikipedia"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-wikipedia-128.pth"
+    model.decoder_path = "decoder-transformer-noisy.pth" #"decoder-wikipedia-128.pth"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
@@ -68,15 +68,15 @@ def create_config():
     config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
 
     config.project_name = "test"
-    config.classifier_guidance_scale = 2.
+    config.classifier_guidance_scale = 0.
     config.use_self_cond = True
     config.timesteps = "linear"
-    config.model.delta = 0.05
+    config.model.delta = 0.
 
     return config
 
 
-num_texts_ = 8196
+num_texts_ =  8196
 batch_size_ = 1024
 
 metrics_json = dict()
@@ -156,7 +156,7 @@ for model_name in model_names:
         print(f"Bloom metric: {metrics['Bloom metric']:0.5f}")
         print(f"Roberta metric: {metrics['Roberta metric']:0.5f}")
         print(len(joint_texts))
-        prefix = f"num_texts={num_texts_}-scale={config.classifier_guidance_scale:0.1f}-delta=0.05"
+        prefix = f"num_texts={num_texts_}-scale={config.classifier_guidance_scale:0.1f}"
         metrics_file = os.path.join(metrics_path, f"{model_name}-{prefix}.json")
         with open(metrics_file, "w") as file:
             json.dump(metrics_json, file)

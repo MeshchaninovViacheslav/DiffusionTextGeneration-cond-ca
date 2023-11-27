@@ -27,7 +27,8 @@ from model.score_estimator_cond import ScoreEstimatorEMB
 from model.t5_encoder import T5EncoderModel
 from model.bert_encoder import BertEncoderModel
 from model.enc_normalizer import EncNormalizer
-from model.decoder import Decoder
+#from model.decoder import Decoder
+from model.transformer_decoder import Decoder
 
 from utils.util import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, reduce_tensor, set_seed, l1_loss, smooth_l1_loss
 
@@ -77,9 +78,6 @@ class DiffusionRunner:
         self.tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
 
         # self.decoder = Decoder(
-        #     input_size=self.encoder_gen.config.hidden_size,
-        #     hidden_size=self.encoder_gen.config.hidden_size,
-        #     vocab_size=self.encoder_gen.config.vocab_size
         # )
         self.decoder = self.encoder_gen.cls.cpu()
         self.restore_decoder()
@@ -307,6 +305,14 @@ class DiffusionRunner:
             attention_mask=attention_mask, cond_mask=cond_mask,
             x_0_self_cond=x_0_self_cond
         )
+        # if t[0].item() < 0.5: 
+        #     logits = self.pred_logits(x_0)
+        #     tokens = logits.argmax(dim=-1)
+        #     attention_mask = (tokens != self.tokenizer_gen.vocab["[PAD]"]) * 1.
+        #     #print(torch.mean(attention_mask))
+        #     x_0_recon = self.encoder_gen(**{"input_ids": tokens, "attention_mask": attention_mask})
+        #     x_0 = x_0_recon * attention_mask[..., None] + x_0 * (1 - attention_mask)[..., None]
+
         eps_theta = (x_t - params["mu"] * x_0) / params["std"]
         score = -eps_theta / params["std"]
         return {
@@ -361,9 +367,9 @@ class DiffusionRunner:
         # MSE losses
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
 
-        loss_x_0 = smooth_l1_loss(clean_x, x_0, mask)
-        loss_eps = smooth_l1_loss(noise, eps_theta, mask)
-        loss_score = smooth_l1_loss(score_clean, score, mask)
+        loss_x_0 = mse_loss(clean_x, x_0, mask)
+        loss_eps = mse_loss(noise, eps_theta, mask)
+        loss_score = mse_loss(score_clean, score, mask)
 
         # Decoder reconstruction
         logits = self.pred_logits(pred_embeddings=x_0, input_ids=X["input_ids"])

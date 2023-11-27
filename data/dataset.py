@@ -33,6 +33,7 @@ class WikipediaDatasetDDP:
         self.tokenizer_cond = tokenizer_cond
         self.tokenizer_gen = tokenizer_gen
         self.max_sequence_len = max_sequence_len
+        self.max_cond_len = max_sequence_len
         self.pos_begin = pos_begin
         self.pos_end = pos_end
         self.device_number = dist.get_rank() if torch.distributed.is_initialized() else 0
@@ -54,10 +55,11 @@ class WikipediaDatasetDDP:
 
     def batch_preprocessing(self, batch):
         # Random split
-        elem_counts = np.sum(batch["attention_mask"], axis=1)
+        batch_size = len(batch["input_ids"])
+        elem_counts = self.max_cond_len
         delimeter_poses = (
             (
-                    np.random.rand(elem_counts.shape[0]) *
+                    np.random.rand(batch_size) *
                     (self.pos_end - self.pos_begin) + self.pos_begin
             ) * elem_counts
         ).astype(int)
@@ -106,11 +108,11 @@ class WikipediaDatasetDDP:
     def get_data(self):
         if self.split == "valid":
             while True:
-                test_path = "/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128/test/data-00000-of-00001.arrow"
+                test_path = "/home/vmeshchaninov/nlp_models/data/wikipedia/filtered_input_ids/test/data-00000-of-00001.arrow"
                 yield self.load_data(test_path)
         elif self.split == "train":
             list_of_datasets = [
-                f"/home/vmeshchaninov/nlp_models/data/wikipedia-bert-128/train/data-{i:05d}-of-{self.number_of_datasets:05d}.arrow"
+                f"/home/vmeshchaninov/nlp_models/data/wikipedia/filtered_input_ids/train/data-{i:05d}-of-{self.number_of_datasets:05d}.arrow"
                 for i in range(self.number_of_datasets)]
             ind = self.device_number
             while True:

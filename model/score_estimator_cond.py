@@ -6,31 +6,10 @@ from typing import List, Optional, Tuple, Union
 from transformers.models.bert.modeling_bert import BertAttention, BertIntermediate, BertOutput, \
     apply_chunking_to_forward, BertConfig
 
-bert_config = BertConfig(**{
-    "hidden_size": 768,
-    "hidden_act": "gelu",
-    "initializer_range": 0.02,
-    "vocab_size": 30522,
-    "hidden_dropout_prob": 0.1,
-    "num_attention_heads": 12,
-    "type_vocab_size": 2,
-    "max_position_embeddings": 512,
-    "num_hidden_layers": 12,
-    "intermediate_size": 3072,
-    "attention_probs_dropout_prob": 0.1,
-    "layer_norm_eps": 1e-12,
-    "model_type": "bert",
-    "pad_token_id": 0,
-    "position_embedding_type": "absolute",
-    "transformers_version": "4.6.0.dev0",
-    "is_decoder": True,
-})
-
 
 class BertBlock(nn.Module):
     def __init__(self, config):
         super().__init__()
-        config = bert_config
         self.chunk_size_feed_forward = config.chunk_size_feed_forward
         self.seq_len_dim = 1
         self.attention = BertAttention(config)
@@ -83,8 +62,8 @@ class TransformerEncoder(torch.nn.Module):
         super().__init__()
 
         self.use_self_cond = config.use_self_cond
-        self.num_hidden_layers = 12
-        self.hidden_size = 768
+        self.num_hidden_layers = config.num_attention_heads
+        self.hidden_size = config.hidden_size
         self.input_blocks = torch.nn.ModuleList(
             [TransformerBlock(config) for _ in range(0, self.num_hidden_layers // 2)]
         )
@@ -216,7 +195,7 @@ class ScoreEstimatorEMB(nn.Module):
                 attention_mask=cond_mask,
                 dtype=hidden_state.dtype
             )
-
+    
         output = self.encoder(
             x=hidden_state,
             attention_mask=attention_mask,

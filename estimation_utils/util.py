@@ -87,38 +87,46 @@ def generate_text_conditional(diffusion, num_texts, batch_size):
     gen_texts = []
     gt_texts = []
     joint_texts = []
-    while len(gen_texts) < num_texts:
-        tmp_batch_size = int(min(batch_size, num_texts - len(gen_texts)))
-        try:
-            condition = next(loader)
-            condition["cond_ids"] = condition["cond_ids"][:tmp_batch_size]
-            condition["cond_mask"] = condition["cond_mask"][:tmp_batch_size]
-            condition["input_ids"] = condition["input_ids"][:tmp_batch_size]
-            condition["input_mask"] = condition["input_mask"][:tmp_batch_size]
-        except Exception:
-            return gen_texts
 
-        gen_text = diffusion.generate_text(
-            batch_size=tmp_batch_size,
-            cond={"cond": condition["cond_ids"], "cond_mask": condition["cond_mask"]},
-            attention_mask=None, #condition["input_mask"],
-        )[0]
+    for condition in loader:
+        if len(gen_texts) < num_texts:
+            tmp_batch_size = int(min(batch_size, num_texts - len(gen_texts)))
 
-        cond_text = diffusion.tokenizer_cond.batch_decode(condition["cond_ids"], skip_special_tokens=True)
-        gt_text = diffusion.tokenizer_gen.batch_decode(condition["input_ids"], skip_special_tokens=True)
+            for key in condition:
+                condition[key] = condition[key][:tmp_batch_size]
 
-        joint_text = []
-        for i, c_t in enumerate(cond_text):
-            joint_text.append(f"{c_t} {gen_text[i]}")
+            if condition.get("cond_ids", None) is not None:
+                cond = {"cond": condition.get("cond_ids", None), "cond_mask": condition.get("cond_mask", None)}
+            else:
+                cond = None
 
-        joint_text = clear_text(joint_text)
-        gen_text = clear_text(gen_text)
-        cond_text = clear_text(cond_text)
+            gen_text = diffusion.generate_text(
+                batch_size=tmp_batch_size,
+                cond=cond,
+                attention_mask=None, #condition["input_mask"],
+            )[0]
+            if condition.get("cond_ids", None) is not None:
+                cond_text = diffusion.tokenizer_cond.batch_decode(condition["cond_ids"], skip_special_tokens=True)
+                gt_text = diffusion.tokenizer_gen.batch_decode(condition["input_ids"], skip_special_tokens=True)
+            else:
+                cond_text = ["" for _ in range(tmp_batch_size)]
+                gt_text = ["" for _ in range(tmp_batch_size)]
 
-        cond_texts += cond_text
-        gen_texts += gen_text
-        gt_texts += gt_text
-        joint_texts += joint_text
+            joint_text = []
+            for i, c_t in enumerate(cond_text):
+                joint_text.append(f"{c_t} {gen_text[i]}")
+
+            joint_text = clear_text(joint_text)
+            gen_text = clear_text(gen_text)
+            cond_text = clear_text(cond_text)
+
+            cond_texts += cond_text
+            gen_texts += gen_text
+            gt_texts += gt_text
+            joint_texts += joint_text
+        else:
+            break
+    print(len(joint_texts), len(cond_texts), len(gen_texts), len(gt_texts))
 
     return joint_texts, cond_texts, gen_texts, gt_texts
 

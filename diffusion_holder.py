@@ -93,7 +93,7 @@ class DiffusionRunner:
         self.bert_config.use_self_cond = config.use_self_cond
         self.score_estimator = ScoreEstimatorEMB(
             input_size=self.encoder_gen.config.hidden_size,
-            config=self.bert_config
+            config=self.config.bert_config
         ).cuda()
 
         self.ddp_score_estimator = self.score_estimator
@@ -133,6 +133,7 @@ class DiffusionRunner:
             max_sequence_len=self.config.data.max_sequence_len,
             pos_begin=self.config.data.pos_begin,
             pos_end=self.config.data.pos_end,
+            is_conditional=self.config.is_conditional,
         ).get_data()
         self.train_dataset = None
 
@@ -147,6 +148,7 @@ class DiffusionRunner:
             max_sequence_len=self.config.data.max_sequence_len,
             pos_begin=self.config.data.pos_begin,
             pos_end=self.config.data.pos_end,
+            is_conditional=self.config.is_conditional,
         ).get_data()
         self.valid_dataset = next(self.valid_datasets_iter)
 
@@ -348,7 +350,7 @@ class DiffusionRunner:
                 with torch.no_grad():
                     x_0_self_cond = self.ddp_score_estimator(
                         x_t=x_t_next, time_t=t_next, cond=cond,
-                        attention_mask=mask, cond_mask=X["cond_mask"],
+                        attention_mask=mask, cond_mask=X.get("cond_mask", None),
                         x_0_self_cond=x_0_self_cond
                     ).detach()
 
@@ -359,7 +361,7 @@ class DiffusionRunner:
                 x_t=x_t,
                 t=t,
                 cond=cond,
-                cond_mask=X["cond_mask"],
+                cond_mask=X.get("cond_mask", None),
                 attention_mask=mask,
                 x_0_self_cond=x_0_self_cond,
             )
@@ -474,7 +476,10 @@ class DiffusionRunner:
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             with torch.no_grad():
                 clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
-                cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
+                if X.get("cond_ids", None) is None:
+                    cond = None
+                else:
+                    cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
 
         loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
 
@@ -507,7 +512,10 @@ class DiffusionRunner:
                 X = text
                 X = dict_to_cuda(X)
                 clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
-                cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
+                if X.get("cond_ids", None) is None:
+                    cond = None
+                else:
+                    cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
 
                 loss_dict, _ = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
                 for k, v in loss_dict.items():
@@ -579,6 +587,9 @@ class DiffusionRunner:
                 cond = dict_to_cuda(cond)
                 cond_X = self.encoder_cond(**{"input_ids": cond["cond"], "attention_mask": cond["cond_mask"]})
                 cond_mask = cond["cond_mask"]
+            else:
+                cond_X = None
+                cond_mask = None
 
             if attention_mask is not None:
                 attention_mask = attention_mask.cuda()
@@ -619,7 +630,7 @@ class DiffusionRunner:
         with torch.no_grad():
             x = self.dynamic.prior_sampling(shape).to(self.device)
             x_0_self_cond = torch.zeros_like(x, dtype=x.dtype)
-            eps_t = 1 / self.diff_eq_solver.dynamic.N
+            eps_t = 0.01
 
             if self.config.timesteps == "linear":
                 timesteps = torch.linspace(self.dynamic.T, eps_t, self.dynamic.N, device=self.device)

@@ -47,7 +47,7 @@ def create_config():
     model.embeddings_type = "embeddings"
     model.dif_enc_type = "base"
     model.downstream_task = ""  # "qqp"
-    model.dataset = "wikipedia"  # "glue"
+    model.dataset = "rocstory"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
     model.decoder_path = "decoder-transformer-noisy.pth" #"decoder-wikipedia-128.pth"
@@ -76,7 +76,7 @@ def create_config():
     return config
 
 
-num_texts_ =  8196
+num_texts_ =  256#8196
 batch_size_ = 1024
 
 metrics_json = dict()
@@ -84,6 +84,8 @@ metrics_path = f"../metrics"
 os.makedirs(metrics_path, exist_ok=True)
 texts_path = "../generated_texts"
 os.makedirs(texts_path, exist_ok=True)
+
+from create_config import create_config
 
 config = create_config()
 
@@ -123,8 +125,9 @@ model_names = [
     # "wikipedia-clean--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=1.0-lr=0.0002-min_lr=0.0002-lin_input=True-seed=0-wd=0.01-batch=512-SD=10-bert-bert-womask_900000_",
     #"wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-mybert_1000000_"
     #"wikipedia--prediction=x_0-loss=L_x_0-seq_len=96-cond_seg=[0.00, 0.67]-clipgrad=10.0-lr=0.0002-min_lr=0.0002-seed=0-wd=0.01-batch=512-SD=10-t5-bert_800000_"
-    "wikipedia--t5-bert-self_cond_last_"
+    #"wikipedia--t5-bert-self_cond_last_"
     #"wikipedia--t5-bert-initial_last_"
+    "rocstory--t5-bert_50000_"
 ]
 
 for model_name in model_names:

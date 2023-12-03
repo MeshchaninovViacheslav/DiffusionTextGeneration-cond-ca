@@ -38,9 +38,9 @@ def compute_metric(metric_fn, cond_texts=None, gen_texts=None, texts=None):
             t_metric, t_num = 0, 0
         metric += t_metric
         num_tokens += t_num
-        T.set_description(f"metric: {metric_fn.name}, {metric / num_tokens:0.4f}")
+        T.set_description(f"metric: {metric_fn.name}, {metric / max(num_tokens, 1):0.4f}")
         metric_list.append(t_metric / max(t_num, 1.))
-    return metric / num_tokens, metric_list
+    return metric / max(num_tokens, 1), metric_list
 
 @torch.no_grad()
 def generate_text(diffusion, num_texts, batch_size):

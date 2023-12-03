@@ -27,7 +27,7 @@ from model.score_estimator_cond import ScoreEstimatorEMB
 from model.t5_encoder import T5EncoderModel
 from model.bert_encoder import BertEncoderModel
 from model.enc_normalizer import EncNormalizer
-#from model.decoder import Decoder
+from model.decoder import BertDecoder
 from model.transformer_decoder import Decoder
 
 from utils.util import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, reduce_tensor, set_seed, l1_loss, smooth_l1_loss
@@ -173,7 +173,9 @@ class DiffusionRunner:
 
     def restore_decoder(self):
         decoder_path = self.config.model.decoder_path
-        self.decoder.load_state_dict(torch.load(os.path.join(self.checkpoints_folder, decoder_path))["decoder"])
+        self.decoder.load_state_dict(
+            torch.load(os.path.join(self.checkpoints_folder, decoder_path))["decoder"]
+        )
 
     def switch_to_ema(self) -> None:
         ema = self.ema

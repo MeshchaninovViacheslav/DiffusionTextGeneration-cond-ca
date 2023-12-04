@@ -27,7 +27,7 @@ def create_config():
     training.training_iters = 200_000
     training.training_iters = training.training_iters
     training.checkpoint_freq = 25_000
-    training.eval_freq = 5000
+    training.eval_freq = 2500
     training.batch_size = 512  # * 8
 
     training.ode_sampling = False
@@ -38,7 +38,7 @@ def create_config():
     loss.ce_coef = 0.
 
     refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = True
+    refresh.true = False
     refresh.prefix = "./checkpoints/rocstory--t5-bert-uncond-64_100000_.pth"
     refresh.wand_id = "g5fb4af3"
 
@@ -70,7 +70,7 @@ def create_config():
     model.delta = 0.
 
     data = config.data = ml_collections.ConfigDict()
-    data.max_sequence_len = 64
+    data.max_sequence_len = 50
     data.pos_begin = 0.0
     data.pos_end = 0.67
     data.enc_bert_mean = "/home/vmeshchaninov/nlp_models/data/rocstories/mean.pt"
@@ -97,10 +97,10 @@ bert_config = BertConfig(**{
     "initializer_range": 0.02,
     "vocab_size": 30522,
     "hidden_dropout_prob": 0.1,
-    "num_attention_heads": 12,
+    "num_attention_heads": 8,
     "type_vocab_size": 2,
     "max_position_embeddings": 512,
-    "num_hidden_layers": 12,
+    "num_hidden_layers": 6,
     "intermediate_size": 3072,
     "attention_probs_dropout_prob": 0.1,
     "layer_norm_eps": 1e-12,

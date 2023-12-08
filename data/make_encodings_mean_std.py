@@ -11,6 +11,7 @@ from utils.util import dict_to_cuda, make_mask_wo_SEP_CLS
 
 from data.create_dataset import create_rocstory_dataset, create_wiki_dataset
 from data.dataset_clean_wiki import WikipediaCleanDatasetUnconditional
+from data.dataset import RocStoryDatasetDDP
 
 from model.roberta_encoder import RobertaEncoderModel
 from model.electra_encoder import ElectraEncoderModel
@@ -69,8 +70,8 @@ def compute_mean_std(
     mean = sum_ / num
     std = torch.sqrt(sqr_sum_ / num - mean ** 2)
 
-    torch.save(mean, f'./data/encodings-{model_name}-{dataset_name}-mean.pt')
-    torch.save(std, f'./data/encodings-{model_name}-{dataset_name}-std.pt')
+    torch.save(mean, f'encodings-{model_name}-{dataset_name}-mean.pt')
+    torch.save(std, f'encodings-{model_name}-{dataset_name}-std.pt')
 
 
 if __name__ == "__main__":
@@ -79,18 +80,22 @@ if __name__ == "__main__":
 
     cfg = "bert-base-uncased"
     tokenizer_gen = BertTokenizerFast.from_pretrained(cfg)
-    from model.bert_encoder_llm import BertEncoderModel
     encoder = torch.nn.DataParallel(BertEncoderModel.from_pretrained(
-        "./lm_training/checkpoints/bert-training-768-120-0.15-None-2048-wiki_no_group/bert-150000/",
+        cfg,
         enc_normalizer=None
     )).eval().cuda()
 
-    max_sequence_len = 128
+    max_sequence_len = 100
     batch_size = 2048
-    train_dataset = next(WikipediaCleanDatasetUnconditional(
+    train_dataset = next(RocStoryDatasetDDP(
         split="train",
-        tokenizer=tokenizer,
+        tokenizer_bert=tokenizer,
+        tokenizer_cond=tokenizer,
+        tokenizer_gen=tokenizer,
         max_sequence_len=max_sequence_len,
+        pos_begin=0.,
+        pos_end=0.,
+        is_conditional=True,
     ).get_data())
 
     train_loader = DataLoader(
@@ -105,6 +110,6 @@ if __name__ == "__main__":
         encoder,
         tokenizer, tokenizer_gen,
         max_sequence_len,
-        model_name="my_bert-768-120-150000",
-        dataset_name="wiki"
+        model_name="grouped",
+        dataset_name="rocstory"
     )

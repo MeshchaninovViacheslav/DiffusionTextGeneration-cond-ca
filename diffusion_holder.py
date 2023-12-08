@@ -8,7 +8,7 @@ from ml_collections import ConfigDict
 from typing import Optional, Union, Dict, Tuple
 from tqdm.auto import trange
 from torch.utils.data import DataLoader
-from transformers import BertTokenizerFast, T5TokenizerFast
+from transformers import AutoTokenizer
 from tqdm import tqdm
 from functools import partial
 from copy import deepcopy
@@ -52,18 +52,18 @@ class DiffusionRunner:
 
         # Encoder for condition
 
-        t5_cfg = "t5-base"
-        self.tokenizer_cond = T5TokenizerFast.from_pretrained(t5_cfg)
-        self.t5_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.enc_t5_mean,
-            enc_std_path=self.config.data.enc_t5_std,
+        bert_cfg = "bert-base-uncased"
+        self.tokenizer_cond = AutoTokenizer.from_pretrained(bert_cfg)
+        self.cond_enc_normalizer = EncNormalizer(
+            enc_mean_path=self.config.data.enc_bert_mean,
+            enc_std_path=self.config.data.enc_bert_std,
         )
-        self.encoder_cond = T5EncoderModel.from_pretrained(
-            t5_cfg, enc_normalizer=self.t5_enc_normalizer
+        self.encoder_cond = BertEncoderModel.from_pretrained(
+            bert_cfg, enc_normalizer=self.cond_enc_normalizer
         ).eval().cuda()
 
         bert_cfg = "bert-base-uncased"
-        self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
+        self.tokenizer_gen = AutoTokenizer.from_pretrained(bert_cfg)
         self.gen_enc_normalizer = EncNormalizer(
             enc_mean_path=self.config.data.enc_bert_mean,
             enc_std_path=self.config.data.enc_bert_std,
@@ -75,7 +75,7 @@ class DiffusionRunner:
 
         #
         bert_cfg = "bert-base-uncased"
-        self.tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
+        self.tokenizer_bert = AutoTokenizer.from_pretrained(bert_cfg)
 
         # self.decoder = Decoder(
         # )
@@ -103,10 +103,13 @@ class DiffusionRunner:
                 device_ids=[config.local_rank],
                 broadcast_buffers=False,
             )
-        self.total_number_params = sum(p.numel() for p in self.score_estimator.parameters() if p.requires_grad)
-        self.config.model.total_number_params = self.total_number_params
-        self.device = next(self.score_estimator.parameters()).device
+        
+        self.config.params_number.score_estimator = sum(p.numel() for p in self.score_estimator.parameters() if p.requires_grad)
+        self.config.params_number.decoder = sum(p.numel() for p in self.decoder.parameters())
+        self.config.params_number.conditional_encoder = sum(p.numel() for p in self.encoder_cond.parameters())
+        self.config.params_number.generative_encoder = sum(p.numel() for p in self.encoder_gen.parameters())
 
+        self.device = next(self.score_estimator.parameters()).device
         self.dynamic = DynamicSDE(config=config)
         self.diff_eq_solver = create_solver(config)(
             dynamic=self.dynamic,
@@ -372,6 +375,21 @@ class DiffusionRunner:
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
 
         loss_x_0 = mse_loss(clean_x, x_0, mask)
+        if self.ddp_score_estimator.training and np.random.rand() < self.config.cfg_train_proba:
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                x_0_cfg = self.calc_score(
+                    model=self.ddp_score_estimator,
+                    x_t=x_t,
+                    t=t,
+                    cond=None,
+                    cond_mask=None,
+                    attention_mask=mask,
+                    x_0_self_cond=torch.zeros_like(clean_x, dtype=clean_x.dtype),
+                )["x_0"]
+            loss_x_0 += mse_loss(clean_x, x_0_cfg, mask)    
+        
+
+
         loss_eps = mse_loss(noise, eps_theta, mask)
         loss_score = mse_loss(score_clean, score, mask)
 

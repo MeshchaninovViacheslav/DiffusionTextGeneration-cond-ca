@@ -180,6 +180,7 @@ class RocStoryDatasetDDP:
         self.total_device_number = dist.get_world_size() if torch.distributed.is_initialized() else 1
         self.epoch = 0
         self.is_conditional = is_conditional
+        self.dt = None
 
     def spilt_data_across_gpu(self, dt: List[str]):
         if self.split == "train":
@@ -193,18 +194,16 @@ class RocStoryDatasetDDP:
             indexes = indexes[start_ind:]
         else:
             indexes = indexes[start_ind: end_ind]
-        
-        dt = [dt[i] for i in indexes]
+        dt = dt.select(indexes)
         return dt
     
 
     def load_data(self, path):
-        dt = []
-        with open(path, "r") as file:
-            for l in file:
-                dt.append(l.strip())
+        if self.dt is not None:
+            return self.dt
+
+        dt = Dataset.from_file(path)
         dt = self.spilt_data_across_gpu(dt)
-        dt = Dataset.from_list([{"text": t} for t in dt])
 
         self.dt = dt.map(
             self.batch_preprocessing_conditional if self.is_conditional else self.batch_preprocessing_unconditional,
@@ -222,13 +221,7 @@ class RocStoryDatasetDDP:
 
     def batch_preprocessing_conditional(self, batch):
         # Tokenize
-        input_ids = self.tokenizer_bert(
-            batch["text"],
-            add_special_tokens=False,
-            padding="max_length",
-            truncation=True,
-            max_length=self.max_sequence_len,
-        )["input_ids"]
+        input_ids = batch["input_ids"]
 
         # Random split
         batch_size = len(batch["text"])
@@ -245,16 +238,16 @@ class RocStoryDatasetDDP:
         for i, element_ids in enumerate(input_ids):
             cond_ids_list.append(element_ids[:delimeter_poses[i]])
             input_ids_list.append(element_ids[delimeter_poses[i]:])
-        
 
+        skip_special_tokens = True
         # Tokens decode
-        texts_cond = self.tokenizer_bert.batch_decode(cond_ids_list, skip_special_tokens=True)
-        texts_input = self.tokenizer_bert.batch_decode(input_ids_list, skip_special_tokens=True)
+        texts_cond = self.tokenizer_bert.batch_decode(cond_ids_list, skip_special_tokens=skip_special_tokens)
+        texts_input = self.tokenizer_bert.batch_decode(input_ids_list, skip_special_tokens=skip_special_tokens)
 
         # Text encode
         cond_ = self.tokenizer_cond(
             texts_cond,
-            add_special_tokens=True,
+            add_special_tokens=skip_special_tokens,
             padding="max_length",
             truncation=True,
             max_length=self.max_sequence_len,
@@ -262,7 +255,7 @@ class RocStoryDatasetDDP:
 
         input_ = self.tokenizer_gen(
             texts_input,
-            add_special_tokens=True,
+            add_special_tokens=skip_special_tokens,
             padding="max_length",
             truncation=True,
             max_length=self.max_sequence_len,
@@ -300,11 +293,11 @@ class RocStoryDatasetDDP:
     def get_data(self):
         if self.split == "valid":
             while True:
-                test_path = "/home/vmeshchaninov/nlp_models/data/rocstories/validation/data.txt"
+                test_path = "/home/vmeshchaninov/nlp_models/data/rocstories/grouped_data/test/data-00000-of-00001.arrow"
                 yield self.load_data(test_path)
         elif self.split == "train":
             while True:
-                train_path = "/home/vmeshchaninov/nlp_models/data/rocstories/train/data.txt"
+                train_path = "/home/vmeshchaninov/nlp_models/data/rocstories/grouped_data/train/data-00000-of-00001.arrow"
                 yield self.load_data(train_path)
         else:
             raise Exception("Wrong data split")

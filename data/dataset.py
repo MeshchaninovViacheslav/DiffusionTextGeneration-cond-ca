@@ -7,6 +7,7 @@ import torch
 import numpy as np
 import torch.distributed as dist
 from typing import List
+from datasets import load_from_disk
 
 # disable_progress_bar()
 # set_verbosity_error()
@@ -299,5 +300,25 @@ class RocStoryDatasetDDP:
             while True:
                 train_path = "/home/vmeshchaninov/nlp_models/data/rocstories/grouped_data/train/data-00000-of-00001.arrow"
                 yield self.load_data(train_path)
+        else:
+            raise Exception("Wrong data split")
+
+
+class RocStoryDatasetEncodings:
+    def __init__(self, split):
+        self.split = split
+
+    def load_data(self, path):
+        dt = load_from_disk(path)
+        dt = dt.with_format("pt", columns=["input_ids", "cond_ids", "input_mask", "cond_mask", "gen_x", "cond_x"])
+        return dt
+
+    def get_data(self):
+        if self.split == "valid":
+            test_path = "/home/vmeshchaninov/nlp_models/data/rocstories/grouped_data/test_encodings/"
+            return self.load_data(test_path)
+        elif self.split == "train":
+            train_path = "/home/vmeshchaninov/nlp_models/data/rocstories/grouped_data/train_encodings/"
+            return self.load_data(train_path)
         else:
             raise Exception("Wrong data split")

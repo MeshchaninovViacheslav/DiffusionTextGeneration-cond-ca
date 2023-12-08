@@ -26,7 +26,7 @@ def create_config():
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 100_000
     training.training_iters = training.training_iters
-    training.checkpoint_freq = 5_000
+    training.checkpoint_freq = 25_000
     training.eval_freq = 5_000
     training.batch_size = 512  # * 8
 
@@ -53,7 +53,7 @@ def create_config():
     dynamic.scheduler = "sd"
     dynamic.N = 250
     dynamic.ode_sampling = False
-    dynamic.coef_d = 10
+    dynamic.coef_d = 7
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
@@ -71,19 +71,16 @@ def create_config():
     data.max_sequence_len = 50
     data.pos_begin = 1.
     data.pos_end = 1.
-    data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-grouped-rocstory-mean.pt"
+    data.enc_bert_mean = "/home/vmeshchaninov/nlp_models/data/rocstories/grouped_data/encodings-grouped-rocstory-mean.pt"
     #"/home/vmeshchaninov/nlp_models/data/rocstories/mean.pt"
-    data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-grouped-rocstory-std.pt"
+    data.enc_bert_std = "/home/vmeshchaninov/nlp_models/data/rocstories/grouped_data/encodings-grouped-rocstory-std.pt"
     #"/home/vmeshchaninov/nlp_models/data/rocstories/std.pt"
-
-    # data.enc_t5_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-mean.pth"
-    # data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
 
     config.finetuning = False
     config.seed = 0
     config.ddp = True
     config.use_self_cond = True
-    config.project_name = "rocstory-exps"
+    config.project_name = "rocstory-groupped-exps"
     config.timesteps = "linear"
     config.is_conditional = True
 

@@ -21,7 +21,7 @@ from diffusion_utils.dynamic import DynamicSDE
 from diffusion_utils.solvers import create_solver
 
 from utils.ema_model import ExponentialMovingAverage
-from data.dataset import create_dataset
+from data.dataset import RocStoryDatasetEncodings
 
 from model.score_estimator_cond import ScoreEstimatorEMB
 from model.t5_encoder import T5EncoderModel
@@ -125,36 +125,6 @@ class DiffusionRunner:
 
         self.grad_expl_dict = defaultdict(list)
 
-        self.train_datasets_iter = create_dataset(
-            dataset_name=config.model.dataset,
-            downstream_task=config.model.downstream_task
-        )(
-            split="train",
-            tokenizer_bert=self.tokenizer_bert,
-            tokenizer_cond=self.tokenizer_cond,
-            tokenizer_gen=self.tokenizer_gen,
-            max_sequence_len=self.config.data.max_sequence_len,
-            pos_begin=self.config.data.pos_begin,
-            pos_end=self.config.data.pos_end,
-            is_conditional=self.config.is_conditional,
-        ).get_data()
-        self.train_dataset = None
-
-        self.valid_datasets_iter = create_dataset(
-            dataset_name=config.model.dataset,
-            downstream_task=config.model.downstream_task
-        )(
-            split="valid",
-            tokenizer_bert=self.tokenizer_bert,
-            tokenizer_cond=self.tokenizer_cond,
-            tokenizer_gen=self.tokenizer_gen,
-            max_sequence_len=self.config.data.max_sequence_len,
-            pos_begin=self.config.data.pos_begin,
-            pos_end=self.config.data.pos_end,
-            is_conditional=self.config.is_conditional,
-        ).get_data()
-        self.valid_dataset = next(self.valid_datasets_iter)
-
         if self.config.ddp and dist.get_rank() == 0:
             wandb.init(
                 project=self.config.project_name,
@@ -223,19 +193,25 @@ class DiffusionRunner:
         self.grad_scaler = GradScaler()
 
     def set_train_data_generator(self) -> None:
-        del self.train_dataset
-        self.train_dataset = next(self.train_datasets_iter)
-        print("Dataset length:", len(self.train_dataset))
+        self.train_dataset = RocStoryDatasetEncodings(split="train").get_data()
+        if self.config.ddp:
+            sampler_train = torch.utils.data.distributed.DistributedSampler(
+                self.train_dataset,
+                shuffle=True
+            )
+        else:
+            sampler_train = None
 
         self.train_loader = DataLoader(
             self.train_dataset,
             batch_size=self.config.training.batch_size_per_gpu,
-            num_workers=30,
+            sampler=sampler_train,
+            num_workers=10,
             pin_memory=False,
-            shuffle=True,
         )
 
     def set_valid_data_generator(self) -> None:
+        self.valid_dataset = RocStoryDatasetEncodings(split="valid").get_data()
         if self.config.ddp:
             sampler_valid = torch.utils.data.distributed.DistributedSampler(
                 self.valid_dataset,
@@ -375,20 +351,18 @@ class DiffusionRunner:
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
 
         loss_x_0 = mse_loss(clean_x, x_0, mask)
-        if self.ddp_score_estimator.training and np.random.rand() < self.config.cfg_train_proba:
-            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                x_0_cfg = self.calc_score(
-                    model=self.ddp_score_estimator,
-                    x_t=x_t,
-                    t=t,
-                    cond=None,
-                    cond_mask=None,
-                    attention_mask=mask,
-                    x_0_self_cond=torch.zeros_like(clean_x, dtype=clean_x.dtype),
-                )["x_0"]
-            loss_x_0 += mse_loss(clean_x, x_0_cfg, mask)    
-        
-
+        # if self.ddp_score_estimator.training and np.random.rand() < self.config.cfg_train_proba:
+        #     with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+        #         x_0_cfg = self.calc_score(
+        #             model=self.ddp_score_estimator,
+        #             x_t=x_t,
+        #             t=t,
+        #             cond=None,
+        #             cond_mask=None,
+        #             attention_mask=mask,
+        #             x_0_self_cond=torch.zeros_like(clean_x, dtype=clean_x.dtype),
+        #         )["x_0"]
+        #     loss_x_0 += mse_loss(clean_x, x_0_cfg, mask)    
 
         loss_eps = mse_loss(noise, eps_theta, mask)
         loss_score = mse_loss(score_clean, score, mask)
@@ -451,10 +425,10 @@ class DiffusionRunner:
 
         self.train_range = trange(self.step + 1, self.config.training.training_iters + 1)
         self.train_range_iter = iter(self.train_range)
+        self.set_train_data_generator() 
+        self.ddp_score_estimator.train()
 
         while True:
-            self.set_train_data_generator()
-            self.ddp_score_estimator.train()
             self.train_epoch()
 
             if self.step >= self.config.training.training_iters:
@@ -487,19 +461,12 @@ class DiffusionRunner:
                 f"accuracy: {loss_dict['accuracy'].item():0.4f}"
             )
 
-        # torch.cuda.synchronize()
-
     def train_step(self, X):
         self.step += 1
 
         X = dict_to_cuda(X)
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            with torch.no_grad():
-                clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
-                if X.get("cond_ids", None) is None:
-                    cond = None
-                else:
-                    cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
+        clean_X = X["gen_x"]
+        cond = X["cond_x"]
 
         loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
 
@@ -518,6 +485,7 @@ class DiffusionRunner:
 
         return loss_dict, stat_dict
 
+    @torch.no_grad()
     def validate(self) -> None:
         prev_mode = self.ddp_score_estimator.training
 
@@ -527,23 +495,18 @@ class DiffusionRunner:
         valid_loss: Dict[str, torch.Tensor] = dict()
         valid_count = torch.Tensor([0.0])
 
-        with torch.no_grad():
-            for text in self.valid_loader:
-                X = text
-                X = dict_to_cuda(X)
-                clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
-                if X.get("cond_ids", None) is None:
-                    cond = None
-                else:
-                    cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
+        for X in self.valid_loader:
+            X = dict_to_cuda(X)
+            clean_X = X["gen_x"]
+            cond = X["cond_x"]
 
-                loss_dict, _ = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
-                for k, v in loss_dict.items():
-                    if k in valid_loss:
-                        valid_loss[k] += v.item() * clean_X.size(0)
-                    else:
-                        valid_loss[k] = torch.Tensor([v.item() * clean_X.size(0)])
-                valid_count += clean_X.size(0)
+            loss_dict, _ = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
+            for k, v in loss_dict.items():
+                if k in valid_loss:
+                    valid_loss[k] += v.item() * clean_X.size(0)
+                else:
+                    valid_loss[k] = torch.Tensor([v.item() * clean_X.size(0)])
+            valid_count += clean_X.size(0)
 
         valid_count = reduce_tensor(valid_count.cuda())
         for k, v in valid_loss.items():
@@ -601,30 +564,22 @@ class DiffusionRunner:
 
     @torch.no_grad()
     def generate_text(self, batch_size, cond=None, way="sde", attention_mask=None):
-        cond_X, cond_mask = None, None
-        with torch.no_grad():
-            if cond is not None:
-                cond = dict_to_cuda(cond)
-                cond_X = self.encoder_cond(**{"input_ids": cond["cond"], "attention_mask": cond["cond_mask"]})
-                cond_mask = cond["cond_mask"]
-            else:
-                cond_X = None
-                cond_mask = None
+        cond = dict_to_cuda(cond)
+        
+        if attention_mask is not None:
+            attention_mask = attention_mask.cuda()
 
-            if attention_mask is not None:
-                attention_mask = attention_mask.cuda()
+        pred_embeddings = self.pred_embeddings(
+            batch_size,
+            cond_X=cond["cond"],
+            cond_mask=cond["cond_mask"],
+            attention_mask=attention_mask
+        )
 
-            pred_embeddings = self.pred_embeddings(
-                batch_size,
-                cond_X=cond_X,
-                cond_mask=cond_mask,
-                attention_mask=attention_mask
-            )
-
-            # pred_embeddings = normalize(pred_embeddings, dim=-1) * np.sqrt(pred_embeddings.shape[-1])
-            output = self.pred_logits(pred_embeddings)
-            tokens = output.argmax(dim=-1)
-            text = self.tokenizer_gen.batch_decode(tokens, skip_special_tokens=True)
+        # pred_embeddings = normalize(pred_embeddings, dim=-1) * np.sqrt(pred_embeddings.shape[-1])
+        output = self.pred_logits(pred_embeddings)
+        tokens = output.argmax(dim=-1)
+        text = self.tokenizer_gen.batch_decode(tokens, skip_special_tokens=True)
         return text, pred_embeddings
 
     @torch.no_grad()

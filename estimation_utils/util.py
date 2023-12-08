@@ -96,7 +96,7 @@ def generate_text_conditional(diffusion, num_texts, batch_size):
                 condition[key] = condition[key][:tmp_batch_size]
 
             if condition.get("cond_ids", None) is not None:
-                cond = {"cond": condition.get("cond_ids", None), "cond_mask": condition.get("cond_mask", None)}
+                cond = {"cond": condition.get("cond_x", None), "cond_mask": condition.get("cond_mask", None)}
             else:
                 cond = None
 

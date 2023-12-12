@@ -322,18 +322,20 @@ class DiffusionRunner:
 
         # self-cond estimate
         x_0_self_cond = torch.zeros_like(clean_x, dtype=clean_x.dtype)
-        if self.use_self_cond and random.random() > 0.5:
+        if self.use_self_cond:
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 t_next = t
                 params_next = self.dynamic.marginal_params(t_next)
                 x_t_next = params_next["mu"] * clean_x + params_next["std"] * noise
+   
+                x_0_self_cond = self.ddp_score_estimator(
+                    x_t=x_t_next, time_t=t_next, cond=cond,
+                    attention_mask=mask, cond_mask=X.get("cond_mask", None),
+                    x_0_self_cond=x_0_self_cond
+                )
 
-                with torch.no_grad():
-                    x_0_self_cond = self.ddp_score_estimator(
-                        x_t=x_t_next, time_t=t_next, cond=cond,
-                        attention_mask=mask, cond_mask=X.get("cond_mask", None),
-                        x_0_self_cond=x_0_self_cond
-                    ).detach()
+        loss_x_0_self_cond = mse_loss(clean_x, x_0_self_cond, mask)
+        x_0_self_cond = x_0_self_cond.detach()
 
         # model prediction
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
@@ -350,19 +352,21 @@ class DiffusionRunner:
         # MSE losses
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
 
-        loss_x_0 = mse_loss(clean_x, x_0, mask)
-        # if self.ddp_score_estimator.training and np.random.rand() < self.config.cfg_train_proba:
-        #     with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-        #         x_0_cfg = self.calc_score(
-        #             model=self.ddp_score_estimator,
-        #             x_t=x_t,
-        #             t=t,
-        #             cond=None,
-        #             cond_mask=None,
-        #             attention_mask=mask,
-        #             x_0_self_cond=torch.zeros_like(clean_x, dtype=clean_x.dtype),
-        #         )["x_0"]
-        #     loss_x_0 += mse_loss(clean_x, x_0_cfg, mask)    
+        loss_x_0 = mse_loss(clean_x, x_0, mask) + loss_x_0_self_cond
+        
+        # cfg training
+        if self.ddp_score_estimator.training and np.random.rand() < self.config.cfg_train_proba:
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                x_0_cfg = self.calc_score(
+                    model=self.ddp_score_estimator,
+                    x_t=x_t,
+                    t=t,
+                    cond=None,
+                    cond_mask=None,
+                    attention_mask=mask,
+                    x_0_self_cond=torch.zeros_like(clean_x, dtype=clean_x.dtype),
+                )["x_0"]
+            loss_x_0 += mse_loss(clean_x, x_0_cfg, mask)    
 
         loss_eps = mse_loss(noise, eps_theta, mask)
         loss_score = mse_loss(score_clean, score, mask)

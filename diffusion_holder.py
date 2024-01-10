@@ -334,7 +334,7 @@ class DiffusionRunner:
                     x_0_self_cond=x_0_self_cond
                 )
 
-        loss_x_0_self_cond = mse_loss(clean_x, x_0_self_cond, mask)
+        loss_x_0_self_cond = l1_loss(clean_x, x_0_self_cond, mask)
         x_0_self_cond = x_0_self_cond.detach()
 
         # model prediction
@@ -352,7 +352,7 @@ class DiffusionRunner:
         # MSE losses
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
 
-        loss_x_0 = mse_loss(clean_x, x_0, mask) + loss_x_0_self_cond
+        loss_x_0 = l1_loss(clean_x, x_0, mask) + loss_x_0_self_cond
         
         # cfg training
         if self.ddp_score_estimator.training and np.random.rand() < self.config.cfg_train_proba:
@@ -366,7 +366,7 @@ class DiffusionRunner:
                     attention_mask=mask,
                     x_0_self_cond=torch.zeros_like(clean_x, dtype=clean_x.dtype),
                 )["x_0"]
-            loss_x_0 += mse_loss(clean_x, x_0_cfg, mask)    
+            loss_x_0 += l1_loss(clean_x, x_0_cfg, mask)    
 
         loss_eps = mse_loss(noise, eps_theta, mask)
         loss_score = mse_loss(score_clean, score, mask)

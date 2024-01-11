@@ -14,7 +14,7 @@ def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
-    optim.linear_warmup = 200
+    optim.linear_warmup = 1000
     optim.lr = 2e-4
     optim.min_lr = 2e-4
     optim.warmup_lr = 1e-8
@@ -24,10 +24,10 @@ def create_config():
     optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 100_000
+    training.training_iters = 300_000
     training.training_iters = training.training_iters
-    training.checkpoint_freq = 25_000
-    training.eval_freq = 5_000
+    training.checkpoint_freq = 50_000
+    training.eval_freq = 2500
     training.batch_size = 512  # * 8
 
     training.ode_sampling = False
@@ -43,9 +43,9 @@ def create_config():
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
-    validation.batch_size = 1000
+    validation.batch_size = 1024
     validation.validation_iters = int(10_000 / validation.batch_size)
-    validation.num_gen_texts = 2700
+    validation.num_gen_texts = 2500
     validation.p_uncond = 0.
 
     dynamic = config.dynamic = ml_collections.ConfigDict()
@@ -61,7 +61,7 @@ def create_config():
     model.embeddings_type = "embeddings"
     model.dif_enc_type = "base"
     model.downstream_task = ""  # "qqp"
-    model.dataset = "rocstory"  # "glue"
+    model.dataset = "qqp"  # "glue"
     model.prediction = "x_0"
     model.loss = "L_x_0"
     model.decoder_path = "decoder-wikipedia-128.pth"#"rocstories_mlm.pt"#"decoder-wikipedia-128.pth"
@@ -71,16 +71,16 @@ def create_config():
     data.max_sequence_len = 50
     data.pos_begin = 1.
     data.pos_end = 1.
-    data.enc_bert_mean = "/home/vmeshchaninov/nlp_models/data/rocstories/grouped_data/encodings-grouped-rocstory-mean.pt"
+    data.enc_bert_mean = f'/home/vmeshchaninov/shared_folder/qqp/mean.pt'
     #"/home/vmeshchaninov/nlp_models/data/rocstories/mean.pt"
-    data.enc_bert_std = "/home/vmeshchaninov/nlp_models/data/rocstories/grouped_data/encodings-grouped-rocstory-std.pt"
+    data.enc_bert_std = f'/home/vmeshchaninov/shared_folder/qqp/std.pt'
     #"/home/vmeshchaninov/nlp_models/data/rocstories/std.pt"
 
     config.finetuning = False
     config.seed = 0
     config.ddp = True
     config.use_self_cond = True
-    config.project_name = "rocstory-groupped-exps"
+    config.project_name = "qqp-exps"
     config.timesteps = "linear"
     config.is_conditional = True
 

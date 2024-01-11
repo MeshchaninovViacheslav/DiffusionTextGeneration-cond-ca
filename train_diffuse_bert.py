@@ -24,14 +24,9 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = f"bert-cond-expv4-l1"
+    suffix = f"init-launch"
     config.checkpoints_prefix = f"{config.model.dataset}-" \
-                                f"{config.model.downstream_task if config.model.downstream_task is not None else ''}-" \
                                 f"{suffix}"  # "end2end-enc-base-seqlen32-v.5"  # 'emb_bert_x0_bs=512_lr=2e-4'
-    if "base" in config.model.dif_enc_type:
-        config.bert_config = BertConfig.from_pretrained("bert-base-uncased")
-    else:
-        config.bert_config = BertConfig(**_BERT_SMALL)
 
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
         rank = int(os.environ["RANK"])

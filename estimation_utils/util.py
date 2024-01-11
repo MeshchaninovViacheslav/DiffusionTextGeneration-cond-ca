@@ -95,14 +95,9 @@ def generate_text_conditional(diffusion, num_texts, batch_size):
             for key in condition:
                 condition[key] = condition[key][:tmp_batch_size]
 
-            if condition.get("cond_ids", None) is not None:
-                cond = {"cond": condition.get("cond_x", None), "cond_mask": condition.get("cond_mask", None)}
-            else:
-                cond = None
-
             gen_text = diffusion.generate_text(
                 batch_size=tmp_batch_size,
-                cond=cond,
+                cond={"cond_ids": condition.get("cond_ids", None), "cond_mask": condition.get("cond_mask", None)},
                 attention_mask=None, #condition["input_mask"],
             )[0]
             if condition.get("cond_ids", None) is not None:
@@ -131,22 +126,25 @@ def generate_text_conditional(diffusion, num_texts, batch_size):
     return joint_texts, cond_texts, gen_texts, gt_texts
 
 @torch.no_grad()
-def estimate_model(diffusion, num_texts, batch_size, metric_bloom_fn, metric_roberta_fn):
+def estimate_model(diffusion, num_texts, batch_size, metric_bloom_fn, metric_roberta_fn, metric_rouge_fn=None):
     joint_texts, cond_texts, gen_texts, gt_texts = generate_text_conditional(diffusion, num_texts, batch_size)
 
+    metrics = dict()
     if metric_bloom_fn:
-        metric_bloom, metric_bloom_list = compute_metric(metric_bloom_fn, cond_texts, gen_texts)
-    else:
-        metric_bloom = np.nan
+        metric_bloom, metric_bloom_list = compute_metric(metric_bloom_fn, texts=gen_texts)  #, cond_texts, gen_texts)
+        metrics["Bloom metric"] = metric_bloom
 
     if metric_roberta_fn:
         metric_roberta = metric_roberta_fn(texts=gen_texts)[0]
-    else:
-        metric_roberta = np.nan
-    return {
-            "Bloom metric": metric_bloom,
-            "Roberta metric": metric_roberta
-        }, \
+        metrics["Roberta metric"] = metric_roberta
+
+    if metric_rouge_fn is not None:
+        metric_rouge = metric_rouge_fn.compute(predictions=gen_texts, references=gt_texts)
+        metrics["rouge-1"] = metric_rouge['rouge1']
+        metrics["rouge-2"] = metric_rouge['rouge2']
+        metrics["rouge-L"] = metric_rouge['rougeL']
+
+    return metrics, \
         {
             "Bloom metric": metric_bloom_list
         }, \

@@ -16,12 +16,13 @@ from timm.scheduler.cosine_lr import CosineLRScheduler
 from collections import defaultdict
 from torch.cuda.amp import GradScaler
 import json
+from evaluate import load
 
 from diffusion_utils.dynamic import DynamicSDE
 from diffusion_utils.solvers import create_solver
 
 from utils.ema_model import ExponentialMovingAverage
-from data.dataset import RocStoryDatasetEncodings
+from data.dataset import create_dataset
 
 from model.score_estimator_cond import ScoreEstimatorEMB
 from model.t5_encoder import T5EncoderModel
@@ -34,7 +35,7 @@ from utils.util import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, r
 
 from estimation_utils.util import estimate_model, gather_texts, reduce_metrics, reduce_sum_metrics
 
-from estimation_utils.metrics import BloomMetricConditional, RobertaMetric
+from estimation_utils.metrics import BloomMetricConditional, RobertaMetric, BloomMetric
 
 
 class DiffusionRunner:
@@ -133,6 +134,38 @@ class DiffusionRunner:
                 mode="online"
             )
 
+        self.train_datasets_iter = create_dataset(
+            dataset_name=config.model.dataset,
+            downstream_task=config.model.downstream_task
+        )(
+            split="train",
+            tokenizer_bert=self.tokenizer_bert,
+            tokenizer_cond=self.tokenizer_cond,
+            tokenizer_gen=self.tokenizer_gen,
+            max_sequence_len=self.config.data.max_sequence_len,
+            pos_begin=self.config.data.pos_begin,
+            pos_end=self.config.data.pos_end,
+            is_conditional=self.config.is_conditional,
+        ).get_data()
+        self.train_dataset = None
+
+        self.valid_datasets_iter = create_dataset(
+            dataset_name=config.model.dataset,
+            downstream_task=config.model.downstream_task
+        )(
+            split="test",
+            tokenizer_bert=self.tokenizer_bert,
+            tokenizer_cond=self.tokenizer_cond,
+            tokenizer_gen=self.tokenizer_gen,
+            max_sequence_len=self.config.data.max_sequence_len,
+            pos_begin=self.config.data.pos_begin,
+            pos_end=self.config.data.pos_end,
+            is_conditional=self.config.is_conditional,
+        ).get_data()
+        self.valid_dataset = next(self.valid_datasets_iter)
+        print(len(self.valid_dataset))
+
+
     def restore_parameters(self, device: Optional[torch.device] = None) -> None:
         checkpoints_folder: str = self.checkpoints_folder
         if device is None:
@@ -164,7 +197,7 @@ class DiffusionRunner:
     def set_optimizer(self) -> None:
         if self.optimizer is None:
             optimizer = torch.optim.AdamW(
-                self.score_estimator.parameters(),
+                list(self.score_estimator.parameters()) + list(self.encoder_cond.parameters()),
                 lr=self.config.optim.lr,
                 weight_decay=self.config.optim.weight_decay,
                 betas=(self.config.optim.beta_1, self.config.optim.beta_2),
@@ -193,36 +226,20 @@ class DiffusionRunner:
         self.grad_scaler = GradScaler()
 
     def set_train_data_generator(self) -> None:
-        self.train_dataset = RocStoryDatasetEncodings(split="train").get_data()
-        if self.config.ddp:
-            sampler_train = torch.utils.data.distributed.DistributedSampler(
-                self.train_dataset,
-                shuffle=True
-            )
-        else:
-            sampler_train = None
+        del self.train_dataset
+        self.train_dataset = next(self.train_datasets_iter)
 
         self.train_loader = DataLoader(
             self.train_dataset,
             batch_size=self.config.training.batch_size_per_gpu,
-            sampler=sampler_train,
-            num_workers=10,
+            num_workers=30,
             pin_memory=False,
+            shuffle=True,
         )
 
     def set_valid_data_generator(self) -> None:
-        self.valid_dataset = RocStoryDatasetEncodings(split="valid").get_data()
-        if self.config.ddp:
-            sampler_valid = torch.utils.data.distributed.DistributedSampler(
-                self.valid_dataset,
-                shuffle=False
-            )
-        else:
-            sampler_valid = None
-
         self.valid_loader = DataLoader(
             self.valid_dataset,
-            sampler=sampler_valid,
             batch_size=self.config.validation.batch_size,
             num_workers=10,
             pin_memory=False,
@@ -282,20 +299,12 @@ class DiffusionRunner:
         score = (-x_t + sqrt(alpha_t) * x_0) / std**2
         """
         params = self.dynamic.marginal_params(t)
-        #t = torch.clip(t + self.delta, max=self.dynamic.T)
         x_0 = model(
             x_t=x_t, time_t=t, cond=cond,
             attention_mask=attention_mask, cond_mask=cond_mask,
             x_0_self_cond=x_0_self_cond
         )
-        # if t[0].item() < 0.5: 
-        #     logits = self.pred_logits(x_0)
-        #     tokens = logits.argmax(dim=-1)
-        #     attention_mask = (tokens != self.tokenizer_gen.vocab["[PAD]"]) * 1.
-        #     #print(torch.mean(attention_mask))
-        #     x_0_recon = self.encoder_gen(**{"input_ids": tokens, "attention_mask": attention_mask})
-        #     x_0 = x_0_recon * attention_mask[..., None] + x_0 * (1 - attention_mask)[..., None]
-
+        
         eps_theta = (x_t - params["mu"] * x_0) / params["std"]
         score = -eps_theta / params["std"]
         return {
@@ -323,7 +332,7 @@ class DiffusionRunner:
         # self-cond estimate
         x_0_self_cond = torch.zeros_like(clean_x, dtype=clean_x.dtype)
         if self.use_self_cond:
-            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            with torch.autocast(device_type='cuda', dtype=torch.float16):
                 t_next = t
                 params_next = self.dynamic.marginal_params(t_next)
                 x_t_next = params_next["mu"] * clean_x + params_next["std"] * noise
@@ -338,7 +347,7 @@ class DiffusionRunner:
         x_0_self_cond = x_0_self_cond.detach()
 
         # model prediction
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+        with torch.autocast(device_type='cuda', dtype=torch.float16):
             scores = self.calc_score(
                 model=self.ddp_score_estimator,
                 x_t=x_t,
@@ -353,21 +362,6 @@ class DiffusionRunner:
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
 
         loss_x_0 = l1_loss(clean_x, x_0, mask) + loss_x_0_self_cond
-        
-        # cfg training
-        if self.ddp_score_estimator.training and np.random.rand() < self.config.cfg_train_proba:
-            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                x_0_cfg = self.calc_score(
-                    model=self.ddp_score_estimator,
-                    x_t=x_t,
-                    t=t,
-                    cond=None,
-                    cond_mask=None,
-                    attention_mask=mask,
-                    x_0_self_cond=torch.zeros_like(clean_x, dtype=clean_x.dtype),
-                )["x_0"]
-            loss_x_0 += l1_loss(clean_x, x_0_cfg, mask)    
-
         loss_eps = mse_loss(noise, eps_theta, mask)
         loss_score = mse_loss(score_clean, score, mask)
 
@@ -469,8 +463,10 @@ class DiffusionRunner:
         self.step += 1
 
         X = dict_to_cuda(X)
-        clean_X = X["gen_x"]
-        cond = X["cond_x"]
+        with torch.autocast(device_type='cuda', dtype=torch.float16):
+            with torch.no_grad():
+                clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
+            cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
 
         loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
 
@@ -501,8 +497,9 @@ class DiffusionRunner:
 
         for X in self.valid_loader:
             X = dict_to_cuda(X)
-            clean_X = X["gen_x"]
-            cond = X["cond_x"]
+            with torch.autocast(device_type='cuda', dtype=torch.float16):
+                clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
+                cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
 
             loss_dict, _ = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
             for k, v in loss_dict.items():
@@ -540,6 +537,7 @@ class DiffusionRunner:
             torch.save(
                 {
                     "model": self.score_estimator.state_dict(),
+                    "cond_encoder": self.encoder_cond.state_dict(),
                     "ema": self.ema.state_dict(),
                     "optimizer": self.optimizer.state_dict(),
                     "scheduler": self.scheduler.state_dict(),
@@ -573,9 +571,11 @@ class DiffusionRunner:
         if attention_mask is not None:
             attention_mask = attention_mask.cuda()
 
+        cond_X = self.encoder_cond(**{"input_ids": cond["cond_ids"], "attention_mask": cond["cond_mask"]})
+
         pred_embeddings = self.pred_embeddings(
             batch_size,
-            cond_X=cond["cond"],
+            cond_X=cond_X,
             cond_mask=cond["cond_mask"],
             attention_mask=attention_mask
         )
@@ -583,7 +583,19 @@ class DiffusionRunner:
         # pred_embeddings = normalize(pred_embeddings, dim=-1) * np.sqrt(pred_embeddings.shape[-1])
         output = self.pred_logits(pred_embeddings)
         tokens = output.argmax(dim=-1)
-        text = self.tokenizer_gen.batch_decode(tokens, skip_special_tokens=True)
+
+        bos_id = 101
+        eos_id = 102
+
+        tokens = tokens.detach().cpu().tolist()
+        tokens_list = []
+        for seq in tokens:
+            id = 1
+            while id < len(seq) and seq[id] not in [bos_id, eos_id]:
+                id += 1
+            tokens_list.append(seq[1: id])
+        print(np.mean([len(s) for s in tokens_list]))
+        text = self.tokenizer_gen.batch_decode(tokens_list)
         return text, pred_embeddings
 
     @torch.no_grad()
@@ -646,19 +658,22 @@ class DiffusionRunner:
         self.switch_to_ema()
 
         if not hasattr(self, 'metric_bloom_fn'):
-            self.metric_bloom_fn = BloomMetricConditional(device=f"cuda:{dist.get_rank()}")
+            self.metric_bloom_fn = BloomMetric(device=f"cuda:{dist.get_rank()}")
             self.metric_roberta_fn = RobertaMetric(device=f"cuda:{dist.get_rank()}")
 
         self.metric_bloom_fn.model.cuda()
         self.metric_roberta_fn.model.cuda()
+        self.metric_rouge_fn = load('rouge')
 
         num_texts = int(self.config.validation.num_gen_texts / dist.get_world_size())
         seed = self.config.seed + dist.get_rank()
         set_seed(seed)
+        
         metrics, metrics_list, joint_texts, cond_texts, gen_texts, gt_texts = estimate_model(
             self, num_texts,
             self.config.validation.batch_size,
             self.metric_bloom_fn, self.metric_roberta_fn,
+            metric_rouge_fn=self.metric_rouge_fn
         )
         joint_texts = gather_texts(joint_texts)
         cond_texts = gather_texts(cond_texts)
@@ -688,6 +703,8 @@ class DiffusionRunner:
 
         self.log_metric(metric_name="bloom loss", loader_name="", value=metrics['Bloom metric'])
         self.log_metric(metric_name="roberta score", loader_name="", value=metrics['Roberta metric'])
+        for rouge_type in ['1', '2', 'L']:
+            self.log_metric(metric_name=f"Rouge-{rouge_type}", loader_name="", value=metrics[f'rouge-{rouge_type}'])
 
         self.metric_bloom_fn.model.cpu()
         self.metric_roberta_fn.model.cpu()

@@ -343,7 +343,7 @@ class DiffusionRunner:
                     x_0_self_cond=x_0_self_cond
                 )
 
-        loss_x_0_self_cond = l1_loss(clean_x, x_0_self_cond, mask)
+        loss_x_0_self_cond = mse_loss(clean_x, x_0_self_cond, mask)
         x_0_self_cond = x_0_self_cond.detach()
 
         # model prediction
@@ -361,7 +361,7 @@ class DiffusionRunner:
         # MSE losses
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
 
-        loss_x_0 = l1_loss(clean_x, x_0, mask) + loss_x_0_self_cond
+        loss_x_0 = mse_loss(clean_x, x_0, mask) + loss_x_0_self_cond
         loss_eps = mse_loss(noise, eps_theta, mask)
         loss_score = mse_loss(score_clean, score, mask)
 

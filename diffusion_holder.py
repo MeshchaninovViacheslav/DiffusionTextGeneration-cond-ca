@@ -53,14 +53,14 @@ class DiffusionRunner:
 
         # Encoder for condition
 
-        bert_cfg = "bert-base-uncased"
-        self.tokenizer_cond = AutoTokenizer.from_pretrained(bert_cfg)
-        self.cond_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.enc_bert_mean,
-            enc_std_path=self.config.data.enc_bert_std,
+        t5_cfg = "t5-base"
+        self.tokenizer_cond = AutoTokenizer.from_pretrained(t5_cfg)
+        self.t5_enc_normalizer = EncNormalizer(
+            enc_mean_path=self.config.data.enc_t5_mean,
+            enc_std_path=self.config.data.enc_t5_std,
         )
-        self.encoder_cond = BertEncoderModel.from_pretrained(
-            bert_cfg, enc_normalizer=self.cond_enc_normalizer
+        self.encoder_cond = T5EncoderModel.from_pretrained(
+            t5_cfg, enc_normalizer=self.t5_enc_normalizer
         ).eval().cuda()
 
         bert_cfg = "bert-base-uncased"
@@ -343,7 +343,7 @@ class DiffusionRunner:
                     x_0_self_cond=x_0_self_cond
                 )
 
-        loss_x_0_self_cond = mse_loss(clean_x, x_0_self_cond, mask)
+        loss_x_0_self_cond = l1_loss(clean_x, x_0_self_cond, mask)
         x_0_self_cond = x_0_self_cond.detach()
 
         # model prediction
@@ -361,7 +361,7 @@ class DiffusionRunner:
         # MSE losses
         x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
 
-        loss_x_0 = mse_loss(clean_x, x_0, mask) + loss_x_0_self_cond
+        loss_x_0 = l1_loss(clean_x, x_0, mask) + loss_x_0_self_cond
         loss_eps = mse_loss(noise, eps_theta, mask)
         loss_score = mse_loss(score_clean, score, mask)
 

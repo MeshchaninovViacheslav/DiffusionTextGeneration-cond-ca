@@ -76,6 +76,10 @@ def create_config():
     data.enc_bert_std = f'/home/vmeshchaninov/shared_folder/qqp/std.pt'
     #"/home/vmeshchaninov/nlp_models/data/rocstories/std.pt"
 
+    data.enc_t5_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-mean.pth"
+    data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
+
+
     config.finetuning = False
     config.seed = 0
     config.ddp = True

@@ -15,8 +15,8 @@ def create_config():
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
     optim.linear_warmup = 1000
-    optim.lr = 2e-4
-    optim.min_lr = 2e-4
+    optim.lr = 5e-5
+    optim.min_lr = 5e-5
     optim.warmup_lr = 1e-8
     optim.weight_decay = 0.01
     optim.beta_1 = 0.9

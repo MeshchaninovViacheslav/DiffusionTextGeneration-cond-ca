@@ -62,7 +62,7 @@ class TransformerEncoder(torch.nn.Module):
         super().__init__()
 
         self.use_self_cond = config.use_self_cond
-        self.num_hidden_layers = config.num_attention_heads
+        self.num_hidden_layers = config.num_hidden_layers
         self.hidden_size = config.hidden_size
         self.input_blocks = torch.nn.ModuleList(
             [TransformerBlock(config) for _ in range(0, self.num_hidden_layers // 2)]

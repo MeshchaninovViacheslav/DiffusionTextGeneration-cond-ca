@@ -180,7 +180,7 @@ def main():
     ).eval()
     encoder = torch.nn.DataParallel(encoder).cuda()
 
-    decoder = BertDecoder(mode="transformer").train().cuda()
+    decoder = BertDecoder(model_name=cfg, mode="transformer").train().cuda()
 
     exp_name = f"{cfg}-transformer"
     wandb.init(project="rocstory-decoders", name=exp_name, mode="online")

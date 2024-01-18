@@ -3,20 +3,14 @@ import sys
 import torch
 import psutil
 import datasets
-import argparse
 import torch.distributed as dist
-from datasets import disable_progress_bar
-from datasets.utils.logging import set_verbosity_error
-from transformers import BertConfig
 
 datasets.config.IN_MEMORY_MAX_SIZE = psutil.virtual_memory().available
 
 from diffusion_holder import DiffusionRunner
-from utils.util import set_seed, _BERT_SMALL
+from utils.util import set_seed
 from create_config import create_config
 
-# disable_progress_bar()
-# set_verbosity_error()
 
 sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
 

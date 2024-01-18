@@ -174,7 +174,7 @@ def main():
     cfg = config.model.encoder_name
     tokenizer = AutoTokenizer.from_pretrained(cfg)
 
-    encoder = BertEncoderModel.from_pretrained(
+    encoder = RobertaEncoderModel.from_pretrained(
         cfg,
         enc_normalizer=None
     ).eval()

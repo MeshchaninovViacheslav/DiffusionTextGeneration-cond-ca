@@ -86,7 +86,8 @@ def loss_step(X, encoder, decoder, eval=False):
         eps = torch.randn_like(emb) * sigma
         emb = emb + eps
     
-    logits = decoder(emb)
+    with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+        logits = decoder(emb)
     loss = reconstruction_loss(targets, logits, mask=None)
     
     tokens = logits.argmax(dim=-1)

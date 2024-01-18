@@ -58,27 +58,26 @@ def compute_mean_std(
     T = tqdm(train_loader)
 
     for i, X in enumerate(T):
-        with torch.no_grad():
-            X = dict_to_cuda(X)
-            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                output = encoder(**{
-                        "input_ids": X["input_ids"],
-                        "attention_mask": X["input_mask"]
-                    })
+        X = dict_to_cuda(X)
+        with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            output = encoder(**{
+                    "input_ids": X["input_ids"],
+                    "attention_mask": X["input_mask"]
+                })
 
-            mask = make_mask_wo_SEP_CLS(X["input_mask"])
-            output = output * mask[:, :, None]
-            cur_sum = torch.sum(output, dim=[0, 1])
-            cur_sqr_sum = torch.sum(output ** 2, dim=[0, 1])
-            cur_num = torch.sum(mask).item()
+        mask = make_mask_wo_SEP_CLS(X["input_mask"])
+        output = output * mask[:, :, None]
+        cur_sum = torch.sum(output, dim=[0, 1])
+        cur_sqr_sum = torch.sum(output ** 2, dim=[0, 1])
+        cur_num = torch.sum(mask).item()
 
-            sum_ = cur_sum if sum_ is None else cur_sum + sum_
-            sqr_sum_ = cur_sqr_sum if sqr_sum_ is None else cur_sqr_sum + sqr_sum_
-            num += cur_num
+        sum_ = cur_sum if sum_ is None else cur_sum + sum_
+        sqr_sum_ = cur_sqr_sum if sqr_sum_ is None else cur_sqr_sum + sqr_sum_
+        num += cur_num
 
-            mean_dif = (sum_ / num - cur_sum / cur_num)
-            sqr_dif = (sqr_sum_ / num - cur_sqr_sum / cur_num)
-            T.set_description(f"dif mean: {torch.sum(torch.abs(mean_dif)).item()}, dif std2: {torch.sum(torch.abs(sqr_dif)).item()}")
+        mean_dif = (sum_ / num - cur_sum / cur_num)
+        sqr_dif = (sqr_sum_ / num - cur_sqr_sum / cur_num)
+        T.set_description(f"dif mean: {torch.sum(torch.abs(mean_dif)).item()}, dif std2: {torch.sum(torch.abs(sqr_dif)).item()}")
 
     mean = sum_ / num
     std = torch.sqrt(sqr_sum_ / num - mean ** 2)

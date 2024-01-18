@@ -25,7 +25,7 @@ from data.dataset import create_dataset
 
 from model.score_estimator_cond import ScoreEstimatorEMB
 from model.t5_encoder import T5EncoderModel
-from model.bert_encoder import BertEncoderModel
+from model.encoder_bert import BertEncoderModel
 from model.roberta_encoder import RobertaEncoderModel
 from model.electra_encoder import ElectraEncoderModel
 from model.emb_encoder import EmbEncoderModel

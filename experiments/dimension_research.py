@@ -4,7 +4,7 @@ sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
 
 from data.dataset_clean_wiki import WikipediaCleanDataset
 from model.enc_normalizer import EncNormalizer
-from model.bert_encoder import BertEncoderModel
+from model.encoder_bert import BertEncoderModel
 
 import torch
 import wandb

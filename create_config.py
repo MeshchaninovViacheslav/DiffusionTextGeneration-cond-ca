@@ -14,7 +14,7 @@ def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
-    optim.linear_warmup = 5000
+    optim.linear_warmup = 1000
     optim.lr = 2e-4
     optim.min_lr = 2e-4
     optim.warmup_lr = 1e-8
@@ -24,10 +24,10 @@ def create_config():
     optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 200_000
+    training.training_iters = 100_000
     training.training_iters = training.training_iters
-    training.checkpoint_freq = 25_000
-    training.eval_freq = 5000
+    training.checkpoint_freq = 50_000
+    training.eval_freq = 10_000
     training.batch_size = 512  # * 8
 
     training.ode_sampling = False
@@ -38,12 +38,12 @@ def create_config():
     loss.ce_coef = 0.
 
     refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = True
+    refresh.true = False
     refresh.prefix = "./checkpoints/rocstory--t5-bert-uncond-64_100000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
-    validation.batch_size = 1000
+    validation.batch_size = 250
     validation.validation_iters = int(10_000 / validation.batch_size)
     validation.num_gen_texts = 1000
     validation.p_uncond = 0.
@@ -51,7 +51,7 @@ def create_config():
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
     dynamic.scheduler = "sd"
-    dynamic.N = 250
+    dynamic.N = 200
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
@@ -59,31 +59,22 @@ def create_config():
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
-    model.enc_type = "base"
-    model.embeddings_type = "embeddings"
-    model.dif_enc_type = "base"
-    model.downstream_task = ""  # "qqp"
-    model.dataset = "rocstory"  # "glue"
+    model.dataset = "rocstory"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.decoder_path = "decoder-wikipedia-128.pth"#"rocstories_mlm.pt"#"decoder-wikipedia-128.pth"
+    model.decoder_path = '/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-bert-transformer.pth'
     model.delta = 0.
 
     data = config.data = ml_collections.ConfigDict()
-    data.max_sequence_len = 64
-    data.pos_begin = 0.0
-    data.pos_end = 0.67
-    data.enc_bert_mean = "/home/vmeshchaninov/nlp_models/data/rocstories/mean.pt"
-    data.enc_bert_std = "/home/vmeshchaninov/nlp_models/data/rocstories/std.pt"
-
-    data.enc_t5_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-mean.pth"
-    data.enc_t5_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/encodings-t5-wiki-std.pth"
+    data.max_sequence_len = 80
+    data.enc_bert_mean = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-bert-mean.pt"
+    data.enc_bert_std = "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-bert-std.pt"
 
     config.finetuning = False
     config.seed = 0
     config.ddp = True
     config.use_self_cond = True
-    config.project_name = "rocstory-exps"
+    config.project_name = "article-rocstory_exps"
     config.timesteps = "linear"
     config.is_conditional = False
     config.bert_config = bert_config

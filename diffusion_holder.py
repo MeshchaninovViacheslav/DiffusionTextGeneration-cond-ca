@@ -25,42 +25,29 @@ from data.dataset import create_dataset
 
 from model.score_estimator_cond import ScoreEstimatorEMB
 from model.t5_encoder import T5EncoderModel
-from model.bert_encoder import BertEncoderModel
+from model.encoder_bert import BertEncoderModel
 from model.enc_normalizer import EncNormalizer
 from model.decoder import BertDecoder
-from model.transformer_decoder import Decoder
+from estimation_utils.diversity_metrics import NGramStats
 
 from utils.util import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, reduce_tensor, set_seed, l1_loss, smooth_l1_loss
 
 from estimation_utils.util import estimate_model, gather_texts, reduce_metrics, reduce_sum_metrics
 
-from estimation_utils.metrics import BloomMetricConditional, RobertaMetric
+from estimation_utils.metrics import GPTMetric, RobertaMetric
 
 
 class DiffusionRunner:
     def __init__(
             self,
             config: ConfigDict,
-            eval: bool = False,
-            latent_mode: str = "embeddings"
+            eval: bool = False
     ):
         self.config = config
-        self.latent_mode = latent_mode
         self.eval = eval
         self.use_self_cond = config.use_self_cond
         self.checkpoints_folder = config.training.checkpoints_folder
 
-        # Encoder for condition
-
-        t5_cfg = "t5-base"
-        self.tokenizer_cond = T5TokenizerFast.from_pretrained(t5_cfg)
-        self.t5_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.enc_t5_mean,
-            enc_std_path=self.config.data.enc_t5_std,
-        )
-        self.encoder_cond = T5EncoderModel.from_pretrained(
-            t5_cfg, enc_normalizer=self.t5_enc_normalizer
-        ).eval().cuda()
 
         bert_cfg = "bert-base-uncased"
         self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
@@ -73,13 +60,9 @@ class DiffusionRunner:
             enc_normalizer=self.gen_enc_normalizer
         ).eval().cuda()
 
-        #
-        bert_cfg = "bert-base-uncased"
-        self.tokenizer_bert = BertTokenizerFast.from_pretrained(bert_cfg)
-
-        # self.decoder = Decoder(
-        # )
-        self.decoder = self.encoder_gen.cls.cpu()
+        
+        # self.decoder = Decoder()
+        self.decoder = BertDecoder(mode="transformer")
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 
@@ -88,7 +71,7 @@ class DiffusionRunner:
         self.step = 0
         self.delta = config.model.delta
 
-        # self.load_sde()
+
         self.bert_config = config.bert_config
         self.bert_config.use_self_cond = config.use_self_cond
         self.score_estimator = ScoreEstimatorEMB(
@@ -124,31 +107,19 @@ class DiffusionRunner:
 
         self.train_datasets_iter = create_dataset(
             dataset_name=config.model.dataset,
-            downstream_task=config.model.downstream_task
         )(
             split="train",
-            tokenizer_bert=self.tokenizer_bert,
-            tokenizer_cond=self.tokenizer_cond,
-            tokenizer_gen=self.tokenizer_gen,
+            tokenizer=self.tokenizer_gen,
             max_sequence_len=self.config.data.max_sequence_len,
-            pos_begin=self.config.data.pos_begin,
-            pos_end=self.config.data.pos_end,
-            is_conditional=self.config.is_conditional,
         ).get_data()
         self.train_dataset = None
 
         self.valid_datasets_iter = create_dataset(
             dataset_name=config.model.dataset,
-            downstream_task=config.model.downstream_task
         )(
             split="valid",
-            tokenizer_bert=self.tokenizer_bert,
-            tokenizer_cond=self.tokenizer_cond,
-            tokenizer_gen=self.tokenizer_gen,
+            tokenizer=self.tokenizer_gen,
             max_sequence_len=self.config.data.max_sequence_len,
-            pos_begin=self.config.data.pos_begin,
-            pos_end=self.config.data.pos_end,
-            is_conditional=self.config.is_conditional,
         ).get_data()
         self.valid_dataset = next(self.valid_datasets_iter)
 
@@ -603,7 +574,6 @@ class DiffusionRunner:
                 attention_mask=attention_mask
             )
 
-            # pred_embeddings = normalize(pred_embeddings, dim=-1) * np.sqrt(pred_embeddings.shape[-1])
             output = self.pred_logits(pred_embeddings)
             tokens = output.argmax(dim=-1)
             text = self.tokenizer_gen.batch_decode(tokens, skip_special_tokens=True)
@@ -668,51 +638,53 @@ class DiffusionRunner:
         self.score_estimator.eval()
         self.switch_to_ema()
 
-        if not hasattr(self, 'metric_bloom_fn'):
-            self.metric_bloom_fn = BloomMetricConditional(device=f"cuda:{dist.get_rank()}")
+        if not hasattr(self, 'metric_gpt_fn'):
+            self.metric_gpt_fn = GPTMetric(device=f"cuda:{dist.get_rank()}")
             self.metric_roberta_fn = RobertaMetric(device=f"cuda:{dist.get_rank()}")
 
-        self.metric_bloom_fn.model.cuda()
+        self.metric_gpt_fn.model.cuda()
         self.metric_roberta_fn.model.cuda()
 
         num_texts = int(self.config.validation.num_gen_texts / dist.get_world_size())
         seed = self.config.seed + dist.get_rank()
         set_seed(seed)
-        metrics, metrics_list, joint_texts, cond_texts, gen_texts, gt_texts = estimate_model(
+        metrics, metrics_list, gen_texts = estimate_model(
             self, num_texts,
             self.config.validation.batch_size,
-            self.metric_bloom_fn, self.metric_roberta_fn,
+            self.metric_gpt_fn, self.metric_roberta_fn,
         )
-        joint_texts = gather_texts(joint_texts)
-        cond_texts = gather_texts(cond_texts)
         gen_texts = gather_texts(gen_texts)
-        gt_texts = gather_texts(gt_texts)
+        
         for key in metrics_list:
             metrics_list[key] = gather_texts(metrics_list[key])
 
         metrics = reduce_metrics(metrics)
         if dist.get_rank() == 0:
             texts_path = "./generated_texts"
-            print(f"Bloom metric: {metrics['Bloom metric']:0.5f}")
-            print(f"Roberta metric: {metrics['Roberta metric']:0.5f}")
+            print(f"GPT2-large loss: {metrics['GPT metric']:0.5f}")
+            print(f"Fluency: {metrics['Roberta metric']:0.5f}")
 
             text_list = []
-            for i in range(len(cond_texts)):
+            for i in range(len(gen_texts)):
                 text_list.append(
                     {
-                        "CONDITION": cond_texts[i],
                         "GEN": gen_texts[i],
-                        "GT": gt_texts[i],
-                        "Bloom metric": metrics_list["Bloom metric"][i],
+                        "GPT2-large loss": metrics_list["GPT metric"][i],
                     }
                 )
             file_name = f"{texts_path}/{self.config.checkpoints_prefix}-{self.step}.json"
             json.dump(text_list, open(file_name, "w"), indent=4)
 
-        self.log_metric(metric_name="bloom loss", loader_name="", value=metrics['Bloom metric'])
-        self.log_metric(metric_name="roberta score", loader_name="", value=metrics['Roberta metric'])
+            metric_div = NGramStats(train_dataset_path="/home/vmeshchaninov/nlp_models/data/rocstories/train/data.txt")
+            metric_div.compute(gen_texts)
 
-        self.metric_bloom_fn.model.cpu()
+            self.log_metric(metric_name="GPT2-large loss", loader_name="", value=metrics['GPT metric'])
+            self.log_metric(metric_name="GPT2-large ppl", loader_name="", value=np.exp(metrics['GPT metric']))
+            self.log_metric(metric_name="Fluency", loader_name="", value=metrics['Roberta metric'])
+            self.log_metric(metric_name="Diversity", loader_name="", value=metric_div.results['diversity'])
+            self.log_metric(metric_name="Memorization", loader_name="", value=metric_div.results['memorization'])
+
+        self.metric_gpt_fn.model.cpu()
         self.metric_roberta_fn.model.cpu()
 
         self.switch_back_from_ema()

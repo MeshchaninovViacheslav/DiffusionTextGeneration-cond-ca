@@ -3,7 +3,7 @@ import wandb
 from tqdm import tqdm
 from torch.nn.functional import cross_entropy
 from torch.utils.data import DataLoader
-from transformers import BertTokenizerFast, RobertaTokenizerFast, T5TokenizerFast, ElectraTokenizerFast
+from transformers import AutoTokenizer
 
 import os
 import sys
@@ -15,7 +15,7 @@ from data.dataset import RocStoryDatasetDDP
 from utils.util import dict_to_cuda
 
 from model.t5_encoder import T5EncoderModel
-from model.roberta_encoder import RobertaEncoderModel
+from model.encoder_roberta import RobertaEncoderModel
 from model.electra_encoder import ElectraEncoderModel
 from model.emb_encoder import EmbEncoderModel
 from model.decoder import BertDecoder
@@ -73,7 +73,7 @@ def loss_step(X, encoder, decoder, eval=False):
     X = dict_to_cuda(X)
     targets = X["input_ids"].type(torch.LongTensor).cuda()
     
-    with torch.no_grad():
+    with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
         #with torch.autocast(device_type='cuda', dtype=torch.float32):
         emb = encoder(**{
             "input_ids": X["input_ids"],
@@ -168,18 +168,18 @@ def train(encoder, decoder, tokenizer, exp_name):
 
 
 def main():
-    cfg = "bert-base-uncased"
-    tokenizer = BertTokenizerFast.from_pretrained(cfg)
+    cfg = "bert-base-cased"
+    tokenizer = AutoTokenizer.from_pretrained(cfg)
 
     encoder = BertEncoderModel.from_pretrained(
-        "bert-base-uncased",
+        cfg,
         enc_normalizer=None
     ).eval()
     encoder = torch.nn.DataParallel(encoder).cuda()
 
     decoder = BertDecoder(mode="transformer").train().cuda()
 
-    exp_name = "bert-transformer"
+    exp_name = f"{cfg}-transformer"
     wandb.init(project="rocstory-decoders", name=exp_name, mode="online")
     train(encoder, decoder, tokenizer, exp_name=exp_name)
 

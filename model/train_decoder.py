@@ -14,7 +14,7 @@ from data.dataset import RocStoryDatasetDDP
 
 from utils.util import dict_to_cuda
 
-from model.t5_encoder import T5EncoderModel
+from model.encoder_t5 import T5EncoderModel
 from model.encoder_roberta import RobertaEncoderModel
 from model.electra_encoder import ElectraEncoderModel
 from model.emb_encoder import EmbEncoderModel
@@ -174,7 +174,7 @@ def main():
     cfg = config.model.encoder_name
     tokenizer = AutoTokenizer.from_pretrained(cfg)
 
-    encoder = RobertaEncoderModel.from_pretrained(
+    encoder = T5EncoderModel.from_pretrained(
         cfg,
         enc_normalizer=None
     ).eval()

@@ -56,7 +56,7 @@ class DiffusionRunner:
             enc_mean_path=self.config.data.enc_bert_mean,
             enc_std_path=self.config.data.enc_bert_std,
         )
-        self.encoder_gen = RobertaEncoderModel.from_pretrained(
+        self.encoder_gen = T5EncoderModel.from_pretrained(
             bert_cfg,
             enc_normalizer=self.gen_enc_normalizer
         ).eval().cuda()

@@ -62,7 +62,7 @@ def create_config():
     model.dataset = "rocstory"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.encoder_name = "roberta-base"
+    model.encoder_name = "t5-base"
     model.decoder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-{model.encoder_name}-transformer.pth"
     model.delta = 0.
     

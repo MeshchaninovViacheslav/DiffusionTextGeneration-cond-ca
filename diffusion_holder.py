@@ -554,29 +554,30 @@ class DiffusionRunner:
 
     @torch.no_grad()
     def generate_text(self, batch_size, cond=None, way="sde", attention_mask=None):
-        cond_X, cond_mask = None, None
-        with torch.no_grad():
-            if cond is not None:
-                cond = dict_to_cuda(cond)
-                cond_X = self.encoder_cond(**{"input_ids": cond["cond"], "attention_mask": cond["cond_mask"]})
-                cond_mask = cond["cond_mask"]
-            else:
-                cond_X = None
-                cond_mask = None
+        if attention_mask is not None:
+            attention_mask = attention_mask.cuda()
 
-            if attention_mask is not None:
-                attention_mask = attention_mask.cuda()
+        pred_embeddings = self.pred_embeddings(
+            batch_size,
+            attention_mask=attention_mask
+        )
 
-            pred_embeddings = self.pred_embeddings(
-                batch_size,
-                cond_X=cond_X,
-                cond_mask=cond_mask,
-                attention_mask=attention_mask
-            )
+        output = self.pred_logits(pred_embeddings)
+        tokens = output.argmax(dim=-1)
 
-            output = self.pred_logits(pred_embeddings)
-            tokens = output.argmax(dim=-1)
-            text = self.tokenizer_gen.batch_decode(tokens, skip_special_tokens=True)
+        bos_id = self.tokenizer_gen.vocab[self.tokenizer.cls_token]
+        eos_id = self.tokenizer_gen.vocab[self.tokenizer.sep_token]
+        pad_id = self.tokenizer_gen.vocab[self.tokenizer.pad_token]
+
+        tokens = tokens.detach().cpu().tolist()
+        tokens_list = []
+        for seq in tokens:
+            id = 1
+            while id < len(seq) and seq[id] not in [bos_id, eos_id, pad_id]:
+                id += 1
+            tokens_list.append(seq[1: id])
+
+        text = self.tokenizer_gen.batch_decode(tokens_list, skip_special_tokens=True)
         return text, pred_embeddings
 
     @torch.no_grad()
@@ -605,15 +606,15 @@ class DiffusionRunner:
             eps_t = 0.01
 
             if self.config.timesteps == "linear":
-                timesteps = torch.linspace(self.dynamic.T, eps_t, self.dynamic.N, device=self.device)
+                timesteps = torch.linspace(self.dynamic.T, eps_t, self.dynamic.N + 1, device=self.device)
             elif self.config.timesteps == "quad":
                 deg = 2
-                timesteps = torch.linspace(1, 0, self.dynamic.N, device=self.device) ** deg * (
+                timesteps = torch.linspace(1, 0, self.dynamic.N + 1, device=self.device) ** deg * (
                         self.dynamic.T - eps_t) + eps_t
 
             for idx in tqdm(range(self.dynamic.N)):
                 t = timesteps[idx]
-                next_t = timesteps[idx + 1] if idx < self.dynamic.N - 1 else eps_t  # torch.zeros_like(t)
+                next_t = timesteps[idx + 1]
 
                 input_t = t * torch.ones(shape[0], device=self.device)
                 next_input_t = next_t * torch.ones(shape[0], device=self.device)

@@ -18,8 +18,8 @@ sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
 
 if __name__ == '__main__':
     config = create_config()
-    suffix = f"bert-uncond"
-    config.checkpoints_prefix = f"{config.model.dataset}-{suffix}"  
+    suffix = f""
+    config.checkpoints_prefix = f"{config.model.dataset}-{config.model.encoder_name}-{suffix}"  
 
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
         rank = int(os.environ["RANK"])

@@ -8,7 +8,7 @@ from ml_collections import ConfigDict
 from typing import Optional, Union, Dict, Tuple
 from tqdm.auto import trange
 from torch.utils.data import DataLoader
-from transformers import BertTokenizerFast, T5TokenizerFast
+from transformers import AutoTokenizer
 from tqdm import tqdm
 from functools import partial
 from copy import deepcopy
@@ -24,10 +24,11 @@ from utils.ema_model import ExponentialMovingAverage
 from data.dataset import create_dataset
 
 from model.score_estimator_cond import ScoreEstimatorEMB
-from model.t5_encoder import T5EncoderModel
+from model.encoder_t5 import T5EncoderModel
 from model.encoder_bert import BertEncoderModel
 from model.enc_normalizer import EncNormalizer
 from model.decoder import BertDecoder
+from model.encoder_roberta import RobertaEncoderModel
 from estimation_utils.diversity_metrics import NGramStats
 
 from utils.util import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, reduce_tensor, set_seed, l1_loss, smooth_l1_loss
@@ -50,12 +51,12 @@ class DiffusionRunner:
 
 
         bert_cfg = config.model.encoder_name
-        self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
+        self.tokenizer_gen = AutoTokenizer.from_pretrained(bert_cfg)
         self.gen_enc_normalizer = EncNormalizer(
             enc_mean_path=self.config.data.enc_bert_mean,
             enc_std_path=self.config.data.enc_bert_std,
         )
-        self.encoder_gen = BertEncoderModel.from_pretrained(
+        self.encoder_gen = RobertaEncoderModel.from_pretrained(
             bert_cfg,
             enc_normalizer=self.gen_enc_normalizer
         ).eval().cuda()

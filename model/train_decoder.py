@@ -20,6 +20,7 @@ from model.electra_encoder import ElectraEncoderModel
 from model.emb_encoder import EmbEncoderModel
 from model.decoder import BertDecoder
 from model.encoder_bert import BertEncoderModel
+from create_config import create_config
 
 
 def reconstruction_loss(target, prediction_scores, mask):
@@ -168,7 +169,8 @@ def train(encoder, decoder, tokenizer, exp_name):
 
 
 def main():
-    cfg = "bert-base-cased"
+    config = create_config()
+    cfg = config.model.encoder_name
     tokenizer = AutoTokenizer.from_pretrained(cfg)
 
     encoder = BertEncoderModel.from_pretrained(

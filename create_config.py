@@ -64,6 +64,7 @@ def create_config():
     model.loss = "L_x_0"
     model.decoder_path = '/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-bert-transformer.pth'
     model.delta = 0.
+    model.encoder_name = "bert-base-cased"
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 80

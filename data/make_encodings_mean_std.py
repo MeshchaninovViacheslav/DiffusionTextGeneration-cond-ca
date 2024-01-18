@@ -14,10 +14,11 @@ from data.create_dataset import create_rocstory_dataset, create_wiki_dataset
 from data.dataset_clean_wiki import WikipediaCleanDatasetUnconditional
 from data.dataset import RocStoryDatasetDDP
 
-from model.roberta_encoder import RobertaEncoderModel
+from model.encoder_roberta import RobertaEncoderModel
 from model.electra_encoder import ElectraEncoderModel
 from model.emb_encoder import EmbEncoderModel
 from model.encoder_bert import BertEncoderModel
+from create_config import create_config
 
 
 def get_loader(tokenizer, max_sequence_len, batch_size):
@@ -89,11 +90,12 @@ def compute_mean_std(
 
 
 if __name__ == "__main__":
-    cfg = "bert-base-uncased"
+    config = create_config()
+    cfg = config.model.encoder_name
     tokenizer = AutoTokenizer.from_pretrained(cfg)
     
     encoder = BertEncoderModel.from_pretrained(
-        "bert-base-uncased",
+        cfg,
         enc_normalizer=None
     ).eval()
     encoder = torch.nn.DataParallel(encoder).cuda()
@@ -101,6 +103,6 @@ if __name__ == "__main__":
     compute_mean_std(
         encoder,
         tokenizer, 
-        model_name="bert",
+        model_name=cfg,
         dataset_name="rocstory"
     )

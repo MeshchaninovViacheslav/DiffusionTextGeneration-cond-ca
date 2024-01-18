@@ -566,7 +566,7 @@ class DiffusionRunner:
         output = self.pred_logits(pred_embeddings)
         tokens = output.argmax(dim=-1)
 
-        bos_id = self.tokenizer_gen.vocab[self.tokenizer_gen.cls_token]
+        #bos_id = self.tokenizer_gen.vocab[self.tokenizer_gen.cls_token]
         eos_id = self.tokenizer_gen.vocab[self.tokenizer_gen.sep_token]
         pad_id = self.tokenizer_gen.vocab[self.tokenizer_gen.pad_token]
 
@@ -574,7 +574,7 @@ class DiffusionRunner:
         tokens_list = []
         for seq in tokens:
             id = 1
-            while id < len(seq) and seq[id] not in [bos_id, eos_id, pad_id]:
+            while id < len(seq) and seq[id] not in [eos_id, pad_id]:
                 id += 1
             tokens_list.append(seq[1: id])
 

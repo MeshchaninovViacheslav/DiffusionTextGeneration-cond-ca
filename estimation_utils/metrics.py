@@ -71,14 +71,18 @@ class GPTMetric:
 
     @torch.no_grad()
     def __call__(self, text, reduce="mean"):
-        inputs = self.tokenizer(text, return_tensors="pt")
-        inputs = dict_to_device(inputs, self.device)
-
-        loss = self.model(**inputs, labels=inputs["input_ids"]).loss.detach().cpu()
-        num_tokens = torch.sum(inputs["attention_mask"]).item() - 1
-        if reduce == "sum":
-            return loss.item() * num_tokens, num_tokens
-        return loss.item(), num_tokens
+        try:
+            inputs = self.tokenizer(text, return_tensors="pt")
+            inputs = dict_to_device(inputs, self.device)
+        
+            loss = self.model(**inputs, labels=inputs["input_ids"]).loss.detach().cpu()
+            num_tokens = torch.sum(inputs["attention_mask"]).item() - 1
+            if reduce == "sum":
+                return loss.item() * num_tokens, num_tokens
+            return loss.item(), num_tokens
+        except Exception:
+            0, 0
+        
 
 
 class GPTNEOMetric:

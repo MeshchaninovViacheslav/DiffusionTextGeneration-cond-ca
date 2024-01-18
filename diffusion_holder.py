@@ -565,9 +565,9 @@ class DiffusionRunner:
         output = self.pred_logits(pred_embeddings)
         tokens = output.argmax(dim=-1)
 
-        bos_id = self.tokenizer_gen.vocab[self.tokenizer.cls_token]
-        eos_id = self.tokenizer_gen.vocab[self.tokenizer.sep_token]
-        pad_id = self.tokenizer_gen.vocab[self.tokenizer.pad_token]
+        bos_id = self.tokenizer_gen.vocab[self.tokenizer_gen.cls_token]
+        eos_id = self.tokenizer_gen.vocab[self.tokenizer_gen.sep_token]
+        pad_id = self.tokenizer_gen.vocab[self.tokenizer_gen.pad_token]
 
         tokens = tokens.detach().cpu().tolist()
         tokens_list = []

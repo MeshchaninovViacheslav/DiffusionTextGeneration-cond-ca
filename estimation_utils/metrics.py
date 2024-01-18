@@ -81,7 +81,7 @@ class GPTMetric:
                 return loss.item() * num_tokens, num_tokens
             return loss.item(), num_tokens
         except Exception:
-            0, 0
+            return 0, 0
         
 
 

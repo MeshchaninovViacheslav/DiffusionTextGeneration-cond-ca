@@ -49,7 +49,7 @@ class DiffusionRunner:
         self.checkpoints_folder = config.training.checkpoints_folder
 
 
-        bert_cfg = "bert-base-uncased"
+        bert_cfg = config.model.encoder_name
         self.tokenizer_gen = BertTokenizerFast.from_pretrained(bert_cfg)
         self.gen_enc_normalizer = EncNormalizer(
             enc_mean_path=self.config.data.enc_bert_mean,
@@ -62,7 +62,7 @@ class DiffusionRunner:
 
         
         # self.decoder = Decoder()
-        self.decoder = BertDecoder(mode="transformer")
+        self.decoder = BertDecoder(model_name=config.model.encoder_name, mode="transformer")
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 

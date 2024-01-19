@@ -19,6 +19,7 @@ from model.electra_encoder import ElectraEncoderModel
 from model.emb_encoder import EmbEncoderModel
 from model.encoder_bert import BertEncoderModel
 from model.encoder_t5 import T5EncoderModel
+from model.encoder_bart import BartEncoderModel
 
 from create_config import create_config
 
@@ -95,7 +96,7 @@ if __name__ == "__main__":
     cfg = config.model.encoder_name
     tokenizer = AutoTokenizer.from_pretrained(cfg)
     
-    encoder = T5EncoderModel.from_pretrained(
+    encoder = BartEncoderModel.from_pretrained(
         cfg,
         enc_normalizer=None
     ).eval()
@@ -104,6 +105,6 @@ if __name__ == "__main__":
     compute_mean_std(
         encoder,
         tokenizer, 
-        model_name=cfg,
+        model_name="bart-base",
         dataset_name="rocstory"
     )

@@ -62,14 +62,15 @@ def create_config():
     model.dataset = "rocstory"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.encoder_name = "t5-base"
-    model.decoder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-{model.encoder_name}-transformer.pth"
+    model.encoder_name = "facebook/bart-base"
+    encoder_name = "bart-base"
+    model.decoder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-{encoder_name}-transformer.pth"
     model.delta = 0.
     
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 80
-    data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name}-mean.pt"
-    data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name}-std.pt"
+    data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{encoder_name}-mean.pt"
+    data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{encoder_name}-std.pt"
 
     config.finetuning = False
     config.seed = 0

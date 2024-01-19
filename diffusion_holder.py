@@ -30,6 +30,7 @@ from model.enc_normalizer import EncNormalizer
 from model.decoder import BertDecoder
 from model.encoder_roberta import RobertaEncoderModel
 from estimation_utils.diversity_metrics import NGramStats
+from model.encoder_bart import BartEncoderModel
 
 from utils.util import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, reduce_tensor, set_seed, l1_loss, smooth_l1_loss
 
@@ -56,7 +57,7 @@ class DiffusionRunner:
             enc_mean_path=self.config.data.enc_bert_mean,
             enc_std_path=self.config.data.enc_bert_std,
         )
-        self.encoder_gen = T5EncoderModel.from_pretrained(
+        self.encoder_gen = BartEncoderModel.from_pretrained(
             bert_cfg,
             enc_normalizer=self.gen_enc_normalizer
         ).eval().cuda()
@@ -567,7 +568,7 @@ class DiffusionRunner:
         tokens = output.argmax(dim=-1)
 
         #bos_id = self.tokenizer_gen.vocab[self.tokenizer_gen.cls_token]
-        eos_id = self.tokenizer_gen.vocab[self.tokenizer_gen.sep_token]
+        eos_id = self.tokenizer_gen.vocab[self.tokenizer_gen.eos_token]
         pad_id = self.tokenizer_gen.vocab[self.tokenizer_gen.pad_token]
 
         tokens = tokens.detach().cpu().tolist()

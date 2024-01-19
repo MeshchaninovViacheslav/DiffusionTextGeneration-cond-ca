@@ -21,6 +21,7 @@ from model.emb_encoder import EmbEncoderModel
 from model.decoder import BertDecoder
 from model.encoder_bert import BertEncoderModel
 from create_config import create_config
+from model.encoder_bart import BartEncoderModel
 
 
 def reconstruction_loss(target, prediction_scores, mask):
@@ -174,7 +175,7 @@ def main():
     cfg = config.model.encoder_name
     tokenizer = AutoTokenizer.from_pretrained(cfg)
 
-    encoder = T5EncoderModel.from_pretrained(
+    encoder = BartEncoderModel.from_pretrained(
         cfg,
         enc_normalizer=None
     ).eval()
@@ -182,7 +183,7 @@ def main():
 
     decoder = BertDecoder(model_name=cfg, mode="transformer").train().cuda()
 
-    exp_name = f"{cfg}-transformer"
+    exp_name = f"bart-base-transformer"
     wandb.init(project="rocstory-decoders", name=exp_name, mode="online")
     train(encoder, decoder, tokenizer, exp_name=exp_name)
 

@@ -78,9 +78,9 @@ def compute_mean_std(
         sqr_sum_ = cur_sqr_sum if sqr_sum_ is None else cur_sqr_sum + sqr_sum_
         num += cur_num
 
-        mean_dif = (sum_ / num - cur_sum / cur_num)
-        sqr_dif = (sqr_sum_ / num - cur_sqr_sum / cur_num)
-        T.set_description(f"dif mean: {torch.sum(torch.abs(mean_dif)).item()}, dif std2: {torch.sum(torch.abs(sqr_dif)).item()}")
+        mean = sum_[:3] / num
+        std = torch.sqrt(sqr_sum_[:3] / num - mean ** 2)
+        T.set_description(f"mean: {[m.item() for m in mean]}, std2: {[s.item() for s in std]}")
 
     mean = sum_ / num
     std = torch.sqrt(sqr_sum_ / num - mean ** 2)

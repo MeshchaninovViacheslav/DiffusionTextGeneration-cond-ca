@@ -15,7 +15,7 @@ srun --gpus=1 --gpus-per-node=1  --time=1-0:0 --cpus-per-task=5  --pty /bin/bash
 srun  --time=1-0:0 --cpus-per-task=40  --pty /bin/bash
 
 
-torchrun --nproc_per_node=2 --master_port=31345  train_diffuse_bert.py
+torchrun --nproc_per_node=1 --master_port=31345  train_diffuse_bert.py
 
 python utils/kill_wandb.py
 

@@ -62,9 +62,9 @@ def create_config():
     model.dataset = "rocstory"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.encoder_name = "facebook/bart-base"
-    encoder_name = "bart-base"
-    model.decoder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-{encoder_name}-transformer.pth"
+    model.encoder_name = "bert-base-cased"
+    encoder_name = "bert-base-cased"
+    model.decoder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-{encoder_name}-transformer-spt.pth"
     model.delta = 0.
     
     data = config.data = ml_collections.ConfigDict()

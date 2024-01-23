@@ -71,24 +71,35 @@ def get_loaders(tokenizer, max_sequence_len, batch_size):
     return train_loader, valid_loader
 
 
-def loss_step(X, encoder, decoder, eval=False):
+def loss_step(X, tokenizer, encoder, decoder, eval=False):
     X = dict_to_cuda(X)
     targets = X["input_ids"].type(torch.LongTensor).cuda()
     
     with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
         #with torch.autocast(device_type='cuda', dtype=torch.float32):
-        emb = encoder(**{
+        latent = encoder(**{
             "input_ids": X["input_ids"],
             "attention_mask": X["input_mask"]
         }).cuda()
 
+        embeddings = encoder.module.bert.embeddings.word_embeddings.weight.data.cpu()
+
+        cls_emb = embeddings[tokenizer.cls_token_id].cuda()
+        sep_emb = embeddings[tokenizer.sep_token_id].cuda()
+        pad_emb = embeddings[tokenizer.pad_token_id].cuda()
+
+        attention_mask = X["input_mask"]
+        latent[:, 0] = cls_emb
+        latent[torch.arange(len(latent)), attention_mask.sum(-1) - 1] = sep_emb
+        latent[~attention_mask.bool()] = pad_emb
+
     if not eval:
         sigma = 0.2
-        eps = torch.randn_like(emb) * sigma
-        emb = emb + eps
+        eps = torch.randn_like(latent) * sigma
+        latent = latent + eps
     
     with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-        logits = decoder(emb)
+        logits = decoder(latent)
     loss = reconstruction_loss(targets, logits, mask=None)
     
     tokens = logits.argmax(dim=-1)
@@ -126,6 +137,7 @@ def train(encoder, decoder, tokenizer, exp_name):
         for X in tqdm(train_loader):
             loss, acc = loss_step(
                 X=X,
+                tokenizer=tokenizer,
                 encoder=encoder,
                 decoder=decoder
             )
@@ -149,6 +161,7 @@ def train(encoder, decoder, tokenizer, exp_name):
                     with torch.no_grad():
                         loss, acc = loss_step(
                             X=X,
+                            tokenizer=tokenizer,
                             encoder=encoder,
                             decoder=decoder,
                             eval=True
@@ -175,7 +188,7 @@ def main():
     cfg = config.model.encoder_name
     tokenizer = AutoTokenizer.from_pretrained(cfg)
 
-    encoder = BartEncoderModel.from_pretrained(
+    encoder = BertEncoderModel.from_pretrained(
         cfg,
         enc_normalizer=None
     ).eval()
@@ -183,7 +196,7 @@ def main():
 
     decoder = BertDecoder(model_name=cfg, mode="transformer").train().cuda()
 
-    exp_name = f"bart-base-transformer"
+    exp_name = f"{cfg}-transformer-spt"
     wandb.init(project="rocstory-decoders", name=exp_name, mode="online")
     train(encoder, decoder, tokenizer, exp_name=exp_name)
 

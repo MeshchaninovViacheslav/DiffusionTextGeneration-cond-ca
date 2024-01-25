@@ -1,5 +1,6 @@
 import torch
 import wandb
+import numpy as np
 from tqdm import tqdm
 from torch.nn.functional import cross_entropy
 from torch.utils.data import DataLoader
@@ -22,6 +23,7 @@ from model.decoder import BertDecoder
 from model.encoder_bert import BertEncoderModel
 from create_config import create_config
 from model.encoder_bart import BartEncoderModel
+from model.enc_normalizer import EncNormalizer
 
 
 def reconstruction_loss(target, prediction_scores, mask):
@@ -82,16 +84,18 @@ def loss_step(X, tokenizer, encoder, decoder, eval=False):
             "attention_mask": X["input_mask"]
         }).cuda()
 
-        embeddings = encoder.module.bert.embeddings.word_embeddings.weight.data.cpu()
+        embeddings = encoder.module.shared.weight.data.cpu()
 
-        cls_emb = embeddings[tokenizer.cls_token_id].cuda()
-        sep_emb = embeddings[tokenizer.sep_token_id].cuda()
+        eos_emb = embeddings[tokenizer.eos_token_id].cuda()
+        eos_emb = eos_emb / torch.norm(eos_emb) * np.sqrt(eos_emb.shape[-1])
         pad_emb = embeddings[tokenizer.pad_token_id].cuda()
+        pad_emb = pad_emb / torch.norm(pad_emb) * np.sqrt(pad_emb.shape[-1])
 
         attention_mask = X["input_mask"]
-        latent[:, 0] = cls_emb
-        latent[torch.arange(len(latent)), attention_mask.sum(-1) - 1] = sep_emb
+        latent[torch.arange(len(latent)), attention_mask.sum(-1) - 1] = eos_emb
         latent[~attention_mask.bool()] = pad_emb
+
+        latent = encoder.module.enc_normalizer.denormalize(latent)
 
     if not eval:
         sigma = 0.2
@@ -130,7 +134,7 @@ def train(encoder, decoder, tokenizer, exp_name):
 
     eval_freq = 100
     step = 0
-    epochs = 10
+    epochs = 5
     for _ in range(epochs):
         decoder.train()
 
@@ -188,15 +192,19 @@ def main():
     cfg = config.model.encoder_name
     tokenizer = AutoTokenizer.from_pretrained(cfg)
 
-    encoder = BertEncoderModel.from_pretrained(
+    gen_enc_normalizer = EncNormalizer(
+        enc_mean_path=config.data.enc_bert_mean,
+        enc_std_path=config.data.enc_bert_std,
+    )
+    encoder = T5EncoderModel.from_pretrained(
         cfg,
-        enc_normalizer=None
+        enc_normalizer=gen_enc_normalizer
     ).eval()
     encoder = torch.nn.DataParallel(encoder).cuda()
 
     decoder = BertDecoder(model_name=cfg, mode="transformer").train().cuda()
 
-    exp_name = f"{cfg}-transformer-spt"
+    exp_name = f"{config.model.encoder_name_hash}-transformer"
     wandb.init(project="rocstory-decoders", name=exp_name, mode="online")
     train(encoder, decoder, tokenizer, exp_name=exp_name)
 

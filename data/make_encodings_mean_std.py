@@ -62,16 +62,25 @@ def compute_mean_std(
 
     for i, X in enumerate(T):
         X = dict_to_cuda(X)
-        with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            output = encoder(**{
+        with torch.no_grad(), torch.autocast(device_type='cuda'):
+            latent = encoder(**{
                     "input_ids": X["input_ids"],
                     "attention_mask": X["input_mask"]
                 })
+            
+            embeddings = encoder.module.shared.weight.data.cpu()
 
-        mask = make_mask_wo_SEP_CLS(X["input_mask"])
-        output = output * mask[:, :, None]
-        cur_sum = torch.sum(output, dim=[0, 1])
-        cur_sqr_sum = torch.sum(output ** 2, dim=[0, 1])
+            eos_emb = embeddings[tokenizer.eos_token_id].cuda()
+            pad_emb = embeddings[tokenizer.pad_token_id].cuda()
+
+            attention_mask = X["input_mask"]
+            latent[torch.arange(len(latent)), attention_mask.sum(-1) - 1] = eos_emb
+            latent[~attention_mask.bool()] = pad_emb
+
+        mask = torch.ones_like(attention_mask)#make_mask_wo_SEP_CLS(X["input_mask"])
+        latent = latent * mask[:, :, None]
+        cur_sum = torch.sum(latent, dim=[0, 1])
+        cur_sqr_sum = torch.sum(latent ** 2, dim=[0, 1])
         cur_num = torch.sum(mask).item()
 
         sum_ = cur_sum if sum_ is None else cur_sum + sum_
@@ -96,7 +105,7 @@ if __name__ == "__main__":
     cfg = config.model.encoder_name
     tokenizer = AutoTokenizer.from_pretrained(cfg)
     
-    encoder = BartEncoderModel.from_pretrained(
+    encoder = T5EncoderModel.from_pretrained(
         cfg,
         enc_normalizer=None
     ).eval()
@@ -105,6 +114,6 @@ if __name__ == "__main__":
     compute_mean_std(
         encoder,
         tokenizer, 
-        model_name="bart-base",
+        model_name=config.model.encoder_name_hash,
         dataset_name="rocstory"
     )

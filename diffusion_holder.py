@@ -57,7 +57,7 @@ class DiffusionRunner:
             enc_mean_path=self.config.data.enc_bert_mean,
             enc_std_path=self.config.data.enc_bert_std,
         )
-        self.encoder_gen = BertEncoderModel.from_pretrained(
+        self.encoder_gen = T5EncoderModel.from_pretrained(
             bert_cfg,
             enc_normalizer=self.gen_enc_normalizer
         ).eval().cuda()
@@ -125,11 +125,12 @@ class DiffusionRunner:
         ).get_data()
         self.valid_dataset = next(self.valid_datasets_iter)
 
-        embeddings = self.encoder_gen.bert.embeddings.word_embeddings.weight.data.cpu()
-
-        self.cls_emb = embeddings[self.tokenizer_gen.cls_token_id].cuda()
-        self.sep_emb = embeddings[self.tokenizer_gen.sep_token_id].cuda()
+        # Special Tokens
+        embeddings = self.encoder_gen.shared.weight.data.cpu()
+        self.eos_emb = embeddings[self.tokenizer_gen.eos_token_id].cuda()
+        self.eos_emb = self.eos_emb / torch.norm(self.eos_emb) * np.sqrt(self.eos_emb.shape[-1])
         self.pad_emb = embeddings[self.tokenizer_gen.pad_token_id].cuda()
+        self.pad_emb = self.pad_emb / torch.norm(self.pad_emb) * np.sqrt(self.pad_emb.shape[-1])
 
         if self.config.ddp and dist.get_rank() == 0:
             wandb.init(
@@ -463,11 +464,11 @@ class DiffusionRunner:
                     cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
                 
                 attention_mask = X["input_mask"]
-                latent = self.gen_enc_normalizer.denormalize(clean_X)
-                latent[:, 0] = self.cls_emb
-                latent[torch.arange(len(latent)), attention_mask.sum(-1) - 1] = self.sep_emb
+                #latent = self.gen_enc_normalizer.denormalize(clean_X)
+                latent = clean_X
+                latent[torch.arange(len(latent)), attention_mask.sum(-1) - 1] = self.eos_emb
                 latent[~attention_mask.bool()] = self.pad_emb
-                clean_X = self.gen_enc_normalizer.normalize(latent)
+                #clean_X = self.gen_enc_normalizer.normalize(latent)
 
         loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
 
@@ -506,11 +507,11 @@ class DiffusionRunner:
                     cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
 
                 attention_mask = X["input_mask"]
-                latent = self.gen_enc_normalizer.denormalize(clean_X)
-                latent[:, 0] = self.cls_emb
-                latent[torch.arange(len(latent)), attention_mask.sum(-1) - 1] = self.sep_emb
+                #latent = self.gen_enc_normalizer.denormalize(clean_X)
+                latent = clean_X
+                latent[torch.arange(len(latent)), attention_mask.sum(-1) - 1] = self.eos_emb
                 latent[~attention_mask.bool()] = self.pad_emb
-                clean_X = self.gen_enc_normalizer.normalize(latent)
+                #clean_X = self.gen_enc_normalizer.normalize(latent)
 
                 loss_dict, _ = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
                 for k, v in loss_dict.items():
@@ -587,8 +588,7 @@ class DiffusionRunner:
         output = self.pred_logits(pred_embeddings)
         tokens = output.argmax(dim=-1)
 
-        bos_id = self.tokenizer_gen.vocab[self.tokenizer_gen.cls_token]
-        eos_id = self.tokenizer_gen.vocab[self.tokenizer_gen.sep_token]
+        eos_id = self.tokenizer_gen.vocab[self.tokenizer_gen.eos_token]
         pad_id = self.tokenizer_gen.vocab[self.tokenizer_gen.pad_token]
 
         tokens = tokens.detach().cpu().tolist()

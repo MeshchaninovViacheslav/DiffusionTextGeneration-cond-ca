@@ -15,8 +15,8 @@ def create_config():
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
     optim.linear_warmup = 1000
-    optim.lr = 2e-4
-    optim.min_lr = 2e-4
+    optim.lr = 1e-4
+    optim.min_lr = 1e-4
     optim.warmup_lr = 1e-8
     optim.weight_decay = 0.01
     optim.beta_1 = 0.9
@@ -62,15 +62,15 @@ def create_config():
     model.dataset = "rocstory"
     model.prediction = "x_0"
     model.loss = "L_x_0"
-    model.encoder_name = "bert-base-cased"
-    encoder_name = "bert-base-cased"
-    model.decoder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-{encoder_name}-transformer-spt.pth"
+    model.encoder_name = "t5-base"
+    model.encoder_name_hash = "t5-base-spt"
+    model.decoder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-{model.encoder_name_hash}-transformer.pth"
     model.delta = 0.
     
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 80
-    data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{encoder_name}-mean.pt"
-    data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{encoder_name}-std.pt"
+    data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name}-mean.pt"
+    data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name}-std.pt"
 
     config.finetuning = False
     config.seed = 0

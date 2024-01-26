@@ -31,12 +31,13 @@ from model.decoder import BertDecoder
 from model.encoder_roberta import RobertaEncoderModel
 from estimation_utils.diversity_metrics import NGramStats
 from model.encoder_bart import BartEncoderModel
+from estimation_utils.mauve_metric import compute_mauve
 
 from utils.util import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, reduce_tensor, set_seed, l1_loss, smooth_l1_loss
 
-from estimation_utils.util import estimate_model, gather_texts, reduce_metrics, reduce_sum_metrics
-
+from estimation_utils.util import generate_text, gather_texts, reduce_metrics, reduce_sum_metrics
 from estimation_utils.metrics import GPTMetric, RobertaMetric
+from estimation_utils.evaluation import *
 
 
 class DiffusionRunner:
@@ -599,6 +600,10 @@ class DiffusionRunner:
                 id += 1
             tokens_list.append(seq[0: id])
 
+        # with open("output.txt", "w") as file:
+        #     for t in self.tokenizer_gen.batch_decode(tokens):
+        #         print(t, file=file)
+
         text = self.tokenizer_gen.batch_decode(tokens_list, skip_special_tokens=True)
         return text, pred_embeddings
 
@@ -661,54 +666,70 @@ class DiffusionRunner:
         self.score_estimator.eval()
         self.switch_to_ema()
 
-        if not hasattr(self, 'metric_gpt_fn'):
-            self.metric_gpt_fn = GPTMetric(device=f"cuda:{dist.get_rank()}")
-            self.metric_roberta_fn = RobertaMetric(device=f"cuda:{dist.get_rank()}")
+        # if not hasattr(self, 'metric_gpt_fn'):
+        #     self.metric_gpt_fn = GPTMetric(device=f"cuda:{dist.get_rank()}")
+            #self.metric_roberta_fn = RobertaMetric(device=f"cuda:{dist.get_rank()}")
 
-        self.metric_gpt_fn.model.cuda()
-        self.metric_roberta_fn.model.cuda()
+        #self.metric_gpt_fn.model.cuda()
+        #self.metric_roberta_fn.model.cuda()
 
         num_texts = int(self.config.validation.num_gen_texts / dist.get_world_size())
         seed = self.config.seed + dist.get_rank()
         set_seed(seed)
-        metrics, metrics_list, gen_texts = estimate_model(
+        gen_texts = generate_text(
             self, num_texts,
-            self.config.validation.batch_size,
-            self.metric_gpt_fn, self.metric_roberta_fn,
+            self.config.validation.batch_size
         )
-        gen_texts = gather_texts(gen_texts)
         
-        for key in metrics_list:
-            metrics_list[key] = gather_texts(metrics_list[key])
+        gen_texts = gather_texts(gen_texts)
 
-        metrics = reduce_metrics(metrics)
         if dist.get_rank() == 0:
             texts_path = "./generated_texts"
-            print(f"GPT2-large loss: {metrics['GPT metric']:0.5f}")
-            print(f"Fluency: {metrics['Roberta metric']:0.5f}")
-
             text_list = []
+            N = self.config.validation.num_text_to_est
             for i in range(len(gen_texts)):
-                text_list.append(
-                    {
-                        "GEN": gen_texts[i],
-                        "GPT2-large loss": metrics_list["GPT metric"][i],
-                    }
-                )
-            file_name = f"{texts_path}/{self.config.checkpoints_prefix}-{self.step}.json"
+                if gen_texts[i]:
+                    text_list.append(
+                        {
+                            "GEN": gen_texts[i],
+                        }
+                    )
+                if len(text_list) >= N:
+                    break
+            file_name = f"{texts_path}/{self.config.checkpoints_prefix}-{self.step}-{self.config.dynamic.N}-{len(text_list)}.json"
             json.dump(text_list, open(file_name, "w"), indent=4)
+            
+            train_references = []
+            with open(self.config.data.train_path, "r") as file:
+                for l in file:
+                    train_references.append(l.strip())
 
-            metric_div = NGramStats(train_dataset_path="/home/vmeshchaninov/nlp_models/data/rocstories/train/data.txt")
-            metric_div.compute(gen_texts)
+            valid_references = []
+            with open(self.config.data.valid_path, "r") as file:
+                for l in file:
+                    valid_references.append(l.strip())
+            valid_references = valid_references[:N]
 
-            self.log_metric(metric_name="GPT2-large loss", loader_name="", value=metrics['GPT metric'])
-            self.log_metric(metric_name="GPT2-large ppl", loader_name="", value=np.exp(metrics['GPT metric']))
-            self.log_metric(metric_name="Fluency", loader_name="", value=metrics['Roberta metric'])
-            self.log_metric(metric_name="Diversity", loader_name="", value=metric_div.results['diversity'])
-            self.log_metric(metric_name="Memorization", loader_name="", value=metric_div.results['memorization'])
+            predictions = [d["GEN"] for d in text_list if d["GEN"]]
 
-        self.metric_gpt_fn.model.cpu()
-        self.metric_roberta_fn.model.cpu()
+            ppl = compute_perplexity(all_texts_list=predictions)
+            div = compute_diversity(all_texts_list=predictions)['diversity']
+            mem = compute_memorization(all_texts_list=predictions, human_references=train_references)
+            mauve = compute_mauve(all_texts_list=predictions, human_references=valid_references)
+
+            self.log_metric(metric_name="GPT2-large ppl", loader_name="", value=ppl)
+            self.log_metric(metric_name="Diversity", loader_name="", value=div)
+            self.log_metric(metric_name="Memorization", loader_name="", value=mem)
+            self.log_metric(metric_name="Mauve", loader_name="", value=mauve)
+
+            print(f"GPT2-large ppl: {ppl:0.5f}")
+            print(f"Diversity: {div:0.5f}")
+            print(f"Memorization: {mem:0.5f}")
+            print(f"Mauve: {mauve:0.5f}")
+
+
+        #self.metric_gpt_fn.model.cpu()
+        #self.metric_roberta_fn.model.cpu()
 
         self.switch_back_from_ema()
         self.score_estimator.train()

@@ -18,7 +18,7 @@ def clear_text(text):
             continue
         if s[0] == ".":
             s = s[1:]
-        s = s.strip().lower()
+        s = s.strip()
         data.append(s)
     return data
 
@@ -44,7 +44,6 @@ def generate_text(diffusion, num_texts, batch_size):
     generated_texts = []
     while len(generated_texts) < num_texts:
         text = diffusion.generate_text(batch_size=int(min(batch_size, num_texts - len(generated_texts))))[0]
-        text = clear_text(text)
         generated_texts += text
     return generated_texts
 

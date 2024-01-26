@@ -38,20 +38,21 @@ def create_config():
     loss.ce_coef = 0.
 
     refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = False
-    refresh.prefix = "./checkpoints/rocstory--t5-bert-uncond-64_100000_.pth"
+    refresh.true = True
+    refresh.prefix = "./checkpoints/rocstory-bert-base-cased--spt_100000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
-    validation.batch_size = 250
+    validation.batch_size = 260
     validation.validation_iters = int(10_000 / validation.batch_size)
-    validation.num_gen_texts = 1000
+    validation.num_gen_texts = 100#1020
+    validation.num_text_to_est = 1000
     validation.p_uncond = 0.
 
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
     dynamic.scheduler = "sd"
-    dynamic.N = 200
+    dynamic.N = 100
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
@@ -71,6 +72,8 @@ def create_config():
     data.max_sequence_len = 80
     data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{encoder_name}-mean.pt"
     data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{encoder_name}-std.pt"
+    data.train_path = "/home/vmeshchaninov/nlp_models/data/rocstories/train/data.txt"
+    data.valid_path = "/home/vmeshchaninov/nlp_models/data/rocstories/validation/data.txt"
 
     config.finetuning = False
     config.seed = 0

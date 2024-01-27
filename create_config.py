@@ -64,14 +64,16 @@ def create_config():
     model.prediction = "x_0"
     model.loss = "L_x_0"
     model.encoder_name = "bert-base-cased"
-    encoder_name = "bert-base-cased"
-    model.decoder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-{encoder_name}-transformer-spt.pth"
+    model.encoder_name_hash = "bert-base-cased"
+    model.cond_encoder_name = "bert-base-cased"
+    model.cond_encoder_name_hash = "bert-base-cased"
+    model.decoder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-{model.encoder_name_hash}-transformer-spt.pth"
     model.delta = 0.
     
     data = config.data = ml_collections.ConfigDict()
-    data.max_sequence_len = 80
-    data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{encoder_name}-mean.pt"
-    data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{encoder_name}-std.pt"
+    data.max_sequence_len = 50
+    data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name_hash}-mean.pt"
+    data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name_hash}-std.pt"
     data.train_path = "/home/vmeshchaninov/nlp_models/data/rocstories/train/data.txt"
     data.valid_path = "/home/vmeshchaninov/nlp_models/data/rocstories/validation/data.txt"
 
@@ -79,9 +81,9 @@ def create_config():
     config.seed = 0
     config.ddp = True
     config.use_self_cond = True
-    config.project_name = "article-rocstory_exps"
+    config.project_name = "article-rocstory-conditional_exps"
     config.timesteps = "linear"
-    config.is_conditional = False
+    config.is_conditional = True
     config.bert_config = bert_config
     config.bert_config.is_decoder = config.is_conditional
 

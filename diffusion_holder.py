@@ -28,15 +28,11 @@ from model.encoder_t5 import T5EncoderModel
 from model.encoder_bert import BertEncoderModel
 from model.enc_normalizer import EncNormalizer
 from model.decoder import BertDecoder
-from model.encoder_roberta import RobertaEncoderModel
-from estimation_utils.diversity_metrics import NGramStats
-from model.encoder_bart import BartEncoderModel
 from estimation_utils.mauve_metric import compute_mauve
 
 from utils.util import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, reduce_tensor, set_seed, l1_loss, smooth_l1_loss
 
-from estimation_utils.util import generate_text, gather_texts, reduce_metrics, reduce_sum_metrics
-from estimation_utils.metrics import GPTMetric, RobertaMetric
+from estimation_utils.util import gather_texts
 from estimation_utils.evaluation import *
 
 
@@ -51,20 +47,30 @@ class DiffusionRunner:
         self.use_self_cond = config.use_self_cond
         self.checkpoints_folder = config.training.checkpoints_folder
 
+        cond_cfg = config.model.cond_encoder_name
+        self.tokenizer_cond = AutoTokenizer.from_pretrained(cond_cfg)
+        self.cond_enc_normalizer = EncNormalizer(
+            enc_mean_path=self.config.data.enc_bert_mean,
+            enc_std_path=self.config.data.enc_bert_std,
+        )
+        self.encoder_cond = BertEncoderModel.from_pretrained(
+            cond_cfg,
+            enc_normalizer=self.cond_enc_normalizer
+        ).eval().cuda()
 
-        bert_cfg = config.model.encoder_name
-        self.tokenizer_gen = AutoTokenizer.from_pretrained(bert_cfg)
+
+        gen_cfg = config.model.encoder_name
+        self.tokenizer_gen = AutoTokenizer.from_pretrained(gen_cfg)
         self.gen_enc_normalizer = EncNormalizer(
             enc_mean_path=self.config.data.enc_bert_mean,
             enc_std_path=self.config.data.enc_bert_std,
         )
         self.encoder_gen = BertEncoderModel.from_pretrained(
-            bert_cfg,
+            gen_cfg,
             enc_normalizer=self.gen_enc_normalizer
         ).eval().cuda()
 
-        
-        # self.decoder = Decoder()
+
         self.decoder = BertDecoder(model_name=config.model.encoder_name, mode="transformer")
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
@@ -112,8 +118,11 @@ class DiffusionRunner:
             dataset_name=config.model.dataset,
         )(
             split="train",
-            tokenizer=self.tokenizer_gen,
+            tokenizer_cond=self.tokenizer_cond,
+            tokenizer_gen=self.tokenizer_gen,
             max_sequence_len=self.config.data.max_sequence_len,
+            train_path=config.data.train_path,
+            valid_path=config.data.valid_path,
         ).get_data()
         self.train_dataset = None
 
@@ -121,8 +130,11 @@ class DiffusionRunner:
             dataset_name=config.model.dataset,
         )(
             split="valid",
-            tokenizer=self.tokenizer_gen,
+            tokenizer_cond=self.tokenizer_cond,
+            tokenizer_gen=self.tokenizer_gen,
             max_sequence_len=self.config.data.max_sequence_len,
+            train_path=config.data.train_path,
+            valid_path=config.data.valid_path,
         ).get_data()
         self.valid_dataset = next(self.valid_datasets_iter)
 
@@ -289,13 +301,6 @@ class DiffusionRunner:
             attention_mask=attention_mask, cond_mask=cond_mask,
             x_0_self_cond=x_0_self_cond
         )
-        # if t[0].item() < 0.5: 
-        #     logits = self.pred_logits(x_0)
-        #     tokens = logits.argmax(dim=-1)
-        #     attention_mask = (tokens != self.tokenizer_gen.vocab["[PAD]"]) * 1.
-        #     #print(torch.mean(attention_mask))
-        #     x_0_recon = self.encoder_gen(**{"input_ids": tokens, "attention_mask": attention_mask})
-        #     x_0 = x_0_recon * attention_mask[..., None] + x_0 * (1 - attention_mask)[..., None]
 
         eps_theta = (x_t - params["mu"] * x_0) / params["std"]
         score = -eps_theta / params["std"]
@@ -575,14 +580,54 @@ class DiffusionRunner:
         self.step = load["step"]
         print(f"Checkpoint refreshed {self.config.refresh.prefix}")
 
+    
     @torch.no_grad()
-    def generate_text(self, batch_size, cond=None, way="sde", attention_mask=None):
+    def generate_text_conditional(self, num_texts):
+        loader = iter(self.valid_loader)
+
+        result_dict = {
+            "COND": [],
+            "GEN": [],
+            "GT": []
+        }
+
+        while len(result_dict["GEN"]) < num_texts:
+            tmp_batch_size = int(min(self.config.validation.batch_size, num_texts - len(result_dict["GEN"])))
+            X = next(loader)
+            
+            for key in X:
+                X[key] = X[key][:tmp_batch_size]
+
+            cond = {"cond_ids": X.get("cond_ids", None), "cond_mask": X.get("cond_mask", None)}
+           
+            gen_text = self.generate_text_batch(
+                batch_size=tmp_batch_size,
+                cond=cond,
+                attention_mask=None,
+            )[0]
+            
+            cond_text = self.tokenizer_cond.batch_decode(X["cond_ids"], skip_special_tokens=True)
+            gt_text = self.tokenizer_gen.batch_decode(X["input_ids"], skip_special_tokens=True)
+        
+            result_dict["COND"] += cond_text
+            result_dict["GT"] += gt_text
+            result_dict["GEN"] += gen_text
+
+        return result_dict
+
+
+    @torch.no_grad()
+    def generate_text_batch(self, batch_size, cond=None, way="sde", attention_mask=None):
         if attention_mask is not None:
             attention_mask = attention_mask.cuda()
 
+        cond_X = self.encoder_cond(**{"input_ids": cond["cond_ids"], "attention_mask": cond["cond_mask"]})
+
         pred_embeddings = self.pred_embeddings(
             batch_size,
-            attention_mask=attention_mask
+            attention_mask=attention_mask,
+            cond_X=cond_X,
+            cond_mask=cond["cond_mask"]
         )
 
         output = self.pred_logits(pred_embeddings)
@@ -666,32 +711,26 @@ class DiffusionRunner:
         self.score_estimator.eval()
         self.switch_to_ema()
 
-        # if not hasattr(self, 'metric_gpt_fn'):
-        #     self.metric_gpt_fn = GPTMetric(device=f"cuda:{dist.get_rank()}")
-            #self.metric_roberta_fn = RobertaMetric(device=f"cuda:{dist.get_rank()}")
-
-        #self.metric_gpt_fn.model.cuda()
-        #self.metric_roberta_fn.model.cuda()
-
-        num_texts = int(self.config.validation.num_gen_texts / dist.get_world_size())
+        num_texts = int(self.config.validation.num_gen_texts / dist.get_world_size()) + \
+            (1 if (self.config.validation.num_gen_texts % dist.get_world_size()) > dist.get_rank() else 0)
         seed = self.config.seed + dist.get_rank()
         set_seed(seed)
-        gen_texts = generate_text(
-            self, num_texts,
-            self.config.validation.batch_size
-        )
+        result_dict = self.generate_text_conditional(self, num_texts)
         
-        gen_texts = gather_texts(gen_texts)
+        for key in result_dict:
+            result_dict[key] = gather_texts(result_dict[key])
 
         if dist.get_rank() == 0:
             texts_path = "./generated_texts"
             text_list = []
             N = self.config.validation.num_text_to_est
-            for i in range(len(gen_texts)):
-                if gen_texts[i]:
+            for i in range(len(result_dict["GEN"])):
+                if result_dict["GEN"][i]:
                     text_list.append(
                         {
-                            "GEN": gen_texts[i],
+                            "GT": result_dict["GT"][i],
+                            "COND": result_dict["COND"][i], 
+                            "GEN": result_dict["GEN"][i],
                         }
                     )
                 if len(text_list) >= N:
@@ -710,12 +749,13 @@ class DiffusionRunner:
                     valid_references.append(l.strip())
             valid_references = valid_references[:N]
 
+            cond = [d["COND"] for d in text_list if d["COND"]]
             predictions = [d["GEN"] for d in text_list if d["GEN"]]
 
             ppl = compute_perplexity(all_texts_list=predictions)
             div = compute_diversity(all_texts_list=predictions)['diversity']
             mem = compute_memorization(all_texts_list=predictions, human_references=train_references)
-            mauve = compute_mauve(all_texts_list=predictions, human_references=valid_references)
+            mauve = compute_mauve(all_texts_list=predictions, human_references=cond)
 
             self.log_metric(metric_name="GPT2-large ppl", loader_name="", value=ppl)
             self.log_metric(metric_name="Diversity", loader_name="", value=div)
@@ -727,13 +767,9 @@ class DiffusionRunner:
             print(f"Memorization: {mem:0.5f}")
             print(f"Mauve: {mauve:0.5f}")
 
-
-        #self.metric_gpt_fn.model.cpu()
-        #self.metric_roberta_fn.model.cpu()
-
         self.switch_back_from_ema()
         self.score_estimator.train()
-        self.config.training.batch_size_per_gpu = self.config.training.batch_size // dist.get_world_size()
+
 
     @torch.no_grad()
     def pred_embeddings_classifier_guidance(

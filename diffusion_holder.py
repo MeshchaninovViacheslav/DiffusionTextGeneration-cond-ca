@@ -183,7 +183,7 @@ class DiffusionRunner:
     def set_optimizer(self) -> None:
         if self.optimizer is None:
             optimizer = torch.optim.AdamW(
-                self.score_estimator.parameters(),
+                 self.score_estimator.parameters(),#list(self.score_estimator.parameters()) + list(self.encoder_cond.parameters()),
                 lr=self.config.optim.lr,
                 weight_decay=self.config.optim.weight_decay,
                 betas=(self.config.optim.beta_1, self.config.optim.beta_2),
@@ -554,6 +554,7 @@ class DiffusionRunner:
             torch.save(
                 {
                     "model": self.score_estimator.state_dict(),
+                    "cond_encoder": self.encoder_cond.state_dict(),
                     "ema": self.ema.state_dict(),
                     "optimizer": self.optimizer.state_dict(),
                     "scheduler": self.scheduler.state_dict(),
@@ -597,6 +598,8 @@ class DiffusionRunner:
             
             for key in X:
                 X[key] = X[key][:tmp_batch_size]
+
+            X = dict_to_cuda(X)
 
             cond = {"cond_ids": X.get("cond_ids", None), "cond_mask": X.get("cond_mask", None)}
            
@@ -715,7 +718,7 @@ class DiffusionRunner:
             (1 if (self.config.validation.num_gen_texts % dist.get_world_size()) > dist.get_rank() else 0)
         seed = self.config.seed + dist.get_rank()
         set_seed(seed)
-        result_dict = self.generate_text_conditional(self, num_texts)
+        result_dict = self.generate_text_conditional(num_texts)
         
         for key in result_dict:
             result_dict[key] = gather_texts(result_dict[key])
@@ -755,7 +758,10 @@ class DiffusionRunner:
             ppl = compute_perplexity(all_texts_list=predictions)
             div = compute_diversity(all_texts_list=predictions)['diversity']
             mem = compute_memorization(all_texts_list=predictions, human_references=train_references)
-            mauve = compute_mauve(all_texts_list=predictions, human_references=cond)
+            try:
+                mauve = compute_mauve(all_texts_list=predictions, human_references=cond)
+            except Exception:
+                mauve = 0.
 
             self.log_metric(metric_name="GPT2-large ppl", loader_name="", value=ppl)
             self.log_metric(metric_name="Diversity", loader_name="", value=div)

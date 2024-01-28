@@ -56,7 +56,7 @@ def create_config():
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
-    dynamic.coef_d = 10
+    dynamic.coef_d = 13
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999

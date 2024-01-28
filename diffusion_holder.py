@@ -214,7 +214,6 @@ class DiffusionRunner:
     def set_train_data_generator(self) -> None:
         del self.train_dataset
         self.train_dataset = next(self.train_datasets_iter)
-        print("Dataset length:", len(self.train_dataset))
 
         self.train_loader = DataLoader(
             self.train_dataset,
@@ -225,21 +224,13 @@ class DiffusionRunner:
         )
 
     def set_valid_data_generator(self) -> None:
-        if self.config.ddp:
-            sampler_valid = torch.utils.data.distributed.DistributedSampler(
-                self.valid_dataset,
-                shuffle=False
-            )
-        else:
-            sampler_valid = None
-
         self.valid_loader = DataLoader(
             self.valid_dataset,
-            sampler=sampler_valid,
             batch_size=self.config.validation.batch_size,
             num_workers=10,
             pin_memory=False,
         )
+        
 
     def log_metric(self, metric_name: str, loader_name: str, value: Union[float, torch.Tensor, wandb.Image]):
         if dist.get_rank() == 0:
@@ -584,6 +575,7 @@ class DiffusionRunner:
     
     @torch.no_grad()
     def generate_text_conditional(self, num_texts):
+        self.set_valid_data_generator()
         loader = iter(self.valid_loader)
 
         result_dict = {
@@ -593,8 +585,8 @@ class DiffusionRunner:
         }
 
         while len(result_dict["GEN"]) < num_texts:
-            tmp_batch_size = int(min(self.config.validation.batch_size, num_texts - len(result_dict["GEN"])))
             X = next(loader)
+            tmp_batch_size = int(min(X["cond_ids"].shape[0], num_texts - len(result_dict["GEN"])))
             
             for key in X:
                 X[key] = X[key][:tmp_batch_size]
@@ -714,8 +706,8 @@ class DiffusionRunner:
         self.score_estimator.eval()
         self.switch_to_ema()
 
-        num_texts = int(self.config.validation.num_gen_texts / dist.get_world_size()) + \
-            (1 if (self.config.validation.num_gen_texts % dist.get_world_size()) > dist.get_rank() else 0)
+        num_texts = int(self.config.validation.num_gen_texts / dist.get_world_size()) #+ \
+            #(1 if (self.config.validation.num_gen_texts % dist.get_world_size()) > dist.get_rank() else 0)
         seed = self.config.seed + dist.get_rank()
         set_seed(seed)
         result_dict = self.generate_text_conditional(num_texts)

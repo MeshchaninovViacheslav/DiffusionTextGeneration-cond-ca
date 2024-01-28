@@ -43,9 +43,9 @@ def create_config():
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
-    validation.batch_size = 260
+    validation.batch_size = 128
     validation.validation_iters = int(10_000 / validation.batch_size)
-    validation.num_gen_texts = 1020
+    validation.num_gen_texts = 1024
     validation.num_text_to_est = 1000
     validation.p_uncond = 0.
 
@@ -75,7 +75,7 @@ def create_config():
     data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name_hash}-mean.pt"
     data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name_hash}-std.pt"
     data.train_path = "/home/vmeshchaninov/nlp_models/data/rocstories/train/data.txt"
-    data.valid_path = "/home/vmeshchaninov/nlp_models/data/rocstories/validation/data.txt"
+    data.valid_path = "/home/vmeshchaninov/nlp_models/data/rocstories/test/data.txt"
 
     config.finetuning = False
     config.seed = 0

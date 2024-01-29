@@ -121,6 +121,7 @@ class DiffusionRunner:
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,
             max_sequence_len=self.config.data.max_sequence_len,
+            max_cond_len=self.config.data.max_cond_len,
             train_path=config.data.train_path,
             valid_path=config.data.valid_path,
         ).get_data()
@@ -133,6 +134,7 @@ class DiffusionRunner:
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,
             max_sequence_len=self.config.data.max_sequence_len,
+            max_cond_len=self.config.data.max_cond_len,
             train_path=config.data.train_path,
             valid_path=config.data.valid_path,
         ).get_data()
@@ -744,14 +746,14 @@ class DiffusionRunner:
                     valid_references.append(l.strip())
             valid_references = valid_references[:N]
 
-            cond = [d["COND"] for d in text_list if d["COND"]]
+            references = [d["GT"] for d in text_list if d["GT"]]
             predictions = [d["GEN"] for d in text_list if d["GEN"]]
-
+            
             ppl = compute_perplexity(all_texts_list=predictions)
             div = compute_diversity(all_texts_list=predictions)['diversity']
             mem = compute_memorization(all_texts_list=predictions, human_references=train_references)
             try:
-                mauve = compute_mauve(all_texts_list=predictions, human_references=cond)
+                mauve = compute_mauve(all_texts_list=predictions, human_references=references)
             except Exception:
                 mauve = 0.
 

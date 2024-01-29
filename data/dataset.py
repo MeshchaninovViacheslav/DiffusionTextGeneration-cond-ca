@@ -12,12 +12,12 @@ def create_dataset(dataset_name):
 
 class RocStoryDatasetDDP:
     def __init__(self,
-                split, tokenizer_cond, tokenizer_gen, max_sequence_len, train_path, valid_path):
+                split, tokenizer_cond, tokenizer_gen, max_sequence_len, max_cond_len, train_path, valid_path):
         self.split = split
         self.tokenizer_cond = tokenizer_cond
         self.tokenizer_gen = tokenizer_gen
         self.max_sequence_len = max_sequence_len
-        self.max_cond_len = max_sequence_len
+        self.max_cond_len = max_cond_len
         self.train_path = train_path
         self.valid_path = valid_path
         self.device_id = dist.get_rank() if torch.distributed.is_initialized() else 0

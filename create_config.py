@@ -39,7 +39,7 @@ def create_config():
 
     refresh = config.refresh = ml_collections.ConfigDict()
     refresh.true = False
-    refresh.prefix = "./checkpoints/rocstory-bert-base-cased--spt_100000_.pth"
+    refresh.prefix = "./checkpoints/cond-rocstory-bert-base-cased-bert-base-cased-spt_100000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -71,7 +71,8 @@ def create_config():
     model.delta = 0.
     
     data = config.data = ml_collections.ConfigDict()
-    data.max_sequence_len = 50
+    data.max_sequence_len = 64
+    data.max_cond_len = 16
     data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name_hash}-mean.pt"
     data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name_hash}-std.pt"
     data.train_path = "/home/vmeshchaninov/nlp_models/data/rocstories/train/data.txt"

@@ -4,6 +4,7 @@ from nltk.util import ngrams
 from collections import defaultdict
 import spacy
 import numpy as np
+from transformers import AutoTokenizer
 
 
 def compute_perplexity(all_texts_list, model_id='gpt2-large'):
@@ -11,6 +12,40 @@ def compute_perplexity(all_texts_list, model_id='gpt2-large'):
     perplexity = load("perplexity", module_type="metric")
     results = perplexity.compute(predictions=all_texts_list, model_id=model_id, device='cuda')
     return results['mean_perplexity']
+
+def compute_conditional_perplexity(all_joint_texts_list, all_prompts_list, model_id='gpt2-large'):
+    torch.cuda.empty_cache() 
+    perplexity = load("perplexity", module_type="metric")
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    existing_special_tokens = list(tokenizer.special_tokens_map_extended.values())
+    tokenizer.add_special_tokens({"pad_token": existing_special_tokens[0]})
+
+    prompt_tok = tokenizer(
+        all_prompts_list,
+        add_special_tokens=False,
+        padding=True,
+        truncation=False,
+        return_tensors="np",
+        return_attention_mask=True,
+    )
+    joint_texts_tok = tokenizer(
+        all_joint_texts_list,
+        add_special_tokens=False,
+        padding=True,
+        truncation=False,
+        return_tensors="np",
+        return_attention_mask=True,
+    )
+    prompts_results = perplexity.compute(predictions=all_prompts_list, model_id=model_id, device='cuda')
+    joint_texts_results = perplexity.compute(predictions=all_joint_texts_list, model_id=model_id, device='cuda')
+    cond_result = np.exp(
+        (
+            np.log(joint_texts_results["perplexities"]) * np.sum(joint_texts_tok["attention_mask"], axis=1) - \
+            np.log(prompts_results["perplexities"]) * np.sum(prompt_tok["attention_mask"], axis=1)
+        ) / (np.sum(joint_texts_tok["attention_mask"], axis=1) - np.sum(prompt_tok["attention_mask"], axis=1))
+    )
+    return cond_result.mean()
+
 
 def compute_wordcount(all_texts_list):
     wordcount = load("word_count")

@@ -722,12 +722,13 @@ class DiffusionRunner:
             text_list = []
             N = self.config.validation.num_text_to_est
             for i in range(len(result_dict["GEN"])):
-                if result_dict["GEN"][i]:
+                if result_dict["GEN"][i] and result_dict["COND"][i]:
                     text_list.append(
                         {
-                            "GT": result_dict["GT"][i],
                             "COND": result_dict["COND"][i], 
+                            "GT": result_dict["GT"][i],
                             "GEN": result_dict["GEN"][i],
+                            "JOINT": f'{result_dict["COND"][i]} {result_dict["GEN"][i]}'
                         }
                     )
                 if len(text_list) >= N:
@@ -746,10 +747,12 @@ class DiffusionRunner:
                     valid_references.append(l.strip())
             valid_references = valid_references[:N]
 
-            references = [d["GT"] for d in text_list if d["GT"]]
-            predictions = [d["GEN"] for d in text_list if d["GEN"]]
+            references = [d["GT"] for d in text_list]
+            predictions = [d["GEN"] for d in text_list]
+            prompts = [d["COND"] for d in text_list]
+            joint_texts = [d["JOINT"] for d in text_list]
             
-            ppl = compute_perplexity(all_texts_list=predictions)
+            ppl = compute_conditional_perplexity(all_prompts_list=prompts, all_joint_texts_list=joint_texts)
             div = compute_diversity(all_texts_list=predictions)['diversity']
             mem = compute_memorization(all_texts_list=predictions, human_references=train_references)
             try:

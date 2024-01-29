@@ -38,25 +38,25 @@ def create_config():
     loss.ce_coef = 0.
 
     refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = False
-    refresh.prefix = "./checkpoints/cond-rocstory-bert-base-cased-bert-base-cased-spt_100000_.pth"
+    refresh.true = True
+    refresh.prefix = "./checkpoints/cond-rocstory-bert-base-cased-bert-base-cased-16-64-spt_100000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
-    validation.batch_size = 128
+    validation.batch_size = 512
     validation.validation_iters = int(10_000 / validation.batch_size)
-    validation.num_gen_texts = 1024
+    validation.num_gen_texts = 1500
     validation.num_text_to_est = 1000
     validation.p_uncond = 0.
 
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
     dynamic.scheduler = "sd"
-    dynamic.N = 100
+    dynamic.N = 200
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
-    dynamic.coef_d = 10
+    dynamic.coef_d = 9
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999

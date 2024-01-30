@@ -456,10 +456,6 @@ class DiffusionRunner:
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             with torch.no_grad():
                 clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
-                if X.get("cond_ids", None) is None:
-                    cond = None
-                else:
-                    cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
                 
                 attention_mask = X["input_mask"]
                 latent = self.gen_enc_normalizer.denormalize(clean_X)
@@ -467,6 +463,8 @@ class DiffusionRunner:
                 latent[torch.arange(len(latent)), attention_mask.sum(-1) - 1] = self.sep_emb
                 latent[~attention_mask.bool()] = self.pad_emb
                 clean_X = self.gen_enc_normalizer.normalize(latent)
+            
+            cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
 
         loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
 

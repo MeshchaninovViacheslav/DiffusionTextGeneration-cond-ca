@@ -38,7 +38,7 @@ def create_config():
     loss.ce_coef = 0.
 
     refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = True
+    refresh.true = False
     refresh.prefix = "./checkpoints/cond-rocstory-bert-base-cased-bert-base-cased-16-64-spt_100000_.pth"
     refresh.wand_id = "g5fb4af3"
 
@@ -65,8 +65,8 @@ def create_config():
     model.loss = "L_x_0"
     model.encoder_name = "bert-base-cased"
     model.encoder_name_hash = "bert-base-cased"
-    model.cond_encoder_name = "bert-base-cased"
-    model.cond_encoder_name_hash = "bert-base-cased"
+    model.cond_encoder_name = "t5-base"
+    model.cond_encoder_name_hash = "t5-base"
     model.decoder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-{model.encoder_name_hash}-transformer-spt.pth"
     model.delta = 0.
     
@@ -75,6 +75,8 @@ def create_config():
     data.max_cond_len = 16
     data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name_hash}-mean.pt"
     data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name_hash}-std.pt"
+    data.enc_t5_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.cond_encoder_name_hash}-mean.pt"
+    data.enc_t5_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.cond_encoder_name_hash}-std.pt"
     data.train_path = "/home/vmeshchaninov/nlp_models/data/rocstories/train/data.txt"
     data.valid_path = "/home/vmeshchaninov/nlp_models/data/rocstories/test/data.txt"
 

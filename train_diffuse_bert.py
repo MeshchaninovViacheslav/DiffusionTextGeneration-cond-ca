@@ -15,10 +15,9 @@ from create_config import create_config
 sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
 
 
-
 if __name__ == '__main__':
     config = create_config()
-    suffix = f"{config.data.max_cond_len}-{config.data.max_sequence_len}-encoder_cond-spt"
+    suffix = f"{config.data.max_cond_len}-{config.data.max_sequence_len}-spt-wonorm"
     config.checkpoints_prefix = f"cond-{config.model.dataset}-{config.model.cond_encoder_name_hash}-{config.model.encoder_name_hash}-{suffix}"  
 
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:

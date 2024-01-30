@@ -49,13 +49,13 @@ class DiffusionRunner:
 
         cond_cfg = config.model.cond_encoder_name
         self.tokenizer_cond = AutoTokenizer.from_pretrained(cond_cfg)
-        self.cond_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.enc_t5_mean,
-            enc_std_path=self.config.data.enc_t5_std,
-        )
+        # self.cond_enc_normalizer = EncNormalizer(
+        #     enc_mean_path=self.config.data.enc_t5_mean,
+        #     enc_std_path=self.config.data.enc_t5_std,
+        # )
         self.encoder_cond = T5EncoderModel.from_pretrained(
             cond_cfg,
-            enc_normalizer=self.cond_enc_normalizer
+            enc_normalizer=None,# self.cond_enc_normalizer
         ).eval().cuda()
 
 
@@ -185,7 +185,7 @@ class DiffusionRunner:
     def set_optimizer(self) -> None:
         if self.optimizer is None:
             optimizer = torch.optim.AdamW(
-                list(self.score_estimator.parameters()) + list(self.encoder_cond.parameters()),#self.score_estimator.parameters(),#list(self.score_estimator.parameters()) + list(self.encoder_cond.parameters()),
+                list(self.score_estimator.parameters()),#self.score_estimator.parameters(),#list(self.score_estimator.parameters()) + list(self.encoder_cond.parameters()),
                 lr=self.config.optim.lr,
                 weight_decay=self.config.optim.weight_decay,
                 betas=(self.config.optim.beta_1, self.config.optim.beta_2),
@@ -464,7 +464,7 @@ class DiffusionRunner:
                 latent[~attention_mask.bool()] = self.pad_emb
                 clean_X = self.gen_enc_normalizer.normalize(latent)
             
-            cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
+                cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
 
         loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
 

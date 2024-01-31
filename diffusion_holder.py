@@ -53,7 +53,7 @@ class DiffusionRunner:
         #     enc_mean_path=self.config.data.enc_t5_mean,
         #     enc_std_path=self.config.data.enc_t5_std,
         # )
-        self.encoder_cond = BertEncoderModel.from_pretrained(
+        self.encoder_cond = T5EncoderModel.from_pretrained(
             cond_cfg,
             enc_normalizer=None,# self.cond_enc_normalizer
         ).eval().cuda()

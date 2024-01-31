@@ -65,8 +65,8 @@ def create_config():
     model.loss = "L_x_0"
     model.encoder_name = "bert-base-cased"
     model.encoder_name_hash = "bert-base-cased"
-    model.cond_encoder_name = "t5-base"
-    model.cond_encoder_name_hash = "t5-base"
+    model.cond_encoder_name = "bert-base-cased"
+    model.cond_encoder_name_hash = "bert-base-cased"
     model.decoder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-{model.encoder_name_hash}-transformer-spt.pth"
     model.delta = 0.
     

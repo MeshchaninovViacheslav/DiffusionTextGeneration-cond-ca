@@ -12,11 +12,14 @@ def create_dataset(dataset_name):
 
 class RocStoryDatasetDDP:
     def __init__(self,
-                 split, tokenizer, max_sequence_len):
+                split, tokenizer_cond, tokenizer_gen, max_sequence_len, max_cond_len, train_path, valid_path):
         self.split = split
-        self.tokenizer = tokenizer
+        self.tokenizer_cond = tokenizer_cond
+        self.tokenizer_gen = tokenizer_gen
         self.max_sequence_len = max_sequence_len
-        self.max_cond_len = max_sequence_len
+        self.max_cond_len = max_cond_len
+        self.train_path = train_path
+        self.valid_path = valid_path
         self.device_id = dist.get_rank() if torch.distributed.is_initialized() else 0
         self.total_device_number = dist.get_world_size() if torch.distributed.is_initialized() else 1
         self.epoch = 0
@@ -48,21 +51,44 @@ class RocStoryDatasetDDP:
         dt = Dataset.from_list([{"text": t} for t in dt])
 
         self.dt = dt.map(
-            self.batch_preprocessing_unconditional,
+            self.batch_preprocessing,
             batched=True,
             load_from_cache_file=False,
             num_proc=30,
             desc="Dataset tokenization",
             batch_size=1000,
         )
-        
-        self.dt = self.dt.with_format("pt", columns=["input_ids", "input_mask"])
+
+        self.dt = self.dt.with_format("pt", columns=["input_ids", "cond_ids", "input_mask", "cond_mask"])
         return self.dt
 
 
-    def batch_preprocessing_unconditional(self, batch):
-        input_ = self.tokenizer(
-            batch["text"],
+    def batch_preprocessing(self, batch):
+        # Random split
+        batch_size = len(batch["text"])
+        elem_counts = self.max_cond_len
+        delimeter_poses = (np.random.rand(batch_size) * elem_counts).astype(int)
+
+        texts_cond = []
+        texts_input = []
+        for i, text in enumerate(batch["text"]):
+            words = text.split()
+            cond_text = " ".join(words[:delimeter_poses[i]])
+            input_text = " ".join(words[delimeter_poses[i]:])
+            texts_cond.append(cond_text)
+            texts_input.append(input_text)
+
+        # Text encode
+        cond_ = self.tokenizer_cond(
+            texts_cond,
+            add_special_tokens=True,
+            padding="max_length",
+            truncation=True,
+            max_length=self.max_sequence_len,
+        )
+
+        input_ = self.tokenizer_gen(
+            texts_input,
             add_special_tokens=True,
             padding="max_length",
             truncation=True,
@@ -71,7 +97,9 @@ class RocStoryDatasetDDP:
 
         output = {
             "input_ids": input_["input_ids"],
+            "cond_ids": cond_["input_ids"],
             "input_mask": input_["attention_mask"],
+            "cond_mask": cond_["attention_mask"],
         }
         return output
 
@@ -79,11 +107,9 @@ class RocStoryDatasetDDP:
     def get_data(self):
         if self.split == "valid":
             while True:
-                test_path = "/home/vmeshchaninov/nlp_models/data/rocstories/validation/data.txt"
-                yield self.load_data(test_path)
+                yield self.load_data(self.valid_path)
         elif self.split == "train":
             while True:
-                train_path = "/home/vmeshchaninov/nlp_models/data/rocstories/train/data.txt"
-                yield self.load_data(train_path)
+                yield self.load_data(self.train_path)
         else:
             raise Exception("Wrong data split")

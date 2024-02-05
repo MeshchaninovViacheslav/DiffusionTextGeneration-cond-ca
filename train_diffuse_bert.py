@@ -20,7 +20,6 @@ if __name__ == '__main__':
     config = create_config()
     suffix = f"{config.dynamic.scheduler}-{config.dynamic.coef_d}"
     config.checkpoints_prefix = f"{config.model.dataset}-{config.model.encoder_name}-{suffix}-spt"  
-
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
         rank = int(os.environ["RANK"])
         world_size = int(os.environ['WORLD_SIZE'])

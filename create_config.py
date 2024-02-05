@@ -39,24 +39,24 @@ def create_config():
 
     refresh = config.refresh = ml_collections.ConfigDict()
     refresh.true = False
-    refresh.prefix = "./checkpoints/rocstory-bert-base-cased--spt_100000_.pth"
+    refresh.prefix = "./checkpoints/cond-rocstory-bert-base-cased-bert-base-cased-16-64-spt_100000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
-    validation.batch_size = 260
+    validation.batch_size = 512
     validation.validation_iters = int(10_000 / validation.batch_size)
-    validation.num_gen_texts = 1020
+    validation.num_gen_texts = 1500
     validation.num_text_to_est = 1000
     validation.p_uncond = 0.
 
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
     dynamic.scheduler = "sd"
-    dynamic.N = 100
+    dynamic.N = 200
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
-    dynamic.coef_d = 13
+    dynamic.coef_d = 9
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
@@ -64,16 +64,21 @@ def create_config():
     model.prediction = "x_0"
     model.loss = "L_x_0"
     model.encoder_name = "bert-base-cased"
-    encoder_name = "bert-base-cased"
-    model.decoder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-{encoder_name}-transformer-spt.pth"
+    model.encoder_name_hash = "bert-base-cased"
+    model.cond_encoder_name = "t5-base"
+    model.cond_encoder_name_hash = "t5-base"
+    model.decoder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-{model.encoder_name_hash}-transformer-spt.pth"
     model.delta = 0.
     
     data = config.data = ml_collections.ConfigDict()
-    data.max_sequence_len = 80
-    data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{encoder_name}-mean.pt"
-    data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{encoder_name}-std.pt"
+    data.max_sequence_len = 64
+    data.max_cond_len = 16
+    data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name_hash}-mean.pt"
+    data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name_hash}-std.pt"
+    data.enc_t5_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.cond_encoder_name_hash}-mean.pt"
+    data.enc_t5_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.cond_encoder_name_hash}-std.pt"
     data.train_path = "/home/vmeshchaninov/nlp_models/data/rocstories/train/data.txt"
-    data.valid_path = "/home/vmeshchaninov/nlp_models/data/rocstories/validation/data.txt"
+    data.valid_path = "/home/vmeshchaninov/nlp_models/data/rocstories/test/data.txt"
 
     config.finetuning = False
     config.seed = 0
@@ -81,7 +86,7 @@ def create_config():
     config.use_self_cond = True
     config.project_name = "test"
     config.timesteps = "linear"
-    config.is_conditional = False
+    config.is_conditional = True
     config.bert_config = bert_config
     config.bert_config.is_decoder = config.is_conditional
 

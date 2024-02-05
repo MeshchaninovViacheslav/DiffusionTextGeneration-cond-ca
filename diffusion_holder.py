@@ -29,6 +29,7 @@ from model.encoder_bert import BertEncoderModel
 from model.enc_normalizer import EncNormalizer
 from model.decoder import BertDecoder
 from model.encoder_roberta import RobertaEncoderModel
+from model.autoencoder import Autoencoder
 from estimation_utils.diversity_metrics import NGramStats
 from model.encoder_bart import BartEncoderModel
 from estimation_utils.mauve_metric import compute_mauve
@@ -92,6 +93,11 @@ class DiffusionRunner:
         self.total_number_params = sum(p.numel() for p in self.score_estimator.parameters() if p.requires_grad)
         self.config.model.total_number_params = self.total_number_params
         self.device = next(self.score_estimator.parameters()).device
+
+        self.autoencoder = Autoencoder(d_LM=self.encoder_gen.config.hidden_size,
+                                       max_len=self.config.data.max_sequence_len).requires_grad_(True).train().cuda()
+
+        self.train_ae = True
 
         self.dynamic = DynamicSDE(config=config)
         self.diff_eq_solver = create_solver(config)(
@@ -169,9 +175,19 @@ class DiffusionRunner:
         ema.restore(score_model.parameters())
 
     def set_optimizer(self) -> None:
+        if self.train_ae:
+            params = self.autoencoder.parameters()
+            print(params)
+            self.config.optim.lr = 5e-5
+            self.config.optim.weight_decay = 1e-2
+            self.config.optim.beta_1 = 0.9
+            self.config.optim.beta_2 = 0.999
+            self.config.optim.grad_clip_norm = 1.0
+        else:
+            params = self.score_estimator.parameters()
         if self.optimizer is None:
             optimizer = torch.optim.AdamW(
-                self.score_estimator.parameters(),
+                params,
                 lr=self.config.optim.lr,
                 weight_decay=self.config.optim.weight_decay,
                 betas=(self.config.optim.beta_1, self.config.optim.beta_2),
@@ -237,9 +253,13 @@ class DiffusionRunner:
         self.optimizer.zero_grad()
         self.grad_scaler.scale(loss).backward()
         self.grad_scaler.unscale_(self.optimizer)
+        if self.train_ae:
+            params = self.autoencoder.parameters()
+        else:
+            params = self.score_estimator.parameters()
 
         grad_norm = torch.sqrt(
-            sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters() if t.requires_grad]))
+            sum([torch.sum(t.grad ** 2) for t in params if t.requires_grad]))
 
         if self.grad_clip_norm is not None:
             torch.nn.utils.clip_grad_norm_(
@@ -248,7 +268,7 @@ class DiffusionRunner:
             )
 
         clipped_grad_norm = torch.sqrt(
-            sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters() if t.requires_grad]))
+            sum([torch.sum(t.grad ** 2) for t in params if t.requires_grad]))
 
         self.log_metric('lr', 'train', self.optimizer.param_groups[0]['lr'])
         self.grad_scaler.step(self.optimizer)
@@ -324,7 +344,7 @@ class DiffusionRunner:
         # self-cond estimate
         x_0_self_cond = torch.zeros_like(clean_x, dtype=clean_x.dtype)
         if self.use_self_cond and random.random() > 0.5:
-            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16): # bfloat
                 t_next = t
                 params_next = self.dynamic.marginal_params(t_next)
                 x_t_next = params_next["mu"] * clean_x + params_next["std"] * noise
@@ -337,7 +357,7 @@ class DiffusionRunner:
                     ).detach()
 
         # model prediction
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16): # bfloat
             scores = self.calc_score(
                 model=self.ddp_score_estimator,
                 x_t=x_t,
@@ -394,8 +414,8 @@ class DiffusionRunner:
 
     def train(
             self,
-            project_name: str = 'bert_diffusion',
-            experiment_name: str = 'bert_emb'
+            project_name: str = 'autoencoder', # 'bert_diffusion',
+            experiment_name: str = 'ae' # 'bert_emb'
     ) -> None:
         self.set_optimizer()
         self.set_scheduler()
@@ -438,7 +458,8 @@ class DiffusionRunner:
                 self.save_checkpoint()
 
             if self.step % self.config.training.eval_freq == 0:
-                self.estimate()
+                if not self.train_ae:
+                    self.estimate()
                 self.validate()
                 # self.compute_restoration_loss(suffix="train")
                 # self.compute_restoration_loss(suffix="valid")
@@ -446,7 +467,7 @@ class DiffusionRunner:
             self.train_range.set_description(
                 f"loss_x_0: {loss_dict['loss_x_0'].item():0.4f}, "
                 f"grad_norm: {stat_dict['grad_norm'].item():0.4f}, "
-                f"accuracy: {loss_dict['accuracy'].item():0.4f}"
+                # f"accuracy: {loss_dict['accuracy'].item():0.4f}"
             )
 
         # torch.cuda.synchronize()
@@ -455,7 +476,7 @@ class DiffusionRunner:
         self.step += 1
 
         X = dict_to_cuda(X)
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16): # bfloat
             with torch.no_grad():
                 clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
                 if X.get("cond_ids", None) is None:
@@ -469,15 +490,35 @@ class DiffusionRunner:
                 latent[torch.arange(len(latent)), attention_mask.sum(-1) - 1] = self.sep_emb
                 latent[~attention_mask.bool()] = self.pad_emb
                 clean_X = self.gen_enc_normalizer.normalize(latent)
+            
+            loss_dict = {}
 
-        loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
+        if self.train_ae:
+            # logits = self.pred_logits(clean_X, X['input_ids'])
+            ae_out = self.autoencoder(clean_X,
+                                        padding_mask=X['input_mask'])
+            print(f'AUTOENCODER OUTPUT GRAD: {ae_out.requires_grad}')
+            logits = self.pred_logits(pred_embeddings=ae_out,
+                                    input_ids=X['input_ids'])
+            print(f'LOGITS GRAD: {logits.requires_grad}')
+            loss = recon_loss(ae_out, X['input_ids'], mask=X['input_mask'])
+            loss_dict['total_loss'] = loss
+            loss_dict['loss'] = loss
+            stat_dict = {}
+        else:
+            loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)        
 
         stat_dict["grad_norm"], stat_dict["clipped_grad_norm"] = self.optimizer_step(loss_dict['total_loss'])
         stat_dict["scale_factor"] = torch.Tensor([self.grad_scaler._scale])
 
         if self.step % 10 == 0:
+            if self.train_ae:
+                params = self.autoencoder.parameters()
+            else:
+                params = self.score_estimator.parameters()
+            
             stat_dict["weight_norm"] = torch.sqrt(
-                sum([torch.sum(t.data ** 2) for t in self.score_estimator.parameters()]))
+                sum([torch.sum(t.data ** 2) for t in params]))
 
             for k, v in loss_dict.items():
                 self.log_metric(k, 'train', v.item())
@@ -492,6 +533,7 @@ class DiffusionRunner:
 
         self.ddp_score_estimator.eval()
         self.switch_to_ema()
+        self.autoencoder.eval()
 
         valid_loss: Dict[str, torch.Tensor] = dict()
         valid_count = torch.Tensor([0.0])
@@ -513,7 +555,18 @@ class DiffusionRunner:
                 latent[~attention_mask.bool()] = self.pad_emb
                 clean_X = self.gen_enc_normalizer.normalize(latent)
 
-                loss_dict, _ = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
+                loss_dict = {}
+
+                if self.train_ae:
+                    logits = self.pred_logits(pred_embeddings=self.autoencoder(clean_X,
+                                                                               padding_mask=X['input_mask']),
+                                              input_ids=X['input_ids'])
+                    loss = recon_loss(logits, X['input_ids'], mask=X['input_mask'])
+                    loss_dict['loss'] = loss
+                    loss_dict['total_loss'] = loss
+                else:
+                    loss_dict, _ = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
+
                 for k, v in loss_dict.items():
                     if k in valid_loss:
                         valid_loss[k] += v.item() * clean_X.size(0)
@@ -532,12 +585,10 @@ class DiffusionRunner:
 
         self.switch_back_from_ema()
         self.ddp_score_estimator.train(prev_mode)
+        self.autoencoder.train()
 
     def save_checkpoint(self, last: bool = False) -> None:
         if dist.get_rank() == 0:
-            if not os.path.exists(self.checkpoints_folder):
-                os.makedirs(self.checkpoints_folder)
-
             prefix = ''
             if self.config.checkpoints_prefix:
                 prefix = self.config.checkpoints_prefix + '_'
@@ -545,19 +596,32 @@ class DiffusionRunner:
                 prefix = prefix + 'last_'
             else:
                 prefix = prefix + str(self.step) + '_'
+            
+            if self.train_ae: 
+                model_dict = self.autoencoder.state_dict()
+                ema_dict = self.autoencoder.state_dict()
+                checkpoints_folder = self.checkpoints_folder + '/autoencoder'
+            else:
+                model_dict = self.score_estimator.state_dict()
+                ema_dict = self.ema.state_dict()
+                checkpoints_folder = self.checkpoints_folder + '/trash'
+            
+            if not os.path.exists(checkpoints_folder):
+                os.makedirs(checkpoints_folder)
+
 
             torch.save(
                 {
-                    "model": self.score_estimator.state_dict(),
-                    "ema": self.ema.state_dict(),
+                    "model": model_dict,
+                    "ema": ema_dict,
                     "optimizer": self.optimizer.state_dict(),
                     "scheduler": self.scheduler.state_dict(),
                     "scaler": self.grad_scaler.state_dict(),
                     "step": self.step,
                 },
-                os.path.join(self.checkpoints_folder, prefix + ".pth")
+                os.path.join(checkpoints_folder, prefix + ".pth")
             )
-            print(f"Save model to: {os.path.join(self.checkpoints_folder, prefix + f'model.pth')}")
+            print(f"Save model to: {os.path.join(checkpoints_folder, prefix + f'model.pth')}")
 
     def refresh_checkpoint(self):
         if not self.config.refresh.true:
@@ -610,7 +674,9 @@ class DiffusionRunner:
     @torch.no_grad()
     def pred_logits(self, pred_embeddings, input_ids=None):
         pred_embeddings = self.gen_enc_normalizer.denormalize(pred_embeddings)
+        print(f'NORMALIZED GRAD: {pred_embeddings.requires_grad}')
         output = self.decoder(pred_embeddings)
+        print(f'DEC GRAD: {output.grad}')
         return output
 
     @torch.no_grad()

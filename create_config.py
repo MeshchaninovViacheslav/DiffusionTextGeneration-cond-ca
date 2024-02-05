@@ -79,7 +79,7 @@ def create_config():
     config.seed = 0
     config.ddp = True
     config.use_self_cond = True
-    config.project_name = "article-rocstory_exps"
+    config.project_name = "test"
     config.timesteps = "linear"
     config.is_conditional = False
     config.bert_config = bert_config

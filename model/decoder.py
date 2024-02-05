@@ -26,4 +26,11 @@ class BertDecoder(nn.Module):
             raise
 
     def forward(self, x):
-        return self.net(x)
+        print(f'BERT CONFIG: {self.bert.config}')
+        print(f'LINEAR GRAD: {self.fc.weight.requires_grad}')
+        print(f'INPUT GRAD: {x.requires_grad}')
+        d = self.bert(x).last_hidden_state
+        print(f'LAST HID GRAD: {d.requires_grad}')
+        d = self.fc(d)
+        return d
+        # return self.net(x)

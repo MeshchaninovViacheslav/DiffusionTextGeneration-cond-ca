@@ -39,7 +39,7 @@ def create_config():
 
     refresh = config.refresh = ml_collections.ConfigDict()
     refresh.true = False
-    refresh.prefix = "./checkpoints/cond-rocstory-bert-base-cased-bert-base-cased-16-64-spt_100000_.pth"
+    refresh.prefix = "./checkpoints/cond-rocstory-t5-base-bert-base-cased-16-64-spt-wonorm_10000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -52,7 +52,7 @@ def create_config():
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
     dynamic.scheduler = "sd"
-    dynamic.N = 200
+    dynamic.N = 50
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
@@ -65,8 +65,8 @@ def create_config():
     model.loss = "L_x_0"
     model.encoder_name = "bert-base-cased"
     model.encoder_name_hash = "bert-base-cased"
-    model.cond_encoder_name = "t5-base"
-    model.cond_encoder_name_hash = "t5-base"
+    model.cond_encoder_name = "bert-base-cased"
+    model.cond_encoder_name_hash = "bert-base-cased"
     model.decoder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-{model.encoder_name_hash}-transformer-spt.pth"
     model.delta = 0.
     

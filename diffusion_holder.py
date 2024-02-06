@@ -49,13 +49,9 @@ class DiffusionRunner:
 
         cond_cfg = config.model.cond_encoder_name
         self.tokenizer_cond = AutoTokenizer.from_pretrained(cond_cfg)
-        # self.cond_enc_normalizer = EncNormalizer(
-        #     enc_mean_path=self.config.data.enc_t5_mean,
-        #     enc_std_path=self.config.data.enc_t5_std,
-        # )
-        self.encoder_cond = T5EncoderModel.from_pretrained(
+        self.encoder_cond = BertEncoderModel.from_pretrained(
             cond_cfg,
-            enc_normalizer=None,# self.cond_enc_normalizer
+            enc_normalizer=None,
         ).eval().cuda()
 
 
@@ -185,7 +181,7 @@ class DiffusionRunner:
     def set_optimizer(self) -> None:
         if self.optimizer is None:
             optimizer = torch.optim.AdamW(
-                list(self.score_estimator.parameters()) + list(self.encoder_cond.parameters()),#self.score_estimator.parameters(),#list(self.score_estimator.parameters()) + list(self.encoder_cond.parameters()),
+                list(self.score_estimator.parameters()),#self.score_estimator.parameters(),#list(self.score_estimator.parameters()) + list(self.encoder_cond.parameters()),
                 lr=self.config.optim.lr,
                 weight_decay=self.config.optim.weight_decay,
                 betas=(self.config.optim.beta_1, self.config.optim.beta_2),
@@ -436,8 +432,8 @@ class DiffusionRunner:
                 self.save_checkpoint()
 
             if self.step % self.config.training.eval_freq == 0:
-                self.estimate()
                 self.validate()
+                self.estimate()
                 # self.compute_restoration_loss(suffix="train")
                 # self.compute_restoration_loss(suffix="valid")
 
@@ -452,9 +448,23 @@ class DiffusionRunner:
     def train_step(self, X):
         self.step += 1
 
-        X = dict_to_cuda(X)
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             with torch.no_grad():
+                cond = self.tokenizer_cond(
+                    X["text_cond"],
+                    add_special_tokens=True,
+                    padding=True,
+                    truncation=False,
+                    return_tensors="pt",
+                    return_attention_mask=True,
+                )
+                cond = dict_to_cuda(cond)
+                cond_X = self.encoder_cond(**cond)
+                X["cond_mask"] = cond["attention_mask"]
+                X["cond_ids"] = cond["input_ids"]
+                X["input_ids"] = X["input_ids"].cuda()
+                X["input_mask"] = X["input_mask"].cuda()
+
                 clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
                 
                 attention_mask = X["input_mask"]
@@ -466,7 +476,7 @@ class DiffusionRunner:
             
             cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
 
-        loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
+        loss_dict, stat_dict = self.calc_loss(clean_x=clean_X, cond=cond_X, X=X)
 
         stat_dict["grad_norm"], stat_dict["clipped_grad_norm"] = self.optimizer_step(loss_dict['total_loss'])
         stat_dict["scale_factor"] = torch.Tensor([self.grad_scaler._scale])
@@ -493,14 +503,23 @@ class DiffusionRunner:
         valid_count = torch.Tensor([0.0])
 
         with torch.no_grad():
-            for text in self.valid_loader:
-                X = text
-                X = dict_to_cuda(X)
+            for X in self.valid_loader:
+                cond = self.tokenizer_cond(
+                    X["text_cond"],
+                    add_special_tokens=True,
+                    padding=True,
+                    truncation=False,
+                    return_tensors="pt",
+                    return_attention_mask=True,
+                )
+                cond = dict_to_cuda(cond)
+                cond_X = self.encoder_cond(**cond)
+                X["cond_mask"] = cond["attention_mask"]
+                X["cond_ids"] = cond["input_ids"]
+                X["input_ids"] = X["input_ids"].cuda()
+                X["input_mask"] = X["input_mask"].cuda()
+
                 clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
-                if X.get("cond_ids", None) is None:
-                    cond = None
-                else:
-                    cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
 
                 attention_mask = X["input_mask"]
                 latent = self.gen_enc_normalizer.denormalize(clean_X)
@@ -509,7 +528,7 @@ class DiffusionRunner:
                 latent[~attention_mask.bool()] = self.pad_emb
                 clean_X = self.gen_enc_normalizer.normalize(latent)
 
-                loss_dict, _ = self.calc_loss(clean_x=clean_X, cond=cond, X=X)
+                loss_dict, _ = self.calc_loss(clean_x=clean_X, cond=cond_X, X=X)
                 for k, v in loss_dict.items():
                     if k in valid_loss:
                         valid_loss[k] += v.item() * clean_X.size(0)
@@ -591,9 +610,16 @@ class DiffusionRunner:
             for key in X:
                 X[key] = X[key][:tmp_batch_size]
 
-            X = dict_to_cuda(X)
+            cond = self.tokenizer_cond(
+                X["text_cond"],
+                add_special_tokens=True,
+                padding=True,
+                truncation=False,
+                return_tensors="pt",
+                return_attention_mask=True,
+            )
 
-            cond = {"cond_ids": X.get("cond_ids", None), "cond_mask": X.get("cond_mask", None)}
+            cond = {"cond_ids": cond["input_ids"].cuda(), "cond_mask": cond["attention_mask"].cuda()}
            
             gen_text = self.generate_text_batch(
                 batch_size=tmp_batch_size,
@@ -601,7 +627,7 @@ class DiffusionRunner:
                 attention_mask=None,
             )[0]
             
-            cond_text = self.tokenizer_cond.batch_decode(X["cond_ids"], skip_special_tokens=True)
+            cond_text = self.tokenizer_cond.batch_decode(cond["cond_ids"], skip_special_tokens=True)
             gt_text = self.tokenizer_gen.batch_decode(X["input_ids"], skip_special_tokens=True)
         
             result_dict["COND"] += cond_text

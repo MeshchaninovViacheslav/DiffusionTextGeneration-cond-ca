@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+from random import random
 import torch.distributed as dist
 from typing import List
 from datasets import Dataset
@@ -59,34 +60,25 @@ class RocStoryDatasetDDP:
             batch_size=1000,
         )
 
-        self.dt = self.dt.with_format("pt", columns=["input_ids", "cond_ids", "input_mask", "cond_mask"])
+        self.dt = self.dt.with_format("pt", columns=["input_ids", "input_mask", "text_cond"])
         return self.dt
 
 
     def batch_preprocessing(self, batch):
         # Random split
         batch_size = len(batch["text"])
-        elem_counts = self.max_cond_len
-        delimeter_poses = (np.random.rand(batch_size) * elem_counts).astype(int)
 
         texts_cond = []
         texts_input = []
         for i, text in enumerate(batch["text"]):
-            words = text.split()
-            cond_text = " ".join(words[:delimeter_poses[i]])
-            input_text = " ".join(words[delimeter_poses[i]:])
-            texts_cond.append(cond_text)
-            texts_input.append(input_text)
+            sent = text.split(".")
+            if random() < 0.1:
+                texts_cond.append("")
+            else:
+                texts_cond.append(sent[0])
+            texts_input.append(".".join(sent[1:]))
 
         # Text encode
-        cond_ = self.tokenizer_cond(
-            texts_cond,
-            add_special_tokens=True,
-            padding="max_length",
-            truncation=True,
-            max_length=self.max_sequence_len,
-        )
-
         input_ = self.tokenizer_gen(
             texts_input,
             add_special_tokens=True,
@@ -97,9 +89,8 @@ class RocStoryDatasetDDP:
 
         output = {
             "input_ids": input_["input_ids"],
-            "cond_ids": cond_["input_ids"],
             "input_mask": input_["attention_mask"],
-            "cond_mask": cond_["attention_mask"],
+            "text_cond": texts_cond,
         }
         return output
 

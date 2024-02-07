@@ -605,7 +605,7 @@ class DiffusionRunner:
 
         while len(result_dict["GEN"]) < num_texts:
             X = next(loader)
-            tmp_batch_size = int(min(X["cond_ids"].shape[0], num_texts - len(result_dict["GEN"])))
+            tmp_batch_size = int(min(len(X["text_cond"]), num_texts - len(result_dict["GEN"])))
             
             for key in X:
                 X[key] = X[key][:tmp_batch_size]

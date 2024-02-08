@@ -105,4 +105,19 @@ def compute_mauve(all_texts_list, human_references, model_id='gpt2-large'):
 
     return results.mauve
 
+def compute_rouge(all_texts_list, human_references, model_id='gpt2-large'):
+    torch.cuda.empty_cache() 
+
+    rouge = load('rouge')
+    assert len(all_texts_list) == len(human_references)
+
+    metrics = rouge.compute(predictions=all_texts_list, references=human_references)
+    return metrics
+
+def compute_bert_score(all_texts_list, human_references):
+    torch.cuda.empty_cache()
+
+    bertscore = load("bertscore")
+    results = bertscore.compute(predictions=all_texts_list, references=human_references, model_type="microsoft/deberta-xlarge-mnli")
+    return np.mean(results["f1"])
     

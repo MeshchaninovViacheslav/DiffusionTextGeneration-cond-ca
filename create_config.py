@@ -25,7 +25,6 @@ def create_config():
 
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 100_000
-    training.training_iters = training.training_iters
     training.checkpoint_freq = 10_000
     training.eval_freq = 10_000
     training.batch_size = 512
@@ -33,17 +32,12 @@ def create_config():
     training.checkpoints_folder = './checkpoints/'
     training.checkpoints_prefix = ''
 
-    refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = False
-    refresh.prefix = "./checkpoints/cond-rocstory-t5-base-bert-base-cased-16-64-spt-wonorm_10000_.pth"
-    refresh.wand_id = "g5fb4af3"
-
     validation = config.validation = ml_collections.ConfigDict()
     validation.batch_size = 512
-    validation.validation_iters = int(10_000 / validation.batch_size)
     validation.num_gen_texts = 1500
     validation.num_text_to_est = 1000
     validation.p_uncond = 0.
+    validation.texts_path = "./generated_texts"
 
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
@@ -62,8 +56,6 @@ def create_config():
     model.conditional_encoder_name = "t5-base"
     model.encoder_name_hash = model.encoder_name.replace("/", "-")
     model.conditional_encoder_name_hash = model.conditional_encoder_name.replace("/", "-")
-    model.decoder_mode = "transformer"
-    model.decoder_path = f"./{training.checkpoints_folder}/decoder-{model.encoder_name_hash}-{model.decoder_mode}.pth"
     model.conditional_encoder_train = False
     
     data = config.data = ml_collections.ConfigDict()
@@ -73,8 +65,9 @@ def create_config():
     data.dataset_path = "/home/vmeshchaninov/nlp_models/data/rocstories"
     data.enc_gen_mean = f"{data.dataset_path}/encodings-{model.encoder_name_hash}-mean.pt"
     data.enc_gen_std = f"{data.dataset_path}/encodings-{model.encoder_name_hash}-std.pt"
-    data.train_path = f"{data.dataset_path}/train/data.txt"
-    data.valid_path = f"{data.dataset_path}/test/data.txt"
+
+    model.decoder_mode = "transformer"
+    model.decoder_path = f"./{training.checkpoints_folder}/decoder-{model.encoder_name_hash}-{model.decoder_mode}.pth"
 
     config.seed = 0
     config.ddp = True

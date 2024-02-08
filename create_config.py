@@ -15,8 +15,8 @@ def create_config():
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
     optim.linear_warmup = 1000
-    optim.lr = 2e-4
-    optim.min_lr = 2e-4
+    optim.lr = 5e-5
+    optim.min_lr = 5e-5
     optim.warmup_lr = 1e-8
     optim.weight_decay = 0.01
     optim.beta_1 = 0.9
@@ -24,31 +24,25 @@ def create_config():
     optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 100_000
-    training.training_iters = training.training_iters
-    training.checkpoint_freq = 10_000
-    training.eval_freq = 10_000
+    training.training_iters = 500_000
+    training.checkpoint_freq = 50_000
+    training.eval_freq = 5_000
     training.batch_size = 512
     training.ode_sampling = False
-    training.checkpoints_folder = './checkpoints/'
+    training.checkpoints_folder = './checkpoints'
     training.checkpoints_prefix = ''
-
-    refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = False
-    refresh.prefix = "./checkpoints/cond-rocstory-t5-base-bert-base-cased-16-64-spt-wonorm_10000_.pth"
-    refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
     validation.batch_size = 512
-    validation.validation_iters = int(10_000 / validation.batch_size)
-    validation.num_gen_texts = 1500
-    validation.num_text_to_est = 1000
+    validation.num_gen_texts = 2500
+    validation.num_text_to_est = 2500
     validation.p_uncond = 0.
+    validation.texts_path = "./generated_texts"
 
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
     dynamic.scheduler = "sd"
-    dynamic.N = 50
+    dynamic.N = 250
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
@@ -59,27 +53,26 @@ def create_config():
     model.prediction = "x_0"
     model.loss = "L_x_0"
     model.encoder_name = "bert-base-cased"
-    model.conditional_encoder_name = "t5-base"
+    model.conditional_encoder_name = "bert-base-cased"
     model.encoder_name_hash = model.encoder_name.replace("/", "-")
     model.conditional_encoder_name_hash = model.conditional_encoder_name.replace("/", "-")
-    model.decoder_mode = "transformer"
-    model.decoder_path = f"./{training.checkpoints_folder}/decoder-{model.encoder_name_hash}-{model.decoder_mode}.pth"
     model.conditional_encoder_train = False
-    
+
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
-    data.max_context_len = 16
-    data.dataset_name = "rocstory"
-    data.dataset_path = "/home/vmeshchaninov/nlp_models/data/rocstories"
+    data.max_context_len = 64
+    data.dataset_name = "qqp"
+    data.dataset_path = "/home/vmeshchaninov/nlp_models/data/qqp"
     data.enc_gen_mean = f"{data.dataset_path}/encodings-{model.encoder_name_hash}-mean.pt"
     data.enc_gen_std = f"{data.dataset_path}/encodings-{model.encoder_name_hash}-std.pt"
-    data.train_path = f"{data.dataset_path}/train/data.txt"
-    data.valid_path = f"{data.dataset_path}/test/data.txt"
+
+    model.decoder_mode = "transformer"
+    model.decoder_path = f"{training.checkpoints_folder}/decoder-{data.dataset_name}-{model.encoder_name_hash}-{model.decoder_mode}.pth"
 
     config.seed = 0
     config.ddp = True
     config.use_self_cond = True
-    config.project_name = "article-rocstory-conditional_exps"
+    config.project_name = "article-qqp"
     config.timesteps = "linear"
     config.is_conditional = True
     config.bert_config = bert_config

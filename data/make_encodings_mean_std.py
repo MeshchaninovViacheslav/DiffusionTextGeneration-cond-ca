@@ -4,16 +4,8 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
-import sys
-
-sys.path.insert(0, "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca")
-
-from utils.util import dict_to_cuda, make_mask_wo_SEP_CLS
-
 from data import create_dataset
-
 from model import Encoder
-
 from create_config import create_config
 
 
@@ -24,8 +16,7 @@ def get_loader(config, tokenizer, batch_size):
         split="train",
         tokenizer_cond=tokenizer,
         tokenizer_gen=tokenizer,
-        train_path=config.data.train_path,
-        valid_path=config.data.valid_path,
+        base_path=config.data.dataset_path,
         max_sequence_len=config.data.max_sequence_len + config.data.max_context_len,
         max_context_len=0,
     ).get_data())
@@ -57,15 +48,25 @@ def compute_mean_std(
     )
     T = tqdm(train_loader)
 
-    for i, X in enumerate(T):
-        X = dict_to_cuda(X)
+    for i, batch in enumerate(T):
+        trg = tokenizer(
+            batch['text_trg'],
+            add_special_tokens=True,
+            padding="max_length",
+            truncation=True,
+            max_length=config.data.max_sequence_len,
+            return_tensors="pt",
+            return_special_tokens_mask=True,
+            return_token_type_ids=False,
+        )     
+
         with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             output = encoder(**{
-                    "input_ids": X["input_ids"],
-                    "attention_mask": X["input_mask"]
+                    "input_ids": trg["input_ids"].cuda(),
+                    "attention_mask": trg["attention_mask"].cuda()
                 })
 
-        mask = 1 - X["special_tokens_mask"]
+        mask = 1 - trg["special_tokens_mask"].cuda()
         output = output * mask[:, :, None]
         cur_sum = torch.sum(output, dim=[0, 1])
         cur_sqr_sum = torch.sum(output ** 2, dim=[0, 1])
@@ -92,7 +93,7 @@ if __name__ == "__main__":
 
     tokenizer = AutoTokenizer.from_pretrained(config.model.encoder_name)
     
-    encoder = Encoder.from_pretrained(
+    encoder = Encoder(
         config.model.encoder_name,
         enc_normalizer=None,
         is_change_sp_tokens=False,

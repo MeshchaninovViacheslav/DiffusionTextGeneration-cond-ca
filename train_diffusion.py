@@ -1,24 +1,15 @@
 import os
-import sys
 import torch
-import psutil
-import datasets
 import torch.distributed as dist
-
-datasets.config.IN_MEMORY_MAX_SIZE = psutil.virtual_memory().available
 
 from diffusion_holder import DiffusionRunner
 from utils.util import set_seed
 from create_config import create_config
 
 
-sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
-
-
 if __name__ == '__main__':
     config = create_config()
-    suffix = f"{config.data.max_sequence_len}"
-    config.training.checkpoints_prefix = f"cond-{config.model.dataset}-{config.model.cond_encoder_name_hash}-{config.model.encoder_name_hash}-{suffix}"  
+    config.training.checkpoints_prefix = f"{config.data.dataset_name}-{config.model.conditional_encoder_name_hash}-{config.model.encoder_name_hash}"  
 
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
         rank = int(os.environ["RANK"])
@@ -36,7 +27,6 @@ if __name__ == '__main__':
     config.training.batch_size_per_gpu = config.training.batch_size // dist.get_world_size()
     seed = config.seed
     set_seed(seed)
-    os.environ['CONFIG_PATH'] = "/home/vmeshchaninov/DiffusionTextGeneration/data/config.json"
     if dist.get_rank() == 0:
         print(config)
 
@@ -46,5 +36,5 @@ if __name__ == '__main__':
     set_seed(seed)
     diffusion.train(
         project_name=config.project_name,
-        experiment_name=config.checkpoints_prefix
+        experiment_name=config.training.checkpoints_prefix
     )

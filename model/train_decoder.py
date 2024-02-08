@@ -1,3 +1,4 @@
+import os
 import torch
 import wandb
 from tqdm import tqdm
@@ -5,15 +6,7 @@ from torch.nn.functional import cross_entropy
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
-import os
-import sys
-
-sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
-
 from data import create_dataset
-
-from utils.util import dict_to_cuda
-
 from model.decoder import BertDecoder
 from model import Encoder
 from model.enc_normalizer import EncNormalizer
@@ -44,8 +37,7 @@ def get_loaders(config, tokenizer, max_sequence_len, batch_size):
         split="train",
         tokenizer_cond=tokenizer,
         tokenizer_gen=tokenizer,
-        train_path=config.data.train_path,
-        valid_path=config.data.valid_path,
+        base_path=config.data.dataset_path,
         max_sequence_len=config.data.max_sequence_len + config.data.max_context_len,
         max_context_len=0,
     ).get_data())
@@ -58,20 +50,19 @@ def get_loaders(config, tokenizer, max_sequence_len, batch_size):
         pin_memory=True,
     )
 
-    train_dataset = next(create_dataset(
+    valid_dataset = next(create_dataset(
         dataset_name=config.data.dataset_name,
     )(
-        split="train",
+        split="test",
         tokenizer_cond=tokenizer,
         tokenizer_gen=tokenizer,
-        train_path=config.data.train_path,
-        valid_path=config.data.valid_path,
+        base_path=config.data.dataset_path,
         max_sequence_len=config.data.max_sequence_len + config.data.max_context_len,
         max_context_len=0,
     ).get_data())
 
-    train_loader = DataLoader(
-        train_dataset,
+    valid_loader = DataLoader(
+        valid_dataset,
         batch_size=batch_size,
         num_workers=20,
         pin_memory=True,
@@ -80,14 +71,23 @@ def get_loaders(config, tokenizer, max_sequence_len, batch_size):
     return train_loader, valid_loader
 
 
-def loss_step(X, tokenizer, encoder, decoder, eval=False):
-    X = dict_to_cuda(X)
-    targets = X["input_ids"].type(torch.LongTensor).cuda()
+def loss_step(batch, tokenizer, encoder, decoder, config, eval=False):
+    trg = tokenizer(
+            batch['text_trg'],
+            add_special_tokens=True,
+            padding="max_length",
+            truncation=True,
+            max_length=config.data.max_sequence_len,
+            return_tensors="pt",
+            return_special_tokens_mask=True,
+            return_token_type_ids=False,
+        )
+    targets = trg["input_ids"].cuda()
     
     with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
         latent = encoder(**{
-            "input_ids": X["input_ids"],
-            "attention_mask": X["input_mask"]
+            "input_ids": targets,
+            "attention_mask": trg["attention_mask"].cuda()
         }).cuda()
 
     if not eval:
@@ -115,6 +115,7 @@ def train(config, encoder, decoder, tokenizer):
     batch_size = 512
 
     train_loader, valid_loader = get_loaders(
+        config=config,
         tokenizer=tokenizer,
         max_sequence_len=max_sequence_len,
         batch_size=batch_size
@@ -133,12 +134,13 @@ def train(config, encoder, decoder, tokenizer):
     for _ in range(epochs):
         decoder.train()
 
-        for X in tqdm(train_loader):
+        for batch in tqdm(train_loader):
             loss, acc = loss_step(
-                X=X,
+                batch=batch,
                 tokenizer=tokenizer,
                 encoder=encoder,
-                decoder=decoder
+                decoder=decoder,
+                config=config,
             )
        
             optimizer.zero_grad()
@@ -156,13 +158,14 @@ def train(config, encoder, decoder, tokenizer):
 
             if step % eval_freq == 0:
                 decoder.eval()
-                for X in tqdm(valid_loader):
+                for batch in tqdm(valid_loader):
                     with torch.no_grad():
                         loss, acc = loss_step(
-                            X=X,
+                            batch=batch,
                             tokenizer=tokenizer,
                             encoder=encoder,
                             decoder=decoder,
+                            config=config,
                             eval=True
                         )
                 decoder.train()

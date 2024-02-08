@@ -10,18 +10,14 @@ import sys
 
 sys.path.append("/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/")
 
-from data.dataset import RocStoryDatasetDDP
+from data import create_dataset
 
 from utils.util import dict_to_cuda
 
-from model.encoder_t5 import T5EncoderModel
-from model.encoder_roberta import RobertaEncoderModel
-from model.electra_encoder import ElectraEncoderModel
-from model.emb_encoder import EmbEncoderModel
 from model.decoder import BertDecoder
-from model.encoder_bert import BertEncoderModel
+from model import Encoder
+from model.enc_normalizer import EncNormalizer
 from create_config import create_config
-from model.encoder_bart import BartEncoderModel
 
 
 def reconstruction_loss(target, prediction_scores, mask):
@@ -41,28 +37,41 @@ def reconstruction_loss(target, prediction_scores, mask):
     return ce_loss
 
 
-def get_loaders(tokenizer, max_sequence_len, batch_size):
-    train_dataset = next(RocStoryDatasetDDP(
+def get_loaders(config, tokenizer, max_sequence_len, batch_size):
+    train_dataset = next(create_dataset(
+        dataset_name=config.data.dataset_name,
+    )(
         split="train",
-        tokenizer=tokenizer,
-        max_sequence_len=max_sequence_len,
+        tokenizer_cond=tokenizer,
+        tokenizer_gen=tokenizer,
+        train_path=config.data.train_path,
+        valid_path=config.data.valid_path,
+        max_sequence_len=config.data.max_sequence_len + config.data.max_context_len,
+        max_context_len=0,
     ).get_data())
 
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
+        shuffle=True,
         num_workers=20,
         pin_memory=True,
     )
 
-    valid_dataset = next(RocStoryDatasetDDP(
-        split="valid",
-        tokenizer=tokenizer,
-        max_sequence_len=max_sequence_len,
+    train_dataset = next(create_dataset(
+        dataset_name=config.data.dataset_name,
+    )(
+        split="train",
+        tokenizer_cond=tokenizer,
+        tokenizer_gen=tokenizer,
+        train_path=config.data.train_path,
+        valid_path=config.data.valid_path,
+        max_sequence_len=config.data.max_sequence_len + config.data.max_context_len,
+        max_context_len=0,
     ).get_data())
 
-    valid_loader = DataLoader(
-        valid_dataset,
+    train_loader = DataLoader(
+        train_dataset,
         batch_size=batch_size,
         num_workers=20,
         pin_memory=True,
@@ -76,27 +85,17 @@ def loss_step(X, tokenizer, encoder, decoder, eval=False):
     targets = X["input_ids"].type(torch.LongTensor).cuda()
     
     with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-        #with torch.autocast(device_type='cuda', dtype=torch.float32):
         latent = encoder(**{
             "input_ids": X["input_ids"],
             "attention_mask": X["input_mask"]
         }).cuda()
 
-        embeddings = encoder.module.bert.embeddings.word_embeddings.weight.data.cpu()
-
-        cls_emb = embeddings[tokenizer.cls_token_id].cuda()
-        sep_emb = embeddings[tokenizer.sep_token_id].cuda()
-        pad_emb = embeddings[tokenizer.pad_token_id].cuda()
-
-        attention_mask = X["input_mask"]
-        latent[:, 0] = cls_emb
-        latent[torch.arange(len(latent)), attention_mask.sum(-1) - 1] = sep_emb
-        latent[~attention_mask.bool()] = pad_emb
-
     if not eval:
         sigma = 0.2
         eps = torch.randn_like(latent) * sigma
         latent = latent + eps
+
+    latent = encoder.module.enc_normalizer.denormalize(latent)
     
     with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
         logits = decoder(latent)
@@ -108,7 +107,7 @@ def loss_step(X, tokenizer, encoder, decoder, eval=False):
     return loss, acc
 
 
-def train(encoder, decoder, tokenizer, exp_name):
+def train(config, encoder, decoder, tokenizer):
     total_number_params = sum(p.numel() for p in decoder.parameters() if p.requires_grad)
     print(f"Num params: {total_number_params}")
 
@@ -171,34 +170,37 @@ def train(encoder, decoder, tokenizer, exp_name):
                 wandb.log({f'valid loss': loss.item()}, step=step)
                 wandb.log({f'valid accuracy': acc.item()}, step=step)
 
-    checkpoints_folder = '/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/'
-    name = os.path.join(checkpoints_folder, f"decoder-{exp_name}.pth")
+    os.makedirs(config.training.checkpoints_folder, exist_ok=True)
     decoder.eval()
     torch.save(
         {
             "decoder": decoder.state_dict(),
         },
-        name
+        config.model.decoder_path
     )
-    print(f"Save model to: {name}")
+    print(f"Save model to: {config.model.decoder_path}")
 
 
 def main():
     config = create_config()
-    cfg = config.model.encoder_name
-    tokenizer = AutoTokenizer.from_pretrained(cfg)
-
-    encoder = BertEncoderModel.from_pretrained(
-        cfg,
-        enc_normalizer=None
+    tokenizer = AutoTokenizer.from_pretrained(config.model.encoder_name)
+    enc_normalizer = EncNormalizer(
+        enc_mean_path=config.data.enc_gen_mean,
+        enc_std_path=config.data.enc_gen_std,
+    )
+    encoder = Encoder(
+        config.model.encoder_name,
+        enc_normalizer=enc_normalizer,
+        is_change_sp_tokens=True,
     ).eval()
     encoder = torch.nn.DataParallel(encoder).cuda()
 
-    decoder = BertDecoder(model_name=cfg, mode="transformer").train().cuda()
 
-    exp_name = f"{cfg}-transformer-spt"
-    wandb.init(project="rocstory-decoders", name=exp_name, mode="online")
-    train(encoder, decoder, tokenizer, exp_name=exp_name)
+    decoder = BertDecoder(model_name=config.model.encoder_name, mode="transformer").train().cuda()
+
+    exp_name = f"{config.model.encoder_name_hash}-transformer"
+    wandb.init(project=config.project_name, name=exp_name, mode="online")
+    train(config, encoder, decoder, tokenizer)
 
 
 main()

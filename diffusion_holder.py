@@ -24,8 +24,7 @@ from utils.ema_model import ExponentialMovingAverage
 from data.dataset import create_dataset
 
 from model.score_estimator_cond import ScoreEstimatorEMB
-from model.encoder_t5 import T5EncoderModel
-from model.encoder_bert import BertEncoderModel
+from model import Encoder
 from model.enc_normalizer import EncNormalizer
 from model.decoder import BertDecoder
 from estimation_utils.mauve_metric import compute_mauve
@@ -43,40 +42,35 @@ class DiffusionRunner:
             eval: bool = False
     ):
         self.config = config
-        self.eval = eval
-        self.use_self_cond = config.use_self_cond
-        self.checkpoints_folder = config.training.checkpoints_folder
 
-        cond_cfg = config.model.cond_encoder_name
-        self.tokenizer_cond = AutoTokenizer.from_pretrained(cond_cfg)
-        self.encoder_cond = BertEncoderModel.from_pretrained(
-            cond_cfg,
+        # Condition Encoder
+        self.tokenizer_cond = AutoTokenizer.from_pretrained(config.model.cond_encoder_name)
+        self.encoder_cond = Encoder.from_pretrained(
+            config.model.cond_encoder_name,
             enc_normalizer=None,
-        ).eval().cuda()
+            is_change_sp_tokens=False,
+        ).cuda()
+        if not config.model.conditional_encoder_train:
+            self.encoder_cond.eval()
 
-
-        gen_cfg = config.model.encoder_name
-        self.tokenizer_gen = AutoTokenizer.from_pretrained(gen_cfg)
+        # Diffusion Encoder
+        self.tokenizer_gen = AutoTokenizer.from_pretrained(config.model.encoder_name)
         self.gen_enc_normalizer = EncNormalizer(
             enc_mean_path=self.config.data.enc_bert_mean,
             enc_std_path=self.config.data.enc_bert_std,
         )
-        self.encoder_gen = BertEncoderModel.from_pretrained(
-            gen_cfg,
-            enc_normalizer=self.gen_enc_normalizer
+        self.encoder_gen = Encoder.from_pretrained(
+            config.model.encoder_name,
+            enc_normalizer=self.gen_enc_normalizer,
+            is_change_sp_tokens=True,
         ).eval().cuda()
 
-
-        self.decoder = BertDecoder(model_name=config.model.encoder_name, mode="transformer")
+        # Decoder
+        self.decoder = BertDecoder(model_name=config.model.encoder_name, mode=config.model.mode)
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 
-        self.optimizer = None
-        self.scheduler = None
-        self.step = 0
-        self.delta = config.model.delta
-
-
+        # Score estimator
         self.bert_config = config.bert_config
         self.bert_config.use_self_cond = config.use_self_cond
         self.score_estimator = ScoreEstimatorEMB(
@@ -91,10 +85,16 @@ class DiffusionRunner:
                 device_ids=[config.local_rank],
                 broadcast_buffers=False,
             )
-        self.total_number_params = sum(p.numel() for p in self.score_estimator.parameters() if p.requires_grad)
-        self.config.model.total_number_params = self.total_number_params
+
+        # Number of parameters
+        self.config.params_number.score_estimator = sum(p.numel() for p in self.score_estimator.parameters() if p.requires_grad)
+        self.config.params_number.decoder = sum(p.numel() for p in self.decoder.parameters())
+        self.config.params_number.conditional_encoder = sum(p.numel() for p in self.encoder_cond.parameters())
+        self.config.params_number.generative_encoder = sum(p.numel() for p in self.encoder_gen.parameters())
+
         self.device = next(self.score_estimator.parameters()).device
 
+        # Dynamic
         self.dynamic = DynamicSDE(config=config)
         self.diff_eq_solver = create_solver(config)(
             dynamic=self.dynamic,
@@ -102,45 +102,32 @@ class DiffusionRunner:
             ode_sampling=config.training.ode_sampling
         )
 
-        if eval:
-            self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), config.model.ema_rate)
-            self.restore_parameters(self.device)
-            self.switch_to_ema()
-            self.score_estimator.eval()
-
-        self.grad_expl_dict = defaultdict(list)
-
+        # Datasets
         self.train_datasets_iter = create_dataset(
-            dataset_name=config.model.dataset,
+            dataset_name=config.data.dataset_name,
         )(
             split="train",
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,
             max_sequence_len=self.config.data.max_sequence_len,
-            max_cond_len=self.config.data.max_cond_len,
+            max_context_len=self.config.data.max_cond_len,
             train_path=config.data.train_path,
             valid_path=config.data.valid_path,
         ).get_data()
         self.train_dataset = None
 
         self.valid_datasets_iter = create_dataset(
-            dataset_name=config.model.dataset,
+            dataset_name=config.data.dataset_name,
         )(
             split="valid",
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,
             max_sequence_len=self.config.data.max_sequence_len,
-            max_cond_len=self.config.data.max_cond_len,
+            max_context_len=self.config.data.max_cond_len,
             train_path=config.data.train_path,
             valid_path=config.data.valid_path,
         ).get_data()
         self.valid_dataset = next(self.valid_datasets_iter)
-
-        embeddings = self.encoder_gen.bert.embeddings.word_embeddings.weight.data.cpu()
-
-        self.cls_emb = embeddings[self.tokenizer_gen.cls_token_id].cuda()
-        self.sep_emb = embeddings[self.tokenizer_gen.sep_token_id].cuda()
-        self.pad_emb = embeddings[self.tokenizer_gen.pad_token_id].cuda()
 
         if self.config.ddp and dist.get_rank() == 0:
             wandb.init(
@@ -150,8 +137,25 @@ class DiffusionRunner:
                 mode="online"
             )
 
+        # Checkpoint loading
+        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), config.model.ema_rate)
+
+        if eval:
+            self.restore_parameters(self.device)
+            self.switch_to_ema()
+            self.score_estimator.eval()
+        else:
+            self.set_optimizer()
+            self.set_scheduler()
+            self.set_grad_scaler()
+            self.step = 0
+            
+            if self.load_checkpoint():
+                self.estimate()
+                self.validate()
+
     def restore_parameters(self, device: Optional[torch.device] = None) -> None:
-        checkpoints_folder: str = self.checkpoints_folder
+        checkpoints_folder: str = self.config.training.checkpoints_folder
         if device is None:
             device = torch.device('cpu')
         prefix = ''
@@ -164,8 +168,71 @@ class DiffusionRunner:
     def restore_decoder(self):
         decoder_path = self.config.model.decoder_path
         self.decoder.load_state_dict(
-            torch.load(os.path.join(self.checkpoints_folder, decoder_path))["decoder"]
+            torch.load(os.path.join(self.config.training.checkpoints_folder, decoder_path))["decoder"]
         )
+
+    def save_checkpoint(self, last: bool = False) -> None:
+        if not dist.get_rank() == 0:
+            return
+
+        if not os.path.exists(self.config.training.checkpoints_folder):
+            os.makedirs(self.config.training.checkpoints_folder)
+            
+        prefix_folder = os.path.join(self.config.training.checkpoints_folder, self.config.training.checkpoints_prefix)
+        if not os.path.exists(prefix_folder):
+            os.makedirs(prefix_folder)
+
+        if last:
+            prefix = 'last'
+        else:
+            prefix = str(self.step)
+
+        save_path = os.path.join(prefix_folder, prefix + ".pth")
+        torch.save(
+            {
+                "model": self.score_estimator.state_dict(),
+                "ema": self.ema.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+                "scheduler": self.scheduler.state_dict(),
+                "scaler": self.grad_scaler.state_dict(),
+                "step": self.step,
+                "decoder": self.decoder.state_dict(),
+                "conditional_encoder": self.encoder_cond.state_dict(),
+            },
+            save_path
+        )
+        print(f"Save model to: {save_path}")
+
+    def load_checkpoint(self) -> int:
+        prefix_folder = os.path.join(self.config.training.checkpoints_folder, self.config.training.checkpoints_prefix)
+
+        if not os.path.exists(prefix_folder):
+            return False
+
+        checkpoint_names = list(os.listdir(prefix_folder))
+        checkpoint_names = [str(t).replace(".pth", "") for t in checkpoint_names]
+        checkpoint_names = [int(t) for t in checkpoint_names if t.isdigit()]
+
+        if not checkpoint_names:
+            return False
+
+        name = max(checkpoint_names)
+        checkpoint_name = f"{prefix_folder}/{name}.pth"
+
+        load = torch.load(checkpoint_name, map_location="cpu")
+
+        self.ema.load_state_dict(load["ema"])
+        self.ema.cuda()
+        self.switch_to_ema()
+        self.optimizer.load_state_dict(load["optimizer"])
+        self.scheduler.load_state_dict(load["scheduler"])
+        self.grad_scaler.load_state_dict(load["scaler"])
+        self.encoder_cond.load_state_dict(load["conditional_encoder"])
+        
+        self.step = load["step"]
+        if dist.get_rank() == 0:
+            print(f"Checkpoint is loaded {checkpoint_name}")
+        return True
 
     def switch_to_ema(self) -> None:
         ema = self.ema
@@ -179,21 +246,19 @@ class DiffusionRunner:
         ema.restore(score_model.parameters())
 
     def set_optimizer(self) -> None:
-        if self.optimizer is None:
-            optimizer = torch.optim.AdamW(
-                list(self.score_estimator.parameters()),#self.score_estimator.parameters(),#list(self.score_estimator.parameters()) + list(self.encoder_cond.parameters()),
-                lr=self.config.optim.lr,
-                weight_decay=self.config.optim.weight_decay,
-                betas=(self.config.optim.beta_1, self.config.optim.beta_2),
-                eps=self.config.optim.eps,
-            )
-            self.warmup = self.config.optim.linear_warmup
-            self.grad_clip_norm = self.config.optim.grad_clip_norm
-            self.optimizer = optimizer
-        else:
-            for param_group in self.optimizer.param_groups:
-                param_group['lr'] = self.config.optim.lr
-                param_group['weight_decay'] = self.config.optim.weight_decay
+        parameters = list(self.score_estimator.parameters())
+        if self.config.model.conditional_encoder_train:
+            parameters += list(self.encoder_cond.parameters())
+        optimizer = torch.optim.AdamW(
+            parameters,
+            lr=self.config.optim.lr,
+            weight_decay=self.config.optim.weight_decay,
+            betas=(self.config.optim.beta_1, self.config.optim.beta_2),
+            eps=self.config.optim.eps,
+        )
+        self.warmup = self.config.optim.linear_warmup
+        self.grad_clip_norm = self.config.optim.grad_clip_norm
+        self.optimizer = optimizer
 
     def set_scheduler(self) -> None:
         self.scheduler = CosineLRScheduler(
@@ -268,124 +333,7 @@ class DiffusionRunner:
 
     def sample_time(self, batch_size: int, eps: float = 1e-5):
         return torch.cuda.FloatTensor(batch_size).uniform_() * (self.dynamic.T - eps) + eps
-
-    def calc_score(
-            self,
-            model,
-            x_t, t,
-            cond=None,
-            attention_mask=None,
-            cond_mask=None,
-            x_0_self_cond=None
-    ) -> Dict[str, torch.Tensor]:
-        """
-        x_0 - prediction x_0(x_t, t)
-        eps = (x_t - sqrt(alpha_t) * x_0) / std
-        score = (-x_t + sqrt(alpha_t) * x_0) / std**2
-        """
-        params = self.dynamic.marginal_params(t)
-        #t = torch.clip(t + self.delta, max=self.dynamic.T)
-        x_0 = model(
-            x_t=x_t, time_t=t, cond=cond,
-            attention_mask=attention_mask, cond_mask=cond_mask,
-            x_0_self_cond=x_0_self_cond
-        )
-
-        eps_theta = (x_t - params["mu"] * x_0) / params["std"]
-        score = -eps_theta / params["std"]
-        return {
-            "score": score,
-            "x_0": x_0,
-            "eps_theta": eps_theta
-        }
-
-    def calc_loss(
-            self,
-            clean_x,
-            cond=None,
-            X=None,
-            eps: float = 1e-5,
-    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
-        mask = None  # X["input_mask"]
-
-        # Noizing
-        batch_size = clean_x.size(0)
-
-        t = self.sample_time(batch_size, eps=eps)
-        marg_forward = self.dynamic.marginal(clean_x, t)
-        x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
-
-        # self-cond estimate
-        x_0_self_cond = torch.zeros_like(clean_x, dtype=clean_x.dtype)
-        if self.use_self_cond and random.random() > 0.5:
-            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                t_next = t
-                params_next = self.dynamic.marginal_params(t_next)
-                x_t_next = params_next["mu"] * clean_x + params_next["std"] * noise
-
-                with torch.no_grad():
-                    x_0_self_cond = self.ddp_score_estimator(
-                        x_t=x_t_next, time_t=t_next, cond=cond,
-                        attention_mask=mask, cond_mask=X.get("cond_mask", None),
-                        x_0_self_cond=x_0_self_cond
-                    ).detach()
-
-        # model prediction
-        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            scores = self.calc_score(
-                model=self.ddp_score_estimator,
-                x_t=x_t,
-                t=t,
-                cond=cond,
-                cond_mask=X.get("cond_mask", None),
-                attention_mask=mask,
-                x_0_self_cond=x_0_self_cond,
-            )
-
-        # MSE losses
-        x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
-
-        loss_x_0 = mse_loss(clean_x, x_0, mask)
-        loss_eps = mse_loss(noise, eps_theta, mask)
-        loss_score = mse_loss(score_clean, score, mask)
-
-        # Decoder reconstruction
-        logits = self.pred_logits(pred_embeddings=x_0, input_ids=X["input_ids"])
-        ce_loss = recon_loss(logits, X["input_ids"], mask)
-
-        loss = loss_x_0
-
-        loss = loss + ce_loss * self.config.loss.ce_coef
-        loss_dict = {
-            'loss': loss,
-            'total_loss': loss,
-            'loss_eps': loss_eps,
-            'loss_x_0': loss_x_0,
-            'loss_score': loss_score,
-            'loss_ce': ce_loss,
-            'accuracy': bert_acc(targets=X["input_ids"], outputs=logits, mask=mask)
-        }
-
-        stat_dict = {}
-        clean_x_dict = get_stat(clean_x, mask)
-        for key in clean_x_dict:
-            stat_dict[f"clean_x_{key}"] = clean_x_dict[key]
-
-        x_0_dict = get_stat(x_0, mask)
-        for key in x_0_dict:
-            stat_dict[f"x_0_{key}"] = x_0_dict[key]
-
-        mask = X["input_mask"]
-        clean_x_dict_SPT = get_stat(clean_x, mask)
-        for key in clean_x_dict_SPT:
-            stat_dict[f"clean_x_woSPT_{key}"] = clean_x_dict_SPT[key]
-
-        x_0_dict_SPT = get_stat(x_0, mask)
-        for key in x_0_dict_SPT:
-            stat_dict[f"x_0_woSPT_{key}"] = x_0_dict_SPT[key]
-
-        return loss_dict, stat_dict
-
+    
     def train(
             self,
             project_name: str = 'bert_diffusion',
@@ -443,8 +391,6 @@ class DiffusionRunner:
                 f"accuracy: {loss_dict['accuracy'].item():0.4f}"
             )
 
-        # torch.cuda.synchronize()
-
     def train_step(self, X):
         self.step += 1
 
@@ -466,13 +412,6 @@ class DiffusionRunner:
                 X["input_mask"] = X["input_mask"].cuda()
 
                 clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
-                
-                attention_mask = X["input_mask"]
-                latent = self.gen_enc_normalizer.denormalize(clean_X)
-                latent[:, 0] = self.cls_emb
-                latent[torch.arange(len(latent)), attention_mask.sum(-1) - 1] = self.sep_emb
-                latent[~attention_mask.bool()] = self.pad_emb
-                clean_X = self.gen_enc_normalizer.normalize(latent)
             
             cond = self.encoder_cond(**{"input_ids": X["cond_ids"], "attention_mask": X["cond_mask"]})
 
@@ -521,13 +460,6 @@ class DiffusionRunner:
 
                 clean_X = self.encoder_gen(**{"input_ids": X["input_ids"], "attention_mask": X["input_mask"]})
 
-                attention_mask = X["input_mask"]
-                latent = self.gen_enc_normalizer.denormalize(clean_X)
-                latent[:, 0] = self.cls_emb
-                latent[torch.arange(len(latent)), attention_mask.sum(-1) - 1] = self.sep_emb
-                latent[~attention_mask.bool()] = self.pad_emb
-                clean_X = self.gen_enc_normalizer.normalize(latent)
-
                 loss_dict, _ = self.calc_loss(clean_x=clean_X, cond=cond_X, X=X)
                 for k, v in loss_dict.items():
                     if k in valid_loss:
@@ -548,49 +480,120 @@ class DiffusionRunner:
         self.switch_back_from_ema()
         self.ddp_score_estimator.train(prev_mode)
 
-    def save_checkpoint(self, last: bool = False) -> None:
-        if dist.get_rank() == 0:
-            if not os.path.exists(self.checkpoints_folder):
-                os.makedirs(self.checkpoints_folder)
+    def calc_score(
+            self,
+            model,
+            x_t, t,
+            cond=None,
+            attention_mask=None,
+            cond_mask=None,
+            x_0_self_cond=None
+    ) -> Dict[str, torch.Tensor]:
+        """
+        x_0 - prediction x_0(x_t, t)
+        eps = (x_t - sqrt(alpha_t) * x_0) / std
+        score = (-x_t + sqrt(alpha_t) * x_0) / std**2
+        """
+        params = self.dynamic.marginal_params(t)
+        #t = torch.clip(t + self.delta, max=self.dynamic.T)
+        x_0 = model(
+            x_t=x_t, time_t=t, cond=cond,
+            attention_mask=attention_mask, cond_mask=cond_mask,
+            x_0_self_cond=x_0_self_cond
+        )
 
-            prefix = ''
-            if self.config.checkpoints_prefix:
-                prefix = self.config.checkpoints_prefix + '_'
-            if last:
-                prefix = prefix + 'last_'
-            else:
-                prefix = prefix + str(self.step) + '_'
+        eps_theta = (x_t - params["mu"] * x_0) / params["std"]
+        score = -eps_theta / params["std"]
+        return {
+            "score": score,
+            "x_0": x_0,
+            "eps_theta": eps_theta
+        }
 
-            torch.save(
-                {
-                    "model": self.score_estimator.state_dict(),
-                    "cond_encoder": self.encoder_cond.state_dict(),
-                    "ema": self.ema.state_dict(),
-                    "optimizer": self.optimizer.state_dict(),
-                    "scheduler": self.scheduler.state_dict(),
-                    "scaler": self.grad_scaler.state_dict(),
-                    "step": self.step,
-                },
-                os.path.join(self.checkpoints_folder, prefix + ".pth")
+    def calc_loss(
+            self,
+            clean_x,
+            cond=None,
+            X=None,
+            eps: float = 1e-5,
+    ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+        mask = None  # X["input_mask"]
+
+        # Noizing
+        batch_size = clean_x.size(0)
+
+        t = self.sample_time(batch_size, eps=eps)
+        marg_forward = self.dynamic.marginal(clean_x, t)
+        x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
+
+        # self-cond estimate
+        x_0_self_cond = torch.zeros_like(clean_x, dtype=clean_x.dtype)
+        if self.config.use_self_cond and random.random() > 0.5:
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                t_next = t
+                params_next = self.dynamic.marginal_params(t_next)
+                x_t_next = params_next["mu"] * clean_x + params_next["std"] * noise
+
+                with torch.no_grad():
+                    x_0_self_cond = self.ddp_score_estimator(
+                        x_t=x_t_next, time_t=t_next, cond=cond,
+                        attention_mask=mask, cond_mask=X.get("cond_mask", None),
+                        x_0_self_cond=x_0_self_cond
+                    ).detach()
+
+        # model prediction
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            scores = self.calc_score(
+                model=self.ddp_score_estimator,
+                x_t=x_t,
+                t=t,
+                cond=cond,
+                cond_mask=X.get("cond_mask", None),
+                attention_mask=mask,
+                x_0_self_cond=x_0_self_cond,
             )
-            print(f"Save model to: {os.path.join(self.checkpoints_folder, prefix + f'model.pth')}")
 
-    def refresh_checkpoint(self):
-        if not self.config.refresh.true:
-            return
-        load = torch.load(f'{self.config.refresh.prefix}', map_location="cpu")
+        # MSE losses
+        x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
 
-        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
-        self.ema.load_state_dict(load["ema"])
-        self.ema.cuda()
-        self.switch_to_ema()
+        loss_x_0 = mse_loss(clean_x, x_0, mask)
+        loss_eps = mse_loss(noise, eps_theta, mask)
+        loss_score = mse_loss(score_clean, score, mask)
 
-        self.optimizer.load_state_dict(load["optimizer"])
-        self.scheduler.load_state_dict(load["scheduler"])
-        self.grad_scaler.load_state_dict(load["scaler"])
-        self.step = load["step"]
-        print(f"Checkpoint refreshed {self.config.refresh.prefix}")
+        # Decoder reconstruction
+        logits = self.pred_logits(pred_embeddings=x_0, input_ids=X["input_ids"])
+        ce_loss = recon_loss(logits, X["input_ids"], mask)
 
+        loss = loss_x_0
+        loss_dict = {
+            'loss': loss,
+            'total_loss': loss,
+            'loss_eps': loss_eps,
+            'loss_x_0': loss_x_0,
+            'loss_score': loss_score,
+            'loss_ce': ce_loss,
+            'accuracy': bert_acc(targets=X["input_ids"], outputs=logits, mask=mask)
+        }
+
+        stat_dict = {}
+        clean_x_dict = get_stat(clean_x, mask)
+        for key in clean_x_dict:
+            stat_dict[f"clean_x_{key}"] = clean_x_dict[key]
+
+        x_0_dict = get_stat(x_0, mask)
+        for key in x_0_dict:
+            stat_dict[f"x_0_{key}"] = x_0_dict[key]
+
+        mask = X["input_mask"]
+        clean_x_dict_SPT = get_stat(clean_x, mask)
+        for key in clean_x_dict_SPT:
+            stat_dict[f"clean_x_woSPT_{key}"] = clean_x_dict_SPT[key]
+
+        x_0_dict_SPT = get_stat(x_0, mask)
+        for key in x_0_dict_SPT:
+            stat_dict[f"x_0_woSPT_{key}"] = x_0_dict_SPT[key]
+
+        return loss_dict, stat_dict
     
     @torch.no_grad()
     def generate_text_conditional(self, num_texts):

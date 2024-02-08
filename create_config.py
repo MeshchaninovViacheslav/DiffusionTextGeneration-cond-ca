@@ -28,14 +28,10 @@ def create_config():
     training.training_iters = training.training_iters
     training.checkpoint_freq = 10_000
     training.eval_freq = 10_000
-    training.batch_size = 512  # * 8
-
+    training.batch_size = 512
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
-    config.checkpoints_prefix = ''
-
-    loss = config.loss = ml_collections.ConfigDict()
-    loss.ce_coef = 0.
+    training.checkpoints_prefix = ''
 
     refresh = config.refresh = ml_collections.ConfigDict()
     refresh.true = False
@@ -60,27 +56,26 @@ def create_config():
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
-    model.dataset = "rocstory"
     model.prediction = "x_0"
     model.loss = "L_x_0"
     model.encoder_name = "bert-base-cased"
-    model.encoder_name_hash = "bert-base-cased"
-    model.cond_encoder_name = "bert-base-cased"
-    model.cond_encoder_name_hash = "bert-base-cased"
-    model.decoder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/decoder-{model.encoder_name_hash}-transformer-spt.pth"
-    model.delta = 0.
+    model.conditional_encoder_name = "t5-base"
+    model.encoder_name_hash = model.encoder_name.replace("/", "-")
+    model.conditional_encoder_name_hash = model.conditional_encoder_name.replace("/", "-")
+    model.decoder_mode = "transformer"
+    model.decoder_path = f"./{training.checkpoints_folder}/decoder-{model.encoder_name_hash}-{model.decoder_mode}.pth"
+    model.conditional_encoder_train = False
     
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
-    data.max_cond_len = 16
-    data.enc_bert_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name_hash}-mean.pt"
-    data.enc_bert_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.encoder_name_hash}-std.pt"
-    data.enc_t5_mean = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.cond_encoder_name_hash}-mean.pt"
-    data.enc_t5_std = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/rocstory/encodings-{model.cond_encoder_name_hash}-std.pt"
-    data.train_path = "/home/vmeshchaninov/nlp_models/data/rocstories/train/data.txt"
-    data.valid_path = "/home/vmeshchaninov/nlp_models/data/rocstories/test/data.txt"
+    data.max_context_len = 16
+    data.dataset_name = "rocstory"
+    data.dataset_path = "/home/vmeshchaninov/nlp_models/data/rocstories"
+    data.enc_gen_mean = f"{data.dataset_path}/encodings-{model.encoder_name_hash}-mean.pt"
+    data.enc_gen_std = f"{data.dataset_path}/encodings-{model.encoder_name_hash}-std.pt"
+    data.train_path = f"{data.dataset_path}/train/data.txt"
+    data.valid_path = f"{data.dataset_path}/test/data.txt"
 
-    config.finetuning = False
     config.seed = 0
     config.ddp = True
     config.use_self_cond = True

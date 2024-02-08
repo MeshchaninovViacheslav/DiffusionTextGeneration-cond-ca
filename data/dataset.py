@@ -13,12 +13,12 @@ def create_dataset(dataset_name):
 
 class RocStoryDatasetDDP:
     def __init__(self,
-                split, tokenizer_cond, tokenizer_gen, max_sequence_len, max_cond_len, train_path, valid_path):
+                split, tokenizer_cond, tokenizer_gen, max_sequence_len, max_context_len, train_path, valid_path):
         self.split = split
         self.tokenizer_cond = tokenizer_cond
         self.tokenizer_gen = tokenizer_gen
         self.max_sequence_len = max_sequence_len
-        self.max_cond_len = max_cond_len
+        self.max_context_len = max_context_len
         self.train_path = train_path
         self.valid_path = valid_path
         self.device_id = dist.get_rank() if torch.distributed.is_initialized() else 0
@@ -60,7 +60,7 @@ class RocStoryDatasetDDP:
             batch_size=1000,
         )
 
-        self.dt = self.dt.with_format("pt", columns=["input_ids", "input_mask", "text_cond"])
+        self.dt = self.dt.with_format("pt", columns=["input_ids", "input_mask", "special_tokens_mask", "text_cond"])
         return self.dt
 
 
@@ -85,11 +85,13 @@ class RocStoryDatasetDDP:
             padding="max_length",
             truncation=True,
             max_length=self.max_sequence_len,
+            return_special_tokens_mask=True
         )
 
         output = {
             "input_ids": input_["input_ids"],
             "input_mask": input_["attention_mask"],
+            "special_tokens_mask": input_["special_tokens_mask"],
             "text_cond": texts_cond,
         }
         return output

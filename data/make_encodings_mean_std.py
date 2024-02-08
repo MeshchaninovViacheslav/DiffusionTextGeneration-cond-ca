@@ -10,25 +10,24 @@ sys.path.insert(0, "/home/vmeshchaninov/DiffusionTextGeneration-cond-ca")
 
 from utils.util import dict_to_cuda, make_mask_wo_SEP_CLS
 
-from data.create_dataset import create_rocstory_dataset, create_wiki_dataset
-from data.dataset_clean_wiki import WikipediaCleanDatasetUnconditional
-from data.dataset import RocStoryDatasetDDP
+from data import create_dataset
 
-from model.encoder_roberta import RobertaEncoderModel
-from model.electra_encoder import ElectraEncoderModel
-from model.emb_encoder import EmbEncoderModel
-from model.encoder_bert import BertEncoderModel
-from model.encoder_t5 import T5EncoderModel
-from model.encoder_bart import BartEncoderModel
+from model import Encoder
 
 from create_config import create_config
 
 
-def get_loader(tokenizer, max_sequence_len, batch_size):
-    train_dataset = next(RocStoryDatasetDDP(
+def get_loader(config, tokenizer, batch_size):
+    train_dataset = next(create_dataset(
+        dataset_name=config.data.dataset_name,
+    )(
         split="train",
-        tokenizer=tokenizer,
-        max_sequence_len=max_sequence_len,
+        tokenizer_cond=tokenizer,
+        tokenizer_gen=tokenizer,
+        train_path=config.data.train_path,
+        valid_path=config.data.valid_path,
+        max_sequence_len=config.data.max_sequence_len + config.data.max_context_len,
+        max_context_len=0,
     ).get_data())
 
     train_loader = DataLoader(
@@ -41,21 +40,19 @@ def get_loader(tokenizer, max_sequence_len, batch_size):
 
 
 def compute_mean_std(
+        config,
         encoder,
         tokenizer,
-        model_name, 
-        dataset_name,
 ):
     sum_ = None
     sqr_sum_ = None
     num = 0
 
-    max_sequence_len = 128
     batch_size = 2048
 
     train_loader = get_loader(
+        config=config,
         tokenizer=tokenizer,
-        max_sequence_len=max_sequence_len,
         batch_size=batch_size
     )
     T = tqdm(train_loader)
@@ -68,7 +65,7 @@ def compute_mean_std(
                     "attention_mask": X["input_mask"]
                 })
 
-        mask = make_mask_wo_SEP_CLS(X["input_mask"])
+        mask = 1 - X["special_tokens_mask"]
         output = output * mask[:, :, None]
         cur_sum = torch.sum(output, dim=[0, 1])
         cur_sqr_sum = torch.sum(output ** 2, dim=[0, 1])
@@ -85,26 +82,25 @@ def compute_mean_std(
     mean = sum_ / num
     std = torch.sqrt(sqr_sum_ / num - mean ** 2)
 
-    folder_path = f"/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/data/{dataset_name}/"
-    os.makedirs(folder_path, exist_ok=True)
-    torch.save(mean, f'{folder_path}/encodings-{model_name}-mean.pt')
-    torch.save(std, f'{folder_path}/encodings-{model_name}-std.pt')
+    os.makedirs(config.data.dataset_path, exist_ok=True)
+    torch.save(mean, config.data.enc_gen_mean)
+    torch.save(std, config.data.enc_gen_std)
 
 
 if __name__ == "__main__":
     config = create_config()
-    cfg = config.model.encoder_name
-    tokenizer = AutoTokenizer.from_pretrained(cfg)
+
+    tokenizer = AutoTokenizer.from_pretrained(config.model.encoder_name)
     
-    encoder = BartEncoderModel.from_pretrained(
-        cfg,
-        enc_normalizer=None
-    ).eval()
+    encoder = Encoder.from_pretrained(
+        config.model.encoder_name,
+        enc_normalizer=None,
+        is_change_sp_tokens=False,
+    ).cuda()
     encoder = torch.nn.DataParallel(encoder).cuda()
 
     compute_mean_std(
+        config,
         encoder,
-        tokenizer, 
-        model_name="bart-base",
-        dataset_name="rocstory"
+        tokenizer,
     )

@@ -10,7 +10,8 @@ def create_scheduler(config):
         return SD(config.dynamic.coef_d)
     elif config.dynamic.scheduler == "cosine":
         return CosineIDDPM()
-
+    elif config.dynamic.scheduler == "sqrt":
+        return Sqrt()
 
 
 class Scheduler(metaclass=ABCMeta):
@@ -81,4 +82,23 @@ class CosineIDDPM(Scheduler):
     def params(self, t):
         mu = torch.clip(self.f(t)[:, None, None].to(t.device) / self.f_0, 0, 1)
         std = torch.sqrt(1. - mu ** 2)
+        return torch.clip(mu, 0, 1), torch.clip(std, 0, 1)
+    
+
+class Sqrt(Scheduler):
+    def __init__(self, ):
+        self.s = 0.0001
+
+    def beta_t(self, t):
+        beta_t = 1 / ((torch.sqrt(t + self.s)) * (1 - torch.sqrt(t + self.s)))
+        beta_t = torch.clip(beta_t, 0, 1000)
+        return beta_t
+
+    def params(self, t):
+        t = t[:, None, None]
+        
+        alpha = 1 - torch.sqrt(t + self.s)
+        alpha = torch.clip(alpha, 0, 1)
+        mu = torch.sqrt(alpha)
+        std = torch.sqrt(1. - alpha)
         return torch.clip(mu, 0, 1), torch.clip(std, 0, 1)

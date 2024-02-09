@@ -38,8 +38,8 @@ def create_config():
     loss.ce_coef = 0.
 
     refresh = config.refresh = ml_collections.ConfigDict()
-    refresh.true = False
-    refresh.prefix = "./checkpoints/rocstory-bert-base-cased--spt_100000_.pth"
+    refresh.true = True
+    refresh.prefix = "./checkpoints/rocstory-bert-base-cased-sqrt-13-spt_10000_.pth"
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -51,7 +51,7 @@ def create_config():
 
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
-    dynamic.scheduler = "sd"
+    dynamic.scheduler = "sqrt"
     dynamic.N = 100
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20

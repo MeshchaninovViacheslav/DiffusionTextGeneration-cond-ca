@@ -596,13 +596,13 @@ class DiffusionRunner:
         tokens_list = []
         for seq in tokens:
             id = 0
-            while id < len(seq) and seq[id] not in [eos_id, pad_id]:
+            while id < len(seq) and seq[id] not in [eos_id]:
                 id += 1
             tokens_list.append(seq[0: id])
 
-        # with open("output.txt", "w") as file:
-        #     for t in self.tokenizer_gen.batch_decode(tokens):
-        #         print(t, file=file)
+        with open("output.txt", "w") as file:
+            for t in self.tokenizer_gen.batch_decode(tokens):
+                print(t, file=file)
 
         text = self.tokenizer_gen.batch_decode(tokens_list, skip_special_tokens=True)
         return text, pred_embeddings
@@ -656,6 +656,7 @@ class DiffusionRunner:
 
                 x, x_mean = output["x"], output["x_mean"]
                 x_0_self_cond = output["x_0"]
+                #print(t.item(), torch.norm(x, dim=-1).mean().item())
 
             pred_embeddings = x_mean
 

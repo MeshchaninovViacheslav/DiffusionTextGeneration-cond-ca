@@ -43,16 +43,16 @@ def create_config():
     refresh.wand_id = "g5fb4af3"
 
     validation = config.validation = ml_collections.ConfigDict()
-    validation.batch_size = 260
+    validation.batch_size = 500
     validation.validation_iters = int(10_000 / validation.batch_size)
-    validation.num_gen_texts = 1020
+    validation.num_gen_texts = 1500
     validation.num_text_to_est = 1000
     validation.p_uncond = 0.
 
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
     dynamic.scheduler = "sqrt"
-    dynamic.N = 100
+    dynamic.N = 50
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False

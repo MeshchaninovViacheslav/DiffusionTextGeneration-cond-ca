@@ -118,6 +118,7 @@ def compute_bert_score(all_texts_list, human_references):
     torch.cuda.empty_cache()
 
     bertscore = load("bertscore")
-    results = bertscore.compute(predictions=all_texts_list, references=human_references, model_type="microsoft/deberta-xlarge-mnli")
+    results = bertscore.compute(predictions=all_texts_list, references=human_references, model_type='microsoft/deberta-xlarge-mnli', lang='en', verbose=True)
+    # https://github.com/Shark-NLP/DiffuSeq/blob/f78945d79de5783a4329695c0adb1e11adde31bf/scripts/eval_seq2seq.py#L128C48-L128C115
     return np.mean(results["f1"])
     

@@ -90,7 +90,7 @@ class Sqrt(Scheduler):
         self.s = 0.0001
 
     def beta_t(self, t):
-        beta_t = 1 / ((torch.sqrt(t + self.s)) * (1 - torch.sqrt(t + self.s)))
+        beta_t = 1 / 2 / ((torch.sqrt(t + self.s)) * (1 - torch.sqrt(t + self.s)))
         beta_t = torch.clip(beta_t, 0, 1000)
         return beta_t
 

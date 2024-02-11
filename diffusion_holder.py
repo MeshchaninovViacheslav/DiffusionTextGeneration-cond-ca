@@ -395,22 +395,21 @@ class DiffusionRunner:
                     "attention_mask": cond["attention_mask"]
                 })
 
-
-            trg = self.tokenizer_gen(
-                batch["text_trg"],
-                add_special_tokens=True,
-                padding="max_length",
-                max_length=self.config.data.max_sequence_len,
-                truncation=True,
-                return_tensors="pt",
-                return_attention_mask=True,
-                return_token_type_ids=False,
-            )
-            trg = dict_to_cuda(trg)
-            clean_x = self.encoder_gen(**{
-                "input_ids": trg["input_ids"], 
-                "attention_mask": trg["attention_mask"]
-            })
+                trg = self.tokenizer_gen(
+                    batch["text_trg"],
+                    add_special_tokens=True,
+                    padding="max_length",
+                    max_length=self.config.data.max_sequence_len,
+                    truncation=True,
+                    return_tensors="pt",
+                    return_attention_mask=True,
+                    return_token_type_ids=False,
+                )
+                trg = dict_to_cuda(trg)
+                clean_x = self.encoder_gen(**{
+                    "input_ids": trg["input_ids"], 
+                    "attention_mask": trg["attention_mask"]
+                })
 
         loss_dict, stat_dict = self.calc_loss(clean_x=clean_x, cond_x=cond_x, trg=trg, cond=cond)
 

@@ -42,6 +42,7 @@ class DiffusionRunner:
             eval: bool = False
     ):
         self.config = config
+        self.eval = eval
 
         # Condition Encoder
         self.tokenizer_cond = AutoTokenizer.from_pretrained(config.model.conditional_encoder_name)
@@ -511,6 +512,33 @@ class DiffusionRunner:
             x_0_self_cond=x_0_self_cond
         )
 
+        if self.eval and self.config.dynamic.cfg_coef:
+            cond_null = self.tokenizer_cond.encode_plus(
+                text="",
+                add_special_tokens=True,
+                padding="max_length",
+                truncation=True,
+                max_length=self.config.data.max_sequence_len,
+                return_tensors="pt",
+            )
+            cond_null = dict_to_cuda(cond_null)
+            cond_null["input_ids"] = cond_null["input_ids"].repeat(x_t.shape[0], 1)
+            cond_null["attention_mask"] = cond_null["attention_mask"].repeat(x_t.shape[0], 1)
+
+            cond_null_X = self.encoder_cond(**{
+                "input_ids": cond_null["input_ids"],
+                "attention_mask": cond_null["attention_mask"]
+            })
+            cond_null_mask = cond_null["attention_mask"]
+
+            x_0_null = model(
+                x_t=x_t, time_t=t, cond=cond_null_X,
+                attention_mask=attention_mask, cond_mask=cond_null_mask,
+                x_0_self_cond=x_0_self_cond
+            )   
+
+            x_0 = x_0 + self.config.dynamic.cfg_coef * (x_0 - x_0_null)
+
         eps_theta = (x_t - params["mu"] * x_0) / params["std"]
         score = -eps_theta / params["std"]
         return {
@@ -639,7 +667,7 @@ class DiffusionRunner:
             )[0]
             
             cond_text = self.tokenizer_cond.batch_decode(cond["input_ids"], skip_special_tokens=True)
-            gt_text = batch["text_src"]
+            gt_text = batch["text_trg"]
         
             result_dict["COND"] += cond_text
             result_dict["GT"] += gt_text
@@ -778,9 +806,10 @@ class DiffusionRunner:
             if not os.path.exists(prefix_folder):
                 os.makedirs(prefix_folder)
 
-            file_name = f"{self.step}-N={self.config.dynamic.N}-len={len(text_list)}.json"
+            file_name = f"{self.step}-N={self.config.dynamic.N}-len={len(text_list)}-cfg={self.config.dynamic.cfg_coef}.json"
             save_path = os.path.join(prefix_folder, file_name)
             json.dump(text_list, open(save_path, "w"), indent=4)
+            print(f"Texts are saved: {save_path}")
             
             references = [d["GT"] for d in text_list]
             predictions = [d["GEN"] for d in text_list]
@@ -804,7 +833,7 @@ class DiffusionRunner:
 
 
     @torch.no_grad()
-    def pred_embeddings_classifier_guidance(
+    def pred_embeddings_classifier_guidance_(
             self,
             batch_size,
             cond_X=None,

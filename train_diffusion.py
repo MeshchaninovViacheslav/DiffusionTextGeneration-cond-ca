@@ -9,7 +9,7 @@ from create_config import create_config
 
 if __name__ == '__main__':
     config = create_config()
-    config.training.checkpoints_prefix = f"{config.data.dataset_name}-{config.model.conditional_encoder_name_hash}-{config.model.encoder_name_hash}-batch={config.training.batch_size}"  
+    config.training.checkpoints_prefix = f"{config.data.dataset_name}-{config.model.conditional_encoder_name_hash}-{config.model.encoder_name_hash}-batch={config.training.batch_size}-lr={config.optim.lr}"  
 
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:
         rank = int(os.environ["RANK"])

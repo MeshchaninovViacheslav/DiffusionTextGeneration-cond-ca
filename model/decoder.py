@@ -5,7 +5,7 @@ from transformers.models.bert.modeling_bert import BertOnlyMLMHead
     
 
 class BertDecoder(nn.Module):
-    def __init__(self, model_name, mode='mlm'):
+    def __init__(self, model_name, mode='mlm', is_cond=False):
         super().__init__()
         config = AutoConfig.from_pretrained(model_name)
         bert_config = AutoConfig.from_pretrained("bert-base-uncased")
@@ -14,6 +14,7 @@ class BertDecoder(nn.Module):
 
         if mode == 'transformer':
             bert_config.num_hidden_layers = 3
+            bert_config.is_decoder = is_cond
             self.bert = AutoModel.from_config(bert_config).encoder
             self.fc = nn.Linear(config.hidden_size, config.vocab_size)
             self.net = lambda x: self.fc(self.bert(x).last_hidden_state)

@@ -42,11 +42,12 @@ def create_config():
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
     dynamic.scheduler = "sd"
-    dynamic.N = 250
+    dynamic.N = 50
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
     dynamic.coef_d = 9
+    dynamic.cfg_coef = 0
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
@@ -68,6 +69,7 @@ def create_config():
 
     model.decoder_mode = "transformer"
     model.decoder_path = f"{training.checkpoints_folder}/decoder-{data.dataset_name}-{model.encoder_name_hash}-{model.decoder_mode}.pth"
+    model.decoder_is_cond = False
 
     config.seed = 0
     config.ddp = True

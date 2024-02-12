@@ -42,7 +42,7 @@ def create_config():
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
     dynamic.scheduler = "sd"
-    dynamic.N = 20
+    dynamic.N = 50
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
@@ -61,9 +61,9 @@ def create_config():
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
-    data.max_context_len = 64
-    data.dataset_name = "qqp"
-    data.dataset_path = "/home/vmeshchaninov/nlp_models/data/qqp"
+    data.max_context_len = 256
+    data.dataset_name = "xsum"
+    data.dataset_path = "/home/vmeshchaninov/nlp_models/data/xsum"
     data.enc_gen_mean = f"{data.dataset_path}/encodings-{model.encoder_name_hash}-mean.pt"
     data.enc_gen_std = f"{data.dataset_path}/encodings-{model.encoder_name_hash}-std.pt"
 

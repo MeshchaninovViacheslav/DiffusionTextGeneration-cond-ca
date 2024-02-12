@@ -1,5 +1,7 @@
+import os
 from datasets import load_dataset
 from collections import defaultdict
+
 
 def download_glue(base_path):
     base_path = f"{base_path}/glue/"
@@ -45,6 +47,17 @@ def download_wikipedia(base_path):
     dt_dict.save_to_disk(f"{base_path}/wikipedia")
 
 
+def download_xsum():
+    dataset = load_dataset("EdinburghNLP/xsum")
+
+    os.makedirs(f"{base_path}/xsum", exist_ok=True)
+    os.makedirs(f"{base_path}/xsum/train", exist_ok=True)
+    os.makedirs(f"{base_path}/xsum/valid", exist_ok=True)
+    os.makedirs(f"{base_path}/xsum/test", exist_ok=True)
+
+    dataset["train"].save_to_disk(f"{base_path}/xsum/train/")
+    dataset["test"].save_to_disk(f"{base_path}/xsum/test/")
+    dataset["validation"].save_to_disk(f"{base_path}/xsum/valid/")
 
 
 base_path = "/home/vmeshchaninov/nlp_models/data"

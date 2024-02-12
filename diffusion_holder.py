@@ -384,7 +384,8 @@ class DiffusionRunner:
                 batch["text_src"],
                 add_special_tokens=True,
                 padding=True,
-                truncation=False,
+                truncation=True,
+                max_length=self.config.data.max_context_len,
                 return_tensors="pt",
                 return_attention_mask=True,
                 return_token_type_ids=False,
@@ -394,7 +395,7 @@ class DiffusionRunner:
                 "input_ids": cond["input_ids"],
                 "attention_mask": cond["attention_mask"]
             })
-            
+
             with torch.no_grad():
                 trg = self.tokenizer_gen(
                     batch["text_trg"],
@@ -444,7 +445,8 @@ class DiffusionRunner:
                     batch["text_src"],
                     add_special_tokens=True,
                     padding=True,
-                    truncation=False,
+                    truncation=True,
+                    max_length=self.config.data.max_context_len,
                     return_tensors="pt",
                     return_attention_mask=True,
                 )
@@ -652,7 +654,8 @@ class DiffusionRunner:
                 batch["text_src"],
                 add_special_tokens=True,
                 padding=True,
-                truncation=False,
+                truncation=True,
+                max_length=self.config.data.max_context_len,
                 return_tensors="pt",
                 return_attention_mask=True,
                 return_token_type_ids=False,

@@ -112,7 +112,7 @@ class RocStoryDatasetDDP:
 
 class QQPDatasetDDP:
     def __init__(self,
-                 split, tokenizer_cond, tokenizer_gen, max_sequence_len, max_context_len, base_path):
+                 split, tokenizer_cond=None, tokenizer_gen=None, max_sequence_len=None, max_context_len=None, base_path=None):
         self.split = split
         self.tokenizer_cond = tokenizer_cond
         self.tokenizer_gen = tokenizer_gen

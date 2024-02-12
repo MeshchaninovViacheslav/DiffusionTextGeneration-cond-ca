@@ -686,7 +686,14 @@ class DiffusionRunner:
 
         cond_x = self.encoder_cond(**{"input_ids": cond["input_ids"], "attention_mask": cond["attention_mask"]})
 
-        pred_embeddings = self.pred_embeddings(
+        if self.config.dynamic.solver == "euler":
+            solver = self.pred_embeddings
+        elif self.config.dynamic.solver == "ddpm":
+            solver = self.pred_embeddings_ddpm
+        elif self.config.dynamic.solver == "ddim":
+            solver = self.pred_embeddings_ddim
+
+        pred_embeddings = solver(
             batch_size,
             attention_mask=attention_mask,
             cond_x=cond_x,
@@ -910,6 +917,110 @@ class DiffusionRunner:
 
                 x_0 = x_0_cond + scale * (x_0_cond - x_0_null)
                 mu, std = q_x_t_rev(x_t, x_0, vec_t)
+                x_t = mu + std * torch.randn_like(x_t)
+                x_0_self_cond = x_0
+
+            pred_embeddings = mu
+        return pred_embeddings
+    
+    @torch.no_grad()
+    def pred_embeddings_ddpm(
+            self,
+            batch_size,
+            cond_x=None,
+            cond_mask=None,
+            attention_mask=None,
+    ):
+        def q_x_t_rev(x_t, x_0, t, next_t):
+            alpha_t = self.dynamic.marginal_params(t)["mu"] ** 2
+            alpha_t_1 = self.dynamic.marginal_params(next_t)["mu"] ** 2
+            beta_t = 1 - alpha_t / alpha_t_1
+
+            mu = torch.sqrt(alpha_t_1) * beta_t / (1 - alpha_t) * x_0 + \
+                 torch.sqrt(1 - beta_t) * (1 - alpha_t_1) / (1 - alpha_t) * x_t
+            std = torch.sqrt((1 - alpha_t_1) / (1 - alpha_t) * beta_t)
+            return mu, std
+
+        shape = (
+            batch_size,
+            self.config.data.max_sequence_len,
+            self.encoder_gen.encoder.config.hidden_size
+        )
+
+        with torch.no_grad():
+            x_t = self.dynamic.prior_sampling(shape).to(self.device)
+            x_0_self_cond = torch.zeros_like(x_t, dtype=x_t.dtype)
+            eps_t = 0.01
+
+            timesteps = torch.linspace(self.dynamic.T, eps_t, self.dynamic.N + 1, device=self.device)
+
+            for idx in tqdm(range(self.dynamic.N)):
+                t = timesteps[idx]
+                next_t = timesteps[idx + 1]
+
+                input_t = t * torch.ones(shape[0], device=self.device)
+                next_input_t = next_t * torch.ones(shape[0], device=self.device)
+
+                x_0 = self.calc_score(
+                    self.score_estimator, x_t, input_t,
+                    cond=cond_x, cond_mask=cond_mask, attention_mask=attention_mask,
+                    x_0_self_cond=x_0_self_cond,
+                )["x_0"]
+
+                mu, std = q_x_t_rev(x_t, x_0, input_t, next_input_t)
+                x_t = mu + std * torch.randn_like(x_t)
+                x_0_self_cond = x_0
+
+            pred_embeddings = mu
+        return pred_embeddings
+    
+    @torch.no_grad()
+    def pred_embeddings_ddim(
+            self,
+            batch_size,
+            cond_x=None,
+            cond_mask=None,
+            attention_mask=None,
+    ):
+        def q_x_t_rev(x_t, x_0, t, next_t):
+            alpha_t = self.dynamic.marginal_params(t)["mu"] ** 2
+            alpha_t_1 = self.dynamic.marginal_params(next_t)["mu"] ** 2
+
+            sigma_t = torch.zeros_like(alpha_t)  # torch.sqrt((1 - alpha_t_1) / (1 - alpha_t)) * torch.sqrt(1 - alpha_t / alpha_t_1) * 0.1
+
+            noise_t = (x_t - torch.sqrt(alpha_t) * x_0) / torch.sqrt(1 - alpha_t)
+            mu = torch.sqrt(alpha_t_1) * x_0 + \
+                 torch.sqrt(1 - alpha_t_1 - sigma_t ** 2) * noise_t
+            std = sigma_t
+            return mu, std
+
+        shape = (
+            batch_size,
+            self.config.data.max_sequence_len,
+            self.encoder_gen.encoder.config.hidden_size
+        )
+
+        with torch.no_grad():
+            x_t = self.dynamic.prior_sampling(shape).to(self.device)
+            x_0_self_cond = torch.zeros_like(x_t, dtype=x_t.dtype)
+            eps_t = 0.01
+
+            timesteps = torch.linspace(self.dynamic.T, eps_t, self.dynamic.N + 1, device=self.device)
+
+            for idx in tqdm(range(self.dynamic.N)):
+                t = timesteps[idx]
+                next_t = timesteps[idx + 1]
+
+                input_t = t * torch.ones(shape[0], device=self.device)
+                next_input_t = next_t * torch.ones(shape[0], device=self.device)
+
+                x_0 = self.calc_score(
+                    self.score_estimator, x_t, input_t,
+                    cond=cond_x, cond_mask=cond_mask, attention_mask=attention_mask,
+                    x_0_self_cond=x_0_self_cond,
+                )["x_0"]
+
+                mu, std = q_x_t_rev(x_t, x_0, input_t, next_input_t)
                 x_t = mu + std * torch.randn_like(x_t)
                 x_0_self_cond = x_0
 

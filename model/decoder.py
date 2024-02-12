@@ -15,9 +15,10 @@ class BertDecoder(nn.Module):
         if mode == 'transformer':
             bert_config.num_hidden_layers = 3
             bert_config.is_decoder = is_cond
+            bert_config.add_cross_attention = is_cond
             self.bert = AutoModel.from_config(bert_config).encoder
             self.fc = nn.Linear(config.hidden_size, config.vocab_size)
-            self.net = lambda x: self.fc(self.bert(x).last_hidden_state)
+            self.net = lambda **x: self.fc(self.bert(**x).last_hidden_state)
 
         elif mode == 'mlm':
             self.cls = BertOnlyMLMHead(config)
@@ -26,5 +27,16 @@ class BertDecoder(nn.Module):
             print('Unknown decoder mode', flush=True)
             raise
 
-    def forward(self, x):
-        return self.net(x)
+    def forward(self, hidden_states, encoder_hidden_states=None, encoder_attention_mask=None):
+        return self.net(
+            hidden_states=hidden_states,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_attention_mask=self.get_extended_attention_mask(encoder_attention_mask),
+        )
+    
+    def get_extended_attention_mask(self, attention_mask):
+        if attention_mask is None:
+            return None
+        extended_attention_mask = attention_mask[:, None, None, :]
+        extended_attention_mask = (1.0 - extended_attention_mask) * torch.iinfo(attention_mask.dtype).min
+        return extended_attention_mask

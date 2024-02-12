@@ -693,7 +693,7 @@ class DiffusionRunner:
             cond_mask=cond["attention_mask"]
         )
 
-        output = self.pred_logits(pred_embeddings)
+        output = self.pred_logits(pred_embeddings, cond_x=cond_x, cond_mask=cond["attention_mask"])
         tokens = output.argmax(dim=-1)
 
         eos_id = self.tokenizer_gen.vocab[self.tokenizer_gen.sep_token]
@@ -714,9 +714,16 @@ class DiffusionRunner:
         return text, pred_embeddings
 
     @torch.no_grad()
-    def pred_logits(self, pred_embeddings, input_ids=None):
+    def pred_logits(self, pred_embeddings, cond_x=None, cond_mask=None):
+        if not self.config.model.decoder_is_cond:
+            cond_x = None
+            cond_mask = None
         pred_embeddings = self.gen_enc_normalizer.denormalize(pred_embeddings)
-        output = self.decoder(pred_embeddings)
+        output = self.decoder(
+            hidden_states=pred_embeddings, 
+            encoder_hidden_states=cond_x,
+            encoder_attention_mask=cond_mask,
+        )
         return output
 
     @torch.no_grad()

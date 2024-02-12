@@ -17,8 +17,8 @@ def get_loader(config, tokenizer, batch_size):
         tokenizer_cond=tokenizer,
         tokenizer_gen=tokenizer,
         base_path=config.data.dataset_path,
-        max_sequence_len=config.data.max_sequence_len + config.data.max_context_len,
-        max_context_len=0,
+        max_sequence_len=config.data.max_sequence_len,
+        max_context_len=config.data.max_context_len,
     ).get_data())
 
     train_loader = DataLoader(

@@ -599,7 +599,7 @@ class DiffusionRunner:
         loss_score = mse_loss(score_clean, score, mask)
 
         # Decoder reconstruction
-        logits = self.pred_logits(pred_embeddings=x_0, input_ids=trg["input_ids"])
+        logits = self.pred_logits(pred_embeddings=x_0)
         ce_loss = recon_loss(logits, trg["input_ids"], mask)
 
         loss = loss_x_0

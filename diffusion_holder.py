@@ -780,7 +780,7 @@ class DiffusionRunner:
         self.switch_to_ema()
 
         num_texts = int(self.config.validation.num_gen_texts / dist.get_world_size())
-        if (self.config.validation.num_gen_texts % dist.get_world_size()) > dist.get_rank():
+        if (self.config.validation.num_gen_texts % dist.get_world_size()) >= dist.get_rank():
             num_texts += 1
         
         seed = self.config.seed + dist.get_rank()

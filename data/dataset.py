@@ -252,13 +252,13 @@ class XSUMDatasetDDP:
         dt = load_from_disk(f"{self.base_path}/{self.split}")
         dt = dt.rename_columns(
             {
-                "document": "src",
-                "summary": "trg"
+                "document": "text_src",
+                "summary": "text_trg"
             }
         )
 
         dt = self.split_data_across_gpu(dt)
-        dt = Dataset.from_list(dt)
+        dt = Dataset.from_dict(dt)
 
         self.dt = dt.map(
             self.batch_preprocessing_conditional,

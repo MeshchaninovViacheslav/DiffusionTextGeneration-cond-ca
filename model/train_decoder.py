@@ -72,8 +72,8 @@ def loss_step(batch, encoder_gen, tokenizer_gen, encoder_cond, tokenizer_cond, d
         batch["text_src"],
         add_special_tokens=True,
         padding=True,
-        max_length=512,
-        truncation=False,
+        max_length=config.data.max_context_len,
+        truncation=True,
         return_tensors="pt",
         return_attention_mask=True,
     )

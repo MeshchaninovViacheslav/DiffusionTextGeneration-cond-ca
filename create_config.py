@@ -78,7 +78,7 @@ def create_config():
     config.seed = 0
     config.ddp = True
     config.use_self_cond = True
-    config.project_name = "article-qqp"
+    config.project_name = f"article-{data.dataset_name}"
     config.timesteps = "linear"
     config.is_conditional = True
     config.bert_config = bert_config

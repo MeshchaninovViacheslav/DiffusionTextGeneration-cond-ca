@@ -15,8 +15,8 @@ def create_config():
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
     optim.linear_warmup = 1000
-    optim.lr = 5e-5
-    optim.min_lr = 5e-5
+    optim.lr = 4e-4
+    optim.min_lr = 4e-4
     optim.warmup_lr = 1e-8
     optim.weight_decay = 0.01
     optim.beta_1 = 0.9
@@ -24,10 +24,10 @@ def create_config():
     optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 200_000
-    training.checkpoint_freq = 50_000
+    training.training_iters = 100_000
+    training.checkpoint_freq = 5_000
     training.eval_freq = 5_000
-    training.batch_size = 128
+    training.batch_size = 512
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints'
     training.checkpoints_prefix = ''
@@ -42,7 +42,7 @@ def create_config():
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
     dynamic.scheduler = "sd"
-    dynamic.N = 50
+    dynamic.N = 20
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
@@ -54,10 +54,10 @@ def create_config():
     model.prediction = "x_0"
     model.loss = "L_x_0"
     model.encoder_name = "bert-base-cased"
-    model.conditional_encoder_name = "bert-base-cased"
+    model.conditional_encoder_name = "bert-base-cased"#"t5-base"
     model.encoder_name_hash = model.encoder_name.replace("/", "-")
     model.conditional_encoder_name_hash = model.conditional_encoder_name.replace("/", "-")
-    model.conditional_encoder_train = False
+    model.conditional_encoder_train = True
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
@@ -68,8 +68,12 @@ def create_config():
     data.enc_gen_std = f"{data.dataset_path}/encodings-{model.encoder_name_hash}-std.pt"
 
     model.decoder_mode = "transformer"
-    model.decoder_path = f"{training.checkpoints_folder}/decoder-{data.dataset_name}-{model.encoder_name_hash}-{model.decoder_mode}.pth"
-    model.decoder_is_cond = False
+    model.decoder_path = f"{training.checkpoints_folder}/decoder-{data.dataset_name}-{model.encoder_name_hash}-{model.conditional_encoder_name_hash}-{model.decoder_mode}"
+    model.decoder_is_cond = True
+    if model.decoder_is_cond:
+        model.decoder_path += f"-cond"
+    model.decoder_path += ".pth"
+
 
     config.seed = 0
     config.ddp = True

@@ -380,38 +380,37 @@ class DiffusionRunner:
         self.step += 1
 
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            with torch.no_grad():
-                cond = self.tokenizer_cond(
-                    batch["text_src"],
-                    add_special_tokens=True,
-                    padding=True,
-                    truncation=False,
-                    return_tensors="pt",
-                    return_attention_mask=True,
-                    return_token_type_ids=False,
-                )
-                cond = dict_to_cuda(cond)
-                cond_x = self.encoder_cond(**{
-                    "input_ids": cond["input_ids"],
-                    "attention_mask": cond["attention_mask"]
-                })
-
-
-            trg = self.tokenizer_gen(
-                batch["text_trg"],
+            cond = self.tokenizer_cond(
+                batch["text_src"],
                 add_special_tokens=True,
-                padding="max_length",
-                max_length=self.config.data.max_sequence_len,
-                truncation=True,
+                padding=True,
+                truncation=False,
                 return_tensors="pt",
                 return_attention_mask=True,
                 return_token_type_ids=False,
             )
-            trg = dict_to_cuda(trg)
-            clean_x = self.encoder_gen(**{
-                "input_ids": trg["input_ids"], 
-                "attention_mask": trg["attention_mask"]
-            })  
+            cond = dict_to_cuda(cond)
+            cond_x = self.encoder_cond(**{
+                "input_ids": cond["input_ids"],
+                "attention_mask": cond["attention_mask"]
+            })
+            
+            with torch.no_grad():
+                trg = self.tokenizer_gen(
+                    batch["text_trg"],
+                    add_special_tokens=True,
+                    padding="max_length",
+                    max_length=self.config.data.max_sequence_len,
+                    truncation=True,
+                    return_tensors="pt",
+                    return_attention_mask=True,
+                    return_token_type_ids=False,
+                )
+                trg = dict_to_cuda(trg)
+                clean_x = self.encoder_gen(**{
+                    "input_ids": trg["input_ids"], 
+                    "attention_mask": trg["attention_mask"]
+                })  
 
         loss_dict, stat_dict = self.calc_loss(clean_x=clean_x, cond_x=cond_x, trg=trg, cond=cond)
 

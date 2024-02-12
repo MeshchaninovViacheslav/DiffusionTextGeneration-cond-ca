@@ -142,9 +142,9 @@ def train(config, encoder_gen, tokenizer_gen, encoder_cond, tokenizer_cond, deco
         betas=(0.9, 0.98),
     )
 
-    eval_freq = 100
+    eval_freq = 500
     step = 0
-    epochs = 10
+    epochs = 5
     for _ in range(epochs):
         decoder.train()
 

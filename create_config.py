@@ -14,20 +14,20 @@ def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
-    optim.linear_warmup = 1000
-    optim.lr = 4e-4
-    optim.min_lr = 4e-4
+    optim.linear_warmup = 500
+    optim.lr = 5e-5
+    optim.min_lr = 5e-5
     optim.warmup_lr = 1e-8
     optim.weight_decay = 0.01
     optim.beta_1 = 0.9
-    optim.beta_2 = 0.98
+    optim.beta_2 = 0.999
     optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 100_000
     training.checkpoint_freq = 5_000
     training.eval_freq = 5_000
-    training.batch_size = 512
+    training.batch_size = 32
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints'
     training.checkpoints_prefix = ''
@@ -57,7 +57,7 @@ def create_config():
     model.conditional_encoder_name = "bert-base-cased"#"t5-base"
     model.encoder_name_hash = model.encoder_name.replace("/", "-")
     model.conditional_encoder_name_hash = model.conditional_encoder_name.replace("/", "-")
-    model.conditional_encoder_train = True
+    model.conditional_encoder_train = False
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64

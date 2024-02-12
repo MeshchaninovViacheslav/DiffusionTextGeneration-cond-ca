@@ -380,22 +380,23 @@ class DiffusionRunner:
         self.step += 1
 
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            cond = self.tokenizer_cond(
-                batch["text_src"],
-                add_special_tokens=True,
-                padding=True,
-                truncation=False,
-                return_tensors="pt",
-                return_attention_mask=True,
-                return_token_type_ids=False,
-            )
-            cond = dict_to_cuda(cond)
-            cond_x = self.encoder_cond(**{
-                "input_ids": cond["input_ids"],
-                "attention_mask": cond["attention_mask"]
-            })
-            
             with torch.no_grad():
+                cond = self.tokenizer_cond(
+                    batch["text_src"],
+                    add_special_tokens=True,
+                    padding=True,
+                    truncation=True,
+                    max_length=self.config.data.max_context_len,
+                    return_tensors="pt",
+                    return_attention_mask=True,
+                    return_token_type_ids=False,
+                )
+                cond = dict_to_cuda(cond)
+                cond_x = self.encoder_cond(**{
+                    "input_ids": cond["input_ids"],
+                    "attention_mask": cond["attention_mask"]
+                })
+
                 trg = self.tokenizer_gen(
                     batch["text_trg"],
                     add_special_tokens=True,
@@ -444,7 +445,8 @@ class DiffusionRunner:
                     batch["text_src"],
                     add_special_tokens=True,
                     padding=True,
-                    truncation=False,
+                    truncation=True,
+                    max_length=self.config.data.max_context_len,
                     return_tensors="pt",
                     return_attention_mask=True,
                 )
@@ -652,7 +654,8 @@ class DiffusionRunner:
                 batch["text_src"],
                 add_special_tokens=True,
                 padding=True,
-                truncation=False,
+                truncation=True,
+                max_length=self.config.data.max_context_len,
                 return_tensors="pt",
                 return_attention_mask=True,
                 return_token_type_ids=False,

@@ -5,6 +5,8 @@ from collections import defaultdict
 import spacy
 import numpy as np
 from transformers import AutoTokenizer
+from aac_metrics import evaluate
+from typing import List
 
 
 def compute_perplexity(all_texts_list, model_id='gpt2-large'):
@@ -122,10 +124,9 @@ def compute_bert_score(all_texts_list, human_references):
     # https://github.com/Shark-NLP/DiffuSeq/blob/f78945d79de5783a4329695c0adb1e11adde31bf/scripts/eval_seq2seq.py#L128C48-L128C115
     return np.mean(results["f1"])
     
-def compute_bleu(predictions, references, max_order=4, smooth=False):
+def compute_common_gen_metrics(predictions: List[str], mult_references: List[List[str]]):
     torch.cuda.empty_cache()
 
-    bleu = load("bleu")
-    results = bleu.compute(predictions=predictions, references=references, max_order=max_order, smooth=smooth)
-    return results["bleu"]
+    corpus_scores, _ = evaluate(predictions, mult_references)
+    return corpus_scores
 

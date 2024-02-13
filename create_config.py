@@ -62,8 +62,8 @@ def create_config():
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
     data.max_context_len = 256
-    data.dataset_name = "xsum"
-    data.dataset_path = "/home/vmeshchaninov/nlp_models/data/xsum"
+    data.dataset_name = "common_gen"
+    data.dataset_path = "/home/vmeshchaninov/nlp_models/data/common_gen"
     data.enc_gen_mean = f"{data.dataset_path}/encodings-{model.encoder_name_hash}-mean.pt"
     data.enc_gen_std = f"{data.dataset_path}/encodings-{model.encoder_name_hash}-std.pt"
 

@@ -60,6 +60,19 @@ def download_xsum():
     dataset["validation"].save_to_disk(f"{base_path}/xsum/valid/")
 
 
+def download_common_gen():
+    dataset = load_dataset("allenai/common_gen")
+
+    os.makedirs(f"{base_path}/common_gen", exist_ok=True)
+    os.makedirs(f"{base_path}/common_gen/train", exist_ok=True)
+    os.makedirs(f"{base_path}/common_gen/valid", exist_ok=True)
+    os.makedirs(f"{base_path}/common_gen/test", exist_ok=True)
+
+    dataset["train"].save_to_disk(f"{base_path}/common_gen/train/")
+    dataset["test"].save_to_disk(f"{base_path}/common_gen/test/")
+    dataset["validation"].save_to_disk(f"{base_path}/common_gen/valid/")
+
+
 base_path = "/home/vmeshchaninov/nlp_models/data"
 
 #download_glue(base_path)

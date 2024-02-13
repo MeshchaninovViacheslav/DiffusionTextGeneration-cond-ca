@@ -328,7 +328,7 @@ class CommonGenDatasetDDP:
         dt = load_from_disk(f"{self.base_path}/{self.split}")
 
         if not (self.split == "train"):
-            self.dt = self.group()
+            self.dt = self.group(dt)
         
         dt = self.split_data_across_gpu(dt)
 

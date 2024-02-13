@@ -15,8 +15,8 @@ def create_config():
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
     optim.linear_warmup = 500
-    optim.lr = 5e-5
-    optim.min_lr = 5e-5
+    optim.lr = 4e-4
+    optim.min_lr = 4e-4
     optim.warmup_lr = 1e-8
     optim.weight_decay = 0.01
     optim.beta_1 = 0.9
@@ -27,7 +27,7 @@ def create_config():
     training.training_iters = 200_000
     training.checkpoint_freq = 5_000
     training.eval_freq = 5_000
-    training.batch_size = 32
+    training.batch_size = 512
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints'
     training.checkpoints_prefix = ''
@@ -69,7 +69,7 @@ def create_config():
 
     model.decoder_mode = "transformer"
     model.decoder_path = f"{training.checkpoints_folder}/decoder-{data.dataset_name}-{model.encoder_name_hash}"
-    model.decoder_is_cond = False
+    model.decoder_is_cond = True
     if model.decoder_is_cond:
         model.decoder_path += f"-{model.conditional_encoder_name_hash}-cond"
     model.decoder_path += f"-{model.decoder_mode}"

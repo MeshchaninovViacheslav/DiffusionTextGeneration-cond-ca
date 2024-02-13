@@ -309,7 +309,6 @@ class CommonGenDatasetDDP:
         self.total_device_number = dist.get_world_size() if torch.distributed.is_initialized() else 1
         self.epoch = 0
         
-
     def split_data_across_gpu(self, dt: Dataset):
         if self.split == "train":
             indexes = np.random.default_rng(seed=self.epoch).permutation(len(dt))
@@ -323,14 +322,15 @@ class CommonGenDatasetDDP:
         else:
             indexes = indexes[start_ind:end_ind]
         
-        return dt[indexes]
-    
+        return Dataset.from_dict(dt[indexes])
 
     def load_data(self):
         dt = load_from_disk(f"{self.base_path}/{self.split}")
 
+        if not (self.split == "train"):
+            self.dt = self.group()
+        
         dt = self.split_data_across_gpu(dt)
-        dt = Dataset.from_dict(dt)
 
         self.dt = dt.map(
             self.batch_preprocessing_conditional,
@@ -340,8 +340,27 @@ class CommonGenDatasetDDP:
             desc="Dataset tokenization",
             batch_size=1000,
         )
+            
         return self.dt
+    
+    def group(self, dt):
+        data = {}
 
+        for t in dt:
+            id_ = t["concept_set_idx"]
+            concepts = t["concepts"]
+            target = t["target"]
+            
+            if id_ in data:
+                data[id_]["mult_references"].append(target)
+            else:
+                data[id_] = {
+                    "concept_set_idx": id_,
+                    "concepts": concepts,
+                    "target": target,
+                    "mult_references": [target],
+                }
+        return Dataset.from_list(list(data.values()))
 
     def batch_preprocessing_conditional(self, batch):
         # Text encode
@@ -355,17 +374,14 @@ class CommonGenDatasetDDP:
             if np.random.rand() < blank_cond_rate:
                 text_src.append("")
             else:
-                prompt = "sentence about " + ", ".join(s) + "."
+                prompt = ", ".join(s) + "."
                 text_src.append(prompt)
 
-        output = {
-            "text_src": text_src,
-            "text_trg": batch["target"],
-        }
+        batch["text_src"] = text_src
+        batch["text_trg"] = batch["target"]
 
-        return output
+        return batch
     
-
     def get_data(self):
         while True:
             yield self.load_data()

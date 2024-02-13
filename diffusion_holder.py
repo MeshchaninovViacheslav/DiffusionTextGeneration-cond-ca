@@ -669,7 +669,7 @@ class DiffusionRunner:
             )[0]
             
             cond_text = self.tokenizer_cond.batch_decode(cond["input_ids"], skip_special_tokens=True)
-            gt_text = batch["text_trg"]
+            gt_text = batch["mult_references"]
         
             result_dict["COND"] += cond_text
             result_dict["GT"] += gt_text
@@ -809,7 +809,6 @@ class DiffusionRunner:
                             "COND": result_dict["COND"][i], 
                             "GT": result_dict["GT"][i],
                             "GEN": result_dict["GEN"][i],
-                            "JOINT": f'{result_dict["COND"][i]} {result_dict["GEN"][i]}'
                         }
                     )
                 if len(text_list) >= N:
@@ -829,20 +828,17 @@ class DiffusionRunner:
             
             references = [d["GT"] for d in text_list]
             predictions = [d["GEN"] for d in text_list]
-            prompts = [d["COND"] for d in text_list]
-            joint_texts = [d["JOINT"] for d in text_list]
+
+            results = compute_common_gen_metrics(predictions=predictions, mult_references=references)
             
+            for metric in ["bleu_3", "bleu_4", "rouge_l", "meteor", "spice"]:
+                self.log_metric(metric_name=f"metric", loader_name="", value=results[metric].item())
+                print(f"{metric}: {results[metric].item():0.5f}")
+
             metrics_rouge = compute_rouge(all_texts_list=predictions, human_references=references)
-            bertscore = compute_bert_score(all_texts_list=predictions, human_references=references)
-            
-            for rouge_type in ['1', '2', 'L']:
+            for rouge_type in ['2', 'L']:
                 self.log_metric(metric_name=f"Rouge-{rouge_type}", loader_name="", value=metrics_rouge[f'rouge{rouge_type}'])
-
-            self.log_metric(metric_name="BertScore", loader_name="", value=bertscore)
-
-            for rouge_type in ['1', '2', 'L']:
                 print(f"Rouge-{rouge_type}: {metrics_rouge[f'rouge{rouge_type}']:0.5f}")
-            print(f"BertScore: {bertscore:0.5f}")
 
         self.switch_back_from_ema()
         self.score_estimator.train()

@@ -54,7 +54,7 @@ def create_config():
     model.prediction = "x_0"
     model.loss = "L_x_0"
     model.encoder_name = "bert-base-cased"
-    model.conditional_encoder_name = "t5-base"#"t5-base"
+    model.conditional_encoder_name = "bert-base-cased"#"t5-base"
     model.encoder_name_hash = model.encoder_name.replace("/", "-")
     model.conditional_encoder_name_hash = model.conditional_encoder_name.replace("/", "-")
     model.conditional_encoder_train = False
@@ -68,12 +68,12 @@ def create_config():
     data.enc_gen_std = f"{data.dataset_path}/encodings-{model.encoder_name_hash}-std.pt"
 
     model.decoder_mode = "transformer"
-    model.decoder_path = f"{training.checkpoints_folder}/decoder-{data.dataset_name}-{model.encoder_name_hash}-{model.conditional_encoder_name_hash}-{model.decoder_mode}"
-    model.decoder_is_cond = True
+    model.decoder_path = f"{training.checkpoints_folder}/decoder-{data.dataset_name}-{model.encoder_name_hash}"
+    model.decoder_is_cond = False
     if model.decoder_is_cond:
-        model.decoder_path += f"-cond"
+        model.decoder_path += f"-{model.conditional_encoder_name_hash}-cond"
+    model.decoder_path += f"-{model.decoder_mode}"
     model.decoder_path += ".pth"
-
 
     config.seed = 0
     config.ddp = True

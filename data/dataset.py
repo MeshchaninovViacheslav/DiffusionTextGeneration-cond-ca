@@ -340,7 +340,7 @@ class CommonGenDatasetDDP:
             desc="Dataset tokenization",
             batch_size=1000,
         )
-            
+        self.dt = self.dt.remove_columns('concepts')
         return self.dt
     
     def group(self, dt):
@@ -360,6 +360,8 @@ class CommonGenDatasetDDP:
                     "target": target,
                     "mult_references": [target],
                 }
+        for id_ in data:
+            data[id_]["mult_references"] = "[SEP]".join(data[id_]["mult_references"])
         return Dataset.from_list(list(data.values()))
 
     def batch_preprocessing_conditional(self, batch):

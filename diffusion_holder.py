@@ -669,7 +669,7 @@ class DiffusionRunner:
             )[0]
             
             cond_text = self.tokenizer_cond.batch_decode(cond["input_ids"], skip_special_tokens=True)
-            gt_text = batch["mult_references"]
+            gt_text = [t.split("[SEP]") for t in batch["mult_references"]]
         
             result_dict["COND"] += cond_text
             result_dict["GT"] += gt_text

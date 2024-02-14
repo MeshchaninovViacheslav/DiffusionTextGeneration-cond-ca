@@ -38,16 +38,17 @@ def create_config():
     validation.num_text_to_est = 2500
     validation.p_uncond = 0.
     validation.texts_path = "./generated_texts"
+    validation.mbr_k = 5
 
     dynamic = config.dynamic = ml_collections.ConfigDict()
-    dynamic.solver = 'euler'
+    dynamic.solver = 'ddpm'
     dynamic.scheduler = "sd"
     dynamic.N = 50
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
     dynamic.coef_d = 9
-    dynamic.cfg_coef = 0
+    dynamic.cfg_coef = 0.5
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
@@ -78,11 +79,12 @@ def create_config():
     config.seed = 0
     config.ddp = True
     config.use_self_cond = True
-    config.project_name = f"article-{data.dataset_name}"
+    config.project_name = "test"#f"article-{data.dataset_name}"
     config.timesteps = "linear"
     config.is_conditional = True
     config.bert_config = bert_config
     config.bert_config.is_decoder = config.is_conditional
+    config.eval = True
 
     return config
 

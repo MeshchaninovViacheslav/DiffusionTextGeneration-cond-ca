@@ -108,7 +108,7 @@ def compute_mauve(all_texts_list, human_references, model_id='gpt2-large'):
 def compute_rouge(all_texts_list, human_references, model_id='gpt2-large'):
     torch.cuda.empty_cache() 
 
-    rouge = load('rouge')
+    rouge = load("/home/vmeshchaninov/nlp_models/metrics/rouge/", module_type="metric")
     assert len(all_texts_list) == len(human_references)
 
     metrics = rouge.compute(predictions=all_texts_list, references=human_references)
@@ -117,7 +117,7 @@ def compute_rouge(all_texts_list, human_references, model_id='gpt2-large'):
 def compute_bert_score(all_texts_list, human_references):
     torch.cuda.empty_cache()
 
-    bertscore = load("bertscore")
+    bertscore = load("/home/vmeshchaninov/nlp_models/metrics/bertscore/", module_type="metric")
     results = bertscore.compute(predictions=all_texts_list, references=human_references, model_type='microsoft/deberta-xlarge-mnli', lang='en', verbose=True)
     # https://github.com/Shark-NLP/DiffuSeq/blob/f78945d79de5783a4329695c0adb1e11adde31bf/scripts/eval_seq2seq.py#L128C48-L128C115
     return np.mean(results["f1"])

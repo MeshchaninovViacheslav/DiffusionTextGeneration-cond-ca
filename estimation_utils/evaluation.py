@@ -105,27 +105,61 @@ def compute_mauve(all_texts_list, human_references, model_id='gpt2-large'):
 
     return results.mauve
 
-def compute_rouge(all_texts_list, human_references, model_id='gpt2-large'):
+def compute_rouge_hg(all_texts_list, human_references):
     torch.cuda.empty_cache() 
 
-    rouge = load('rouge')
+    rouge = load("/home/vmeshchaninov/nlp_models/metrics/rouge/", module_type="metric")
     assert len(all_texts_list) == len(human_references)
 
     metrics = rouge.compute(predictions=all_texts_list, references=human_references)
     return metrics
 
+def compute_rouge(all_texts_list, human_references):
+    torch.cuda.empty_cache() 
+
+    #https://github.com/Yuanhy1997/SeqDiffuSeq/blob/0d428700076211081312c5f9a8c3cbdbd90ba4b8/rouge.py#L118
+    from rouge_score import rouge_scorer
+
+    rouge_types = ['rouge1', 'rouge2', 'rougeL']
+
+    scorer = rouge_scorer.RougeScorer(rouge_types, use_stemmer=False)
+
+    metrics_dict = {}
+    for r in rouge_types:
+        metrics_dict[r] = []
+    
+    for pred, ref in zip(all_texts_list, human_references):
+        score = scorer.score(ref, pred)
+        for r in rouge_types:
+            metrics_dict[r].append(score[r].fmeasure)
+
+    result = {}
+    for r in rouge_types:
+        result[r] = np.mean(metrics_dict[r])
+    return result
+
 def compute_bert_score(all_texts_list, human_references):
     torch.cuda.empty_cache()
 
-    bertscore = load("bertscore")
+    bertscore = load("/home/vmeshchaninov/nlp_models/metrics/bertscore/", module_type="metric")
     results = bertscore.compute(predictions=all_texts_list, references=human_references, model_type='microsoft/deberta-xlarge-mnli', lang='en', verbose=True)
     # https://github.com/Shark-NLP/DiffuSeq/blob/f78945d79de5783a4329695c0adb1e11adde31bf/scripts/eval_seq2seq.py#L128C48-L128C115
     return np.mean(results["f1"])
     
-def compute_bleu(predictions, references, max_order=4, smooth=False):
+def compute_bleu_hg(predictions, references, max_order=4, smooth=False):
     torch.cuda.empty_cache()
 
     bleu = load("bleu")
     results = bleu.compute(predictions=predictions, references=references, max_order=max_order, smooth=smooth)
     return results["bleu"]
     
+def compute_bleu(predictions, references, max_order=4, smooth=False):
+    torch.cuda.empty_cache()
+    
+    from estimation_utils.nmt_bleu import compute_bleu as bleu
+    tokenizer_mbert = AutoTokenizer.from_pretrained('bert-base-multilingual-cased')
+    references = [[tokenizer_mbert.tokenize(item)] for item in references]
+    predictions = [tokenizer_mbert.tokenize(item) for item in predictions]
+
+    results = bleu(reference_corpus=references, translation_corpus=predictions, max_order=max_order, smooth=smooth)
+    return results[0]

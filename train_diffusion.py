@@ -12,6 +12,8 @@ if __name__ == '__main__':
     suffix = ""
     if config.model.conditional_encoder_train:
         suffix += "-cond_train"
+    suffix += f"-{config.data.max_sequence_len}"
+    suffix += f"-{config.data.max_context_len}"
     config.training.checkpoints_prefix = f"{config.data.dataset_name}-{config.model.conditional_encoder_name_hash}-{config.model.encoder_name_hash}-batch={config.training.batch_size}-lr={config.optim.lr}{suffix}"  
 
     if 'RANK' in os.environ and 'WORLD_SIZE' in os.environ:

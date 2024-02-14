@@ -663,7 +663,7 @@ class DiffusionRunner:
             )
             cond = dict_to_cuda(cond)
 
-            if self.config.validation.mbr_k:
+            if self.config.validation.mbr_k > 1:
                 gen_text = self.mbr_generation(
                     batch_size=tmp_batch_size,
                     cond=cond,

@@ -38,7 +38,7 @@ def create_config():
     validation.num_text_to_est = 2500
     validation.p_uncond = 0.
     validation.texts_path = "./generated_texts"
-    validation.mbr_k = 5
+    validation.mbr_k = 1
 
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'ddpm'

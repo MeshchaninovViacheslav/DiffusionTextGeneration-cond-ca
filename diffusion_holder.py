@@ -33,6 +33,7 @@ from utils.util import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, r
 
 from estimation_utils.util import gather_texts
 from estimation_utils.evaluation import *
+from estimation_utils.mbr import mbr
 
 
 class DiffusionRunner:
@@ -224,7 +225,7 @@ class DiffusionRunner:
         self.optimizer.load_state_dict(load["optimizer"])
         self.scheduler.load_state_dict(load["scheduler"])
         self.grad_scaler.load_state_dict(load["scaler"])
-        self.encoder_cond.load_state_dict(load["conditional_encoder"])
+        #self.encoder_cond.load_state_dict(load["conditional_encoder"])
         
         self.step = load["step"]
         if dist.get_rank() == 0:
@@ -661,12 +662,20 @@ class DiffusionRunner:
                 return_token_type_ids=False,
             )
             cond = dict_to_cuda(cond)
-           
-            gen_text = self.generate_text_batch(
-                batch_size=tmp_batch_size,
-                cond=cond,
-                attention_mask=None,
-            )[0]
+
+            if self.config.validation.mbr_k:
+                gen_text = self.mbr_generation(
+                    batch_size=tmp_batch_size,
+                    cond=cond,
+                    attention_mask=None,
+                    mbr_k=self.config.validation.mbr_k
+                )
+            else:
+                gen_text = self.generate_text_batch(
+                    batch_size=tmp_batch_size,
+                    cond=cond,
+                    attention_mask=None,
+                )[0]
             
             cond_text = self.tokenizer_cond.batch_decode(cond["input_ids"], skip_special_tokens=True)
             gt_text = batch["text_trg"]
@@ -680,9 +689,24 @@ class DiffusionRunner:
 
         return result_dict
 
+    def mbr_generation(self, batch_size, cond=None, attention_mask=None, mbr_k=1):
+        result = []
+        for k in range(mbr_k):
+            gen_text = self.generate_text_batch(
+                batch_size=batch_size,
+                cond=cond,
+                attention_mask=attention_mask,
+            )[0]
+            result.append(gen_text)
+        
+        text_result = []
+        for i in range(batch_size):
+            samples = [t[i] for t in result]
+            text_result.append(mbr(samples))
+        return text_result
 
     @torch.no_grad()
-    def generate_text_batch(self, batch_size, cond=None, way="sde", attention_mask=None):
+    def generate_text_batch(self, batch_size, cond=None, attention_mask=None):
         if attention_mask is not None:
             attention_mask = attention_mask.cuda()
 
@@ -834,15 +858,19 @@ class DiffusionRunner:
             
             metrics_rouge = compute_rouge(all_texts_list=predictions, human_references=references)
             bertscore = compute_bert_score(all_texts_list=predictions, human_references=references)
+            max_order = 4
+            bleu = compute_bleu(predictions=predictions, references=references, max_order=max_order)
             
             for rouge_type in ['1', '2', 'L']:
                 self.log_metric(metric_name=f"Rouge-{rouge_type}", loader_name="", value=metrics_rouge[f'rouge{rouge_type}'])
 
             self.log_metric(metric_name="BertScore", loader_name="", value=bertscore)
+            self.log_metric(metric_name=f"BLEU-{max_order}", loader_name="", value=bleu)
 
             for rouge_type in ['1', '2', 'L']:
                 print(f"Rouge-{rouge_type}: {metrics_rouge[f'rouge{rouge_type}']:0.5f}")
             print(f"BertScore: {bertscore:0.5f}")
+            print(f"BLEU-{max_order}: {bleu:0.5f}")
 
         self.switch_back_from_ema()
         self.score_estimator.train()

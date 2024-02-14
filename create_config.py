@@ -38,9 +38,10 @@ def create_config():
     validation.num_text_to_est = 2500
     validation.p_uncond = 0.
     validation.texts_path = "./generated_texts"
+    validation.mbr_k = 5
 
     dynamic = config.dynamic = ml_collections.ConfigDict()
-    dynamic.solver = 'euler'
+    dynamic.solver = 'ddpm'
     dynamic.scheduler = "sd"
     dynamic.N = 20
     dynamic.beta_min = 0.1
@@ -57,7 +58,7 @@ def create_config():
     model.conditional_encoder_name = "bert-base-cased"#"t5-base"
     model.encoder_name_hash = model.encoder_name.replace("/", "-")
     model.conditional_encoder_name_hash = model.conditional_encoder_name.replace("/", "-")
-    model.conditional_encoder_train = True
+    model.conditional_encoder_train = False
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
@@ -69,17 +70,16 @@ def create_config():
 
     model.decoder_mode = "transformer"
     model.decoder_path = f"{training.checkpoints_folder}/decoder-{data.dataset_name}-{model.encoder_name_hash}"
-    model.decoder_is_cond = False
+    model.decoder_is_cond = True
     if model.decoder_is_cond:
         model.decoder_path += f"-{model.conditional_encoder_name_hash}-cond"
     model.decoder_path += f"-{model.decoder_mode}"
     model.decoder_path += ".pth"
 
-
     config.seed = 0
     config.ddp = True
     config.use_self_cond = True
-    config.project_name = "article-qqp"
+    config.project_name = "test"#"article-qqp"
     config.timesteps = "linear"
     config.is_conditional = True
     config.bert_config = bert_config

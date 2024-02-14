@@ -328,11 +328,11 @@ class CommonGenDatasetDDP:
         dt = load_from_disk(f"{self.base_path}/{self.split}")
 
         if not (self.split == "train"):
-            self.dt = self.group(dt)
+            dt = self.group(dt)
         
         dt = self.split_data_across_gpu(dt)
 
-        self.dt = dt.map(
+        dt = dt.map(
             self.batch_preprocessing_conditional,
             batched=True,
             load_from_cache_file=False,
@@ -340,7 +340,7 @@ class CommonGenDatasetDDP:
             desc="Dataset tokenization",
             batch_size=1000,
         )
-        self.dt = self.dt.remove_columns('concepts')
+        self.dt = dt.remove_columns('concepts')
         return self.dt
     
     def group(self, dt):

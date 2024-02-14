@@ -120,7 +120,7 @@ class DiffusionRunner:
         self.valid_datasets_iter = create_dataset(
             dataset_name=config.data.dataset_name,
         )(
-            split="test",
+            split="valid",
             tokenizer_cond=self.tokenizer_cond,
             tokenizer_gen=self.tokenizer_gen,
             max_sequence_len=self.config.data.max_sequence_len,

@@ -109,8 +109,8 @@ def compute_mauve(all_texts_list, human_references, model_id='gpt2-large'):
 
 def compute_rouge(all_texts_list, human_references, model_id='gpt2-large'):
     torch.cuda.empty_cache() 
-
-    rouge = load('rouge')
+    
+    rouge = load("/home/vmeshchaninov/nlp_models/metrics/rouge/", module_type="metric")
     assert len(all_texts_list) == len(human_references)
 
     metrics = rouge.compute(predictions=all_texts_list, references=human_references)
@@ -119,7 +119,7 @@ def compute_rouge(all_texts_list, human_references, model_id='gpt2-large'):
 def compute_bert_score(all_texts_list, human_references):
     torch.cuda.empty_cache()
 
-    bertscore = load("bertscore")
+    bertscore = load("/home/vmeshchaninov/nlp_models/metrics/bertscore/", module_type="metric")
     results = bertscore.compute(predictions=all_texts_list, references=human_references, model_type='microsoft/deberta-xlarge-mnli', lang='en', verbose=True)
     # https://github.com/Shark-NLP/DiffuSeq/blob/f78945d79de5783a4329695c0adb1e11adde31bf/scripts/eval_seq2seq.py#L128C48-L128C115
     return np.mean(results["f1"])
@@ -129,4 +129,22 @@ def compute_common_gen_metrics(predictions: List[str], mult_references: List[Lis
 
     corpus_scores, _ = evaluate(predictions, mult_references)
     return corpus_scores
+
+def compute_meteor(predictions, mult_references):
+    torch.cuda.empty_cache()
+
+    meteor = load("/home/vmeshchaninov/nlp_models/metrics/meteor/", module_type="metric")
+    results = meteor.compute(predictions=predictions, references=mult_references)
+    return results["meteor"]
+
+def compute_bleu(predictions, references, max_order=4, smooth=False):
+    torch.cuda.empty_cache()
+
+    bleu = load("bleu")
+    results_3 = bleu.compute(predictions=predictions, references=references, max_order=3, smooth=smooth)["bleu"]
+    results_4 = bleu.compute(predictions=predictions, references=references, max_order=4, smooth=smooth)["bleu"]
+    return {
+        "BLEU-3": results_3,
+        "BLEU-4": results_4
+    }
 

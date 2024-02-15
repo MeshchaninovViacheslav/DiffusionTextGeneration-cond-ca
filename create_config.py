@@ -38,30 +38,31 @@ def create_config():
     validation.num_text_to_est = 2500
     validation.p_uncond = 0.
     validation.texts_path = "./generated_texts"
+    validation.mbr_k = 1
 
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
     dynamic.scheduler = "sd"
-    dynamic.N = 50
+    dynamic.N = 20
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
     dynamic.coef_d = 9
-    dynamic.cfg_coef = 0
+    dynamic.cfg_coef = 1
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
     model.prediction = "x_0"
     model.loss = "L_x_0"
     model.encoder_name = "bert-base-cased"
-    model.conditional_encoder_name = "bert-base-cased"#"t5-base"
+    model.conditional_encoder_name = "t5-base"
     model.encoder_name_hash = model.encoder_name.replace("/", "-")
     model.conditional_encoder_name_hash = model.conditional_encoder_name.replace("/", "-")
     model.conditional_encoder_train = False
 
     data = config.data = ml_collections.ConfigDict()
-    data.max_sequence_len = 64
-    data.max_context_len = 64
+    data.max_sequence_len = 42
+    data.max_context_len = 32
     data.dataset_name = "common_gen"
     data.dataset_path = "/home/vmeshchaninov/nlp_models/data/common_gen"
     data.enc_gen_mean = f"{data.dataset_path}/encodings-{model.encoder_name_hash}-mean.pt"
@@ -83,6 +84,7 @@ def create_config():
     config.is_conditional = True
     config.bert_config = bert_config
     config.bert_config.is_decoder = config.is_conditional
+    config.eval = True
 
     return config
 

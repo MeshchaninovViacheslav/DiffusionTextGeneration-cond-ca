@@ -33,6 +33,7 @@ from utils.util import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, r
 
 from estimation_utils.util import gather_texts
 from estimation_utils.evaluation import *
+from estimation_utils.mbr import mbr
 
 
 class DiffusionRunner:
@@ -224,7 +225,7 @@ class DiffusionRunner:
         self.optimizer.load_state_dict(load["optimizer"])
         self.scheduler.load_state_dict(load["scheduler"])
         self.grad_scaler.load_state_dict(load["scaler"])
-        self.encoder_cond.load_state_dict(load["conditional_encoder"])
+        #self.encoder_cond.load_state_dict(load["conditional_encoder"])
         
         self.step = load["step"]
         if dist.get_rank() == 0:
@@ -513,7 +514,7 @@ class DiffusionRunner:
             x_0_self_cond=x_0_self_cond
         )
 
-        if self.eval and self.config.dynamic.cfg_coef:
+        if self.config.eval and self.config.dynamic.cfg_coef:
             cond_null = self.tokenizer_cond.encode_plus(
                 text="",
                 add_special_tokens=True,
@@ -662,11 +663,19 @@ class DiffusionRunner:
             )
             cond = dict_to_cuda(cond)
            
-            gen_text = self.generate_text_batch(
-                batch_size=tmp_batch_size,
-                cond=cond,
-                attention_mask=None,
-            )[0]
+            if self.config.validation.mbr_k > 1:
+                gen_text = self.mbr_generation(
+                    batch_size=tmp_batch_size,
+                    cond=cond,
+                    attention_mask=None,
+                    mbr_k=self.config.validation.mbr_k
+                )
+            else:
+                gen_text = self.generate_text_batch(
+                    batch_size=tmp_batch_size,
+                    cond=cond,
+                    attention_mask=None,
+                )[0]
             
             cond_text = self.tokenizer_cond.batch_decode(cond["input_ids"], skip_special_tokens=True)
             gt_text = [t.split("[SEP]") for t in batch["mult_references"]]
@@ -679,7 +688,22 @@ class DiffusionRunner:
                 break
 
         return result_dict
-
+    
+    def mbr_generation(self, batch_size, cond=None, attention_mask=None, mbr_k=1):
+        result = []
+        for k in range(mbr_k):
+            gen_text = self.generate_text_batch(
+                batch_size=batch_size,
+                cond=cond,
+                attention_mask=attention_mask,
+            )[0]
+            result.append(gen_text)
+        
+        text_result = []
+        for i in range(batch_size):
+            samples = [t[i] for t in result]
+            text_result.append(mbr(samples))
+        return text_result
 
     @torch.no_grad()
     def generate_text_batch(self, batch_size, cond=None, way="sde", attention_mask=None):
@@ -832,13 +856,23 @@ class DiffusionRunner:
             results = compute_common_gen_metrics(predictions=predictions, mult_references=references)
             
             for metric in ["bleu_3", "bleu_4", "rouge_l", "meteor", "spice"]:
-                self.log_metric(metric_name=f"metric", loader_name="", value=results[metric].item())
+                self.log_metric(metric_name=f"{metric}", loader_name="", value=results[metric].item())
                 print(f"{metric}: {results[metric].item():0.5f}")
+            
+            print("Huggingface version:")
 
             metrics_rouge = compute_rouge(all_texts_list=predictions, human_references=references)
             for rouge_type in ['2', 'L']:
                 self.log_metric(metric_name=f"Rouge-{rouge_type}", loader_name="", value=metrics_rouge[f'rouge{rouge_type}'])
                 print(f"Rouge-{rouge_type}: {metrics_rouge[f'rouge{rouge_type}']:0.5f}")
+            
+            # meteor = compute_meteor(predictions=predictions, mult_references=references)
+            # print(f"Meteor: {meteor:0.5f}")
+
+            # bleu_res = compute_bleu(predictions=predictions, references=references)
+            # for b in ["BLEU-3", "BLEU-4"]:
+            #     print(f"{b}: {bleu_res[b]:0.5f}")
+
 
         self.switch_back_from_ema()
         self.score_estimator.train()

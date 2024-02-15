@@ -11,6 +11,7 @@ from model.decoder import BertDecoder
 from model import Encoder
 from model.enc_normalizer import EncNormalizer
 from create_config import create_config
+from diffusion_utils.dynamic import DynamicSDE
 
 
 def reconstruction_loss(target, prediction_scores, mask):
@@ -67,7 +68,7 @@ def get_loaders(config, batch_size):
     return train_loader, valid_loader
 
 
-def loss_step(batch, encoder_gen, tokenizer_gen, encoder_cond, tokenizer_cond, decoder, config, eval=False):
+def loss_step(batch, encoder_gen, tokenizer_gen, encoder_cond, tokenizer_cond, decoder, config, dynamic, eval=False):
     cond = tokenizer_cond(
         batch["text_src"],
         add_special_tokens=True,
@@ -99,10 +100,11 @@ def loss_step(batch, encoder_gen, tokenizer_gen, encoder_cond, tokenizer_cond, d
             "attention_mask": trg["attention_mask"].cuda()
         }).cuda()
 
-    if not eval:
-        sigma = 0.2
-        eps = torch.randn_like(latent) * sigma
-        latent = latent + eps
+    T = 0.15
+    eps = 0.001
+    t = torch.cuda.FloatTensor(latent.shape[0]).uniform_() * (T - eps) + eps
+    x_t = dynamic.marginal(latent, t)["x_t"]
+    latent = x_t
 
     latent = encoder_gen.module.enc_normalizer.denormalize(latent)
     
@@ -127,6 +129,7 @@ def loss_step(batch, encoder_gen, tokenizer_gen, encoder_cond, tokenizer_cond, d
 def train(config, encoder_gen, tokenizer_gen, encoder_cond, tokenizer_cond, decoder):
     total_number_params = sum(p.numel() for p in decoder.parameters() if p.requires_grad)
     print(f"Num params: {total_number_params}")
+    dynamic = DynamicSDE(config=config)
 
     batch_size = 512
 
@@ -157,6 +160,7 @@ def train(config, encoder_gen, tokenizer_gen, encoder_cond, tokenizer_cond, deco
                 tokenizer_cond=tokenizer_cond, 
                 decoder=decoder,
                 config=config,
+                dynamic=dynamic,
             )
        
             optimizer.zero_grad()
@@ -184,6 +188,7 @@ def train(config, encoder_gen, tokenizer_gen, encoder_cond, tokenizer_cond, deco
                             tokenizer_cond=tokenizer_cond,
                             decoder=decoder,
                             config=config,
+                            dynamic=dynamic,
                             eval=True
                         )
                 decoder.train()

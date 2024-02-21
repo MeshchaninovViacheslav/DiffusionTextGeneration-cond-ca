@@ -1,5 +1,28 @@
 from datasets import load_dataset
 from collections import defaultdict
+from create_config import create_config
+
+def download_rocstory(base_path):
+    def unite(batch):
+        texts = []
+        size = len(batch["storyid"])
+        for i in range(size):
+            text = " ".join([batch[f"sentence{k}"][i] for k in range(1, 6)])
+            texts.append(text)
+        return {"text": texts}
+
+    dt = load_dataset("wza/roc_stories")
+    dt = dt["train"]
+    dt = dt.map(
+        unite,
+        batched=True,
+        num_proc=30,
+        desc="Loading...",
+        remove_columns=dt.column_names,
+    )
+    dt = dt.train_test_split(test_size=1000, seed=0)
+    dt.save_to_disk(base_path)
+
 
 def download_glue(base_path):
     base_path = f"{base_path}/glue/"
@@ -21,9 +44,11 @@ def download_wiki_dpr(base_path):
     base_path = f"{base_path}/wiki_dpr/"
     load_dataset("wiki_dpr", "psgs_w100.multiset.no_index.no_embeddings").save_to_disk(base_path)
 
+
 def с4(base_path):
     base_path = f"{base_path}/с4/"
     load_dataset("с4", "en").save_to_disk(base_path)
+
 
 def download_wikipedia(base_path):
     def wiki_prep(batch):
@@ -45,10 +70,8 @@ def download_wikipedia(base_path):
     dt_dict.save_to_disk(f"{base_path}/wikipedia")
 
 
+if __name__ == "__main__":
+    config = create_config()
 
-
-base_path = "/home/vmeshchaninov/nlp_models/data"
-
-#download_glue(base_path)
-#download_super_glue(base_path)
-#download_wiki_dpr(base_path)
+    if config.data.dataset_name == "rocstory":
+        download_rocstory(config.data.dataset_path)

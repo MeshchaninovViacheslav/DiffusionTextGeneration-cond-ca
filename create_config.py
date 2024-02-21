@@ -14,7 +14,7 @@ def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
-    optim.linear_warmup = 1000
+    optim.linear_warmup = 500
     optim.lr = 2e-4
     optim.min_lr = 2e-4
     optim.warmup_lr = 1e-8
@@ -25,28 +25,31 @@ def create_config():
 
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 100_000
-    training.checkpoint_freq = 10_000
-    training.eval_freq = 10_000
+    training.checkpoint_freq = 20#10_000
+    training.eval_freq = 20#10_000
     training.batch_size = 512
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
-    training.checkpoints_prefix = ''
+    training.checkpoint_name = ""
 
     validation = config.validation = ml_collections.ConfigDict()
     validation.batch_size = 512
-    validation.num_gen_texts = 1500
-    validation.num_text_to_est = 1000
-    validation.p_uncond = 0.
-    validation.texts_path = "./generated_texts"
 
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
     dynamic.scheduler = "sd"
-    dynamic.N = 50
+    dynamic.N = 100
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
-    dynamic.coef_d = 9
+    dynamic.coef_d = 8
+
+    generation = config.generation = ml_collections.ConfigDict()
+    generation.batch_size = 512
+    generation.t_min = 0.01
+    generation.num_gen_texts = 1100
+    generation.num_text_to_est = 1000
+    generation.texts_path = "./generated_texts"
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
@@ -60,9 +63,9 @@ def create_config():
     
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
-    data.max_context_len = 16
+    data.max_context_len = 0
     data.dataset_name = "rocstory"
-    data.dataset_path = "/home/vmeshchaninov/nlp_models/data/rocstories"
+    data.dataset_path = f"/home/vmeshchaninov/nlp_models/data/{data.dataset_name}"
     data.enc_gen_mean = f"{data.dataset_path}/encodings-{model.encoder_name_hash}-mean.pt"
     data.enc_gen_std = f"{data.dataset_path}/encodings-{model.encoder_name_hash}-std.pt"
 
@@ -74,9 +77,12 @@ def create_config():
     config.use_self_cond = True
     config.project_name = "article-rocstory-conditional_exps"
     config.timesteps = "linear"
-    config.is_conditional = True
+    config.is_conditional = False
+    config.is_eval = False
     config.bert_config = bert_config
     config.bert_config.is_decoder = config.is_conditional
+    training.checkpoints_prefix = f"{config.data.dataset_name}" + \
+                                  f"-{config.model.encoder_name_hash}"  
 
     return config
 

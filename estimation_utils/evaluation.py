@@ -13,15 +13,28 @@ def compute_perplexity(all_texts_list, model_id='gpt2-large'):
     results = perplexity.compute(predictions=all_texts_list, model_id=model_id, device='cuda')
     return results['mean_perplexity']
 
+
 def compute_conditional_perplexity(all_joint_texts_list, all_prompts_list, model_id='gpt2-large'):
     torch.cuda.empty_cache() 
-    perplexity = load("/home/vmeshchaninov/nlp_models/metrics/perplexity/", module_type="metric")
+    perplexity = load("perplexity", module_type="metric", model_id=model_id)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     existing_special_tokens = list(tokenizer.special_tokens_map_extended.values())
     tokenizer.add_special_tokens({"pad_token": existing_special_tokens[0]})
 
+    zero_prompt_texts = []
+    no_zero_prompts = []
+    no_zero_prompt_texts = []
+    for i, p in enumerate(all_prompts_list):
+        if not p:
+            zero_prompt_texts.append(all_joint_texts_list[i])
+        else:
+            no_zero_prompts.append(p)
+            no_zero_prompt_texts.append(all_joint_texts_list[i])
+
+    zero_prompt_perplexity = perplexity.compute(predictions=zero_prompt_texts, model_id=model_id, device='cuda', add_start_token=True)
+
     prompt_tok = tokenizer(
-        all_prompts_list,
+        no_zero_prompts,
         add_special_tokens=False,
         padding=True,
         truncation=False,
@@ -29,22 +42,24 @@ def compute_conditional_perplexity(all_joint_texts_list, all_prompts_list, model
         return_attention_mask=True,
     )
     joint_texts_tok = tokenizer(
-        all_joint_texts_list,
+        no_zero_prompt_texts,
         add_special_tokens=False,
         padding=True,
         truncation=False,
         return_tensors="np",
         return_attention_mask=True,
     )
-    prompts_results = perplexity.compute(predictions=all_prompts_list, model_id=model_id, device='cuda')
-    joint_texts_results = perplexity.compute(predictions=all_joint_texts_list, model_id=model_id, device='cuda')
-    cond_result = np.exp(
+    prompts_results = perplexity.compute(predictions=no_zero_prompts, model_id=model_id, device='cuda', add_start_token=True)
+    joint_texts_results = perplexity.compute(predictions=no_zero_prompt_texts, model_id=model_id, device='cuda', add_start_token=True)
+    no_zero_prompt_perplexity = np.exp(
         (
             np.log(joint_texts_results["perplexities"]) * np.sum(joint_texts_tok["attention_mask"], axis=1) - \
             np.log(prompts_results["perplexities"]) * np.sum(prompt_tok["attention_mask"], axis=1)
         ) / (np.sum(joint_texts_tok["attention_mask"], axis=1) - np.sum(prompt_tok["attention_mask"], axis=1))
     )
-    return cond_result.mean()
+    result = (no_zero_prompt_perplexity.sum() + np.sum(zero_prompt_perplexity["perplexities"])) / (len(no_zero_prompts) + len(zero_prompt_texts))
+    
+    return result
 
 
 def compute_wordcount(all_texts_list):
@@ -75,6 +90,7 @@ def compute_diversity(all_texts_list):
     metrics['diversity'] = diversity
     return metrics
 
+
 def compute_memorization(all_texts_list, human_references, n=4):
     tokenizer = spacy.load("en_core_web_sm").tokenizer
     unique_four_grams = set()
@@ -92,6 +108,7 @@ def compute_memorization(all_texts_list, human_references, n=4):
 
     return duplicate / total
 
+
 def compute_mauve(all_texts_list, human_references, model_id='gpt2-large'):
     torch.cuda.empty_cache() 
 
@@ -105,6 +122,7 @@ def compute_mauve(all_texts_list, human_references, model_id='gpt2-large'):
 
     return results.mauve
 
+
 def compute_rouge(all_texts_list, human_references, model_id='gpt2-large'):
     torch.cuda.empty_cache() 
 
@@ -113,6 +131,7 @@ def compute_rouge(all_texts_list, human_references, model_id='gpt2-large'):
 
     metrics = rouge.compute(predictions=all_texts_list, references=human_references)
     return metrics
+
 
 def compute_bert_score(all_texts_list, human_references):
     torch.cuda.empty_cache()

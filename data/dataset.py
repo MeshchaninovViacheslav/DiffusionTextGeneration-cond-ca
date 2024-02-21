@@ -3,27 +3,17 @@ import numpy as np
 from random import random
 import torch.distributed as dist
 from typing import List
-from datasets import Dataset
+from datasets import Dataset, load_from_disk
 
 
-def create_dataset(dataset_name):
-    if dataset_name == "rocstory":
-        return RocStoryDatasetDDP
-
-
-class RocStoryDatasetDDP:
-    def __init__(self,
-                split, tokenizer_cond, tokenizer_gen, max_sequence_len, max_context_len, base_path):
+class DatasetDDP:
+    def __init__(self, config, split):
         self.split = split
-        self.tokenizer_cond = tokenizer_cond
-        self.tokenizer_gen = tokenizer_gen
-        self.max_sequence_len = max_sequence_len
-        self.max_context_len = max_context_len
-        self.base_path = base_path
+        self.config = config
+        self.base_path = config.data.dataset_path
         self.device_id = dist.get_rank() if torch.distributed.is_initialized() else 0
         self.total_device_number = dist.get_world_size() if torch.distributed.is_initialized() else 1
         self.epoch = 0
-
 
     def spilt_data_across_gpu(self, dt: List[str]):
         if self.split == "train":
@@ -38,18 +28,12 @@ class RocStoryDatasetDDP:
         else:
             indexes = indexes[start_ind: end_ind]
         
-        dt = [dt[i] for i in indexes]
-        return dt
-    
+        return Dataset.from_dict(dt[indexes])
 
     def load_data(self):
-        path = f"{self.base_path}/{self.split}/data.txt"
-        dt = []
-        with open(path, "r") as file:
-            for l in file:
-                dt.append(l.strip())
+        path = f"{self.base_path}/{self.split}/"
+        dt = load_from_disk(path)
         dt = self.spilt_data_across_gpu(dt)
-        dt = Dataset.from_list([{"text": t} for t in dt])
 
         self.dt = dt.map(
             self.batch_preprocessing,
@@ -60,9 +44,17 @@ class RocStoryDatasetDDP:
             batch_size=1000,
         )
         return self.dt
-
-
+    
     def batch_preprocessing(self, batch):
+        if self.config.is_conditional:
+            return self.batch_preprocessing_cond(batch)
+        else:
+            return self.batch_preprocessing_uncond(batch)
+
+    def batch_preprocessing_uncond(self, batch):    
+        return {"text_trg": batch["text"]}
+
+    def batch_preprocessing_cond(self, batch):
         # Random split
         if self.split == 'train':
             blank_cond_rate = 0.1
@@ -90,17 +82,11 @@ class RocStoryDatasetDDP:
         start = 0
         for i, char in enumerate(text):
             if char in chars:
-                answer.append(text[start:i+1])
-                start = i+1
-        answer.append(text[i+1:])
+                answer.append(text[start:i + 1])
+                start = i + 1
+        answer.append(text[i + 1:])
         return answer
 
     def get_data(self):
-        if self.split == "valid":
-            while True:
-                yield self.load_data()
-        elif self.split == "train":
-            while True:
-                yield self.load_data()
-        else:
-            raise Exception("Wrong data split")
+        while True:
+            yield self.load_data()

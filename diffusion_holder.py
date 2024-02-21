@@ -15,24 +15,23 @@ from copy import deepcopy
 from timm.scheduler.cosine_lr import CosineLRScheduler
 from collections import defaultdict
 from torch.cuda.amp import GradScaler
+from torch import Tensor
 import json
 
 from diffusion_utils.dynamic import DynamicSDE
 from diffusion_utils.solvers import create_solver
 
 from utils.ema_model import ExponentialMovingAverage
-from data.dataset import create_dataset
+from data import create_dataset
 
 from model.score_estimator_cond import ScoreEstimatorEMB
 from model import Encoder
 from model.enc_normalizer import EncNormalizer
 from model.decoder import BertDecoder
-from estimation_utils.mauve_metric import compute_mauve
 
-from utils.util import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, reduce_tensor, set_seed, l1_loss, smooth_l1_loss
+from utils import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, reduce_tensor, set_seed, l1_loss, smooth_l1_loss
 
-from estimation_utils.util import gather_texts
-from estimation_utils.evaluation import *
+from estimation_utils.estimate import estimate
 
 
 class DiffusionRunner:
@@ -82,7 +81,7 @@ class DiffusionRunner:
         if self.config.ddp:
             self.ddp_score_estimator = torch.nn.parallel.DistributedDataParallel(
                 self.score_estimator,
-                device_ids=[config.local_rank],
+                device_ids=[dist.get_rank()],
                 broadcast_buffers=False,
             )
 
@@ -184,19 +183,19 @@ class DiffusionRunner:
             prefix = str(self.step)
 
         save_path = os.path.join(prefix_folder, prefix + ".pth")
-        torch.save(
-            {
-                "model": self.score_estimator.state_dict(),
-                "ema": self.ema.state_dict(),
-                "optimizer": self.optimizer.state_dict(),
-                "scheduler": self.scheduler.state_dict(),
-                "scaler": self.grad_scaler.state_dict(),
-                "step": self.step,
-                "decoder": self.decoder.state_dict(),
-                "conditional_encoder": self.encoder_cond.state_dict(),
-            },
-            save_path
-        )
+        state_dict = {
+            "model": self.score_estimator.state_dict(),
+            "ema": self.ema.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "scheduler": self.scheduler.state_dict(),
+            "scaler": self.grad_scaler.state_dict(),
+            "step": self.step,
+            "decoder": self.decoder.state_dict(),
+        }
+        if self.config.is_conditional:
+            state_dict["conditional_encoder"] = self.encoder_cond.state_dict()
+
+        torch.save(state_dict, save_path)
         print(f"Save model to: {save_path}")
 
     def load_checkpoint(self) -> int:
@@ -212,7 +211,9 @@ class DiffusionRunner:
         if not checkpoint_names:
             return False
 
-        name = max(checkpoint_names)
+        name = self.config.training.checkpoint_name
+        if not name:
+            name = max(checkpoint_names)
         checkpoint_name = f"{prefix_folder}/{name}.pth"
 
         load = torch.load(checkpoint_name, map_location="cpu")
@@ -330,11 +331,7 @@ class DiffusionRunner:
     def sample_time(self, batch_size: int, eps: float = 1e-5):
         return torch.cuda.FloatTensor(batch_size).uniform_() * (self.dynamic.T - eps) + eps
     
-    def train(
-            self,
-            project_name: str = 'bert_diffusion',
-            experiment_name: str = 'bert_emb'
-    ) -> None:
+    def train(self) -> None:
         self.set_valid_data_generator()
         self.train_range = trange(self.step, self.config.training.training_iters, total=self.config.training.training_iters)
         self.train_range.update(self.step)
@@ -364,10 +361,16 @@ class DiffusionRunner:
                 self.save_checkpoint()
 
             if self.step % self.config.training.eval_freq == 0:
+                self.score_estimator.eval()
+                self.switch_to_ema()
+
                 self.validate()
-                self.estimate()
+                estimate(self)
+
+                self.switch_back_from_ema()
+                self.score_estimator.train()
+                self.compute_restoration_loss(suffix="valid")
                 # self.compute_restoration_loss(suffix="train")
-                # self.compute_restoration_loss(suffix="valid")
 
             self.train_range.set_description(
                 f"loss_x_0: {loss_dict['loss_x_0'].item():0.4f}, "
@@ -380,20 +383,23 @@ class DiffusionRunner:
 
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             with torch.no_grad():
-                cond = self.tokenizer_cond(
-                    batch["text_src"],
-                    add_special_tokens=True,
-                    padding=True,
-                    truncation=False,
-                    return_tensors="pt",
-                    return_attention_mask=True,
-                    return_token_type_ids=False,
-                )
-                cond = dict_to_cuda(cond)
-                cond_x = self.encoder_cond(**{
-                    "input_ids": cond["input_ids"],
-                    "attention_mask": cond["attention_mask"]
-                })
+                if self.config.is_conditional:
+                    cond = self.tokenizer_cond(
+                        batch["text_src"],
+                        add_special_tokens=True,
+                        padding=True,
+                        truncation=False,
+                        return_tensors="pt",
+                        return_attention_mask=True,
+                        return_token_type_ids=False,
+                    )
+                    cond = dict_to_cuda(cond)
+                    cond_x = self.encoder_cond(**{
+                        "input_ids": cond["input_ids"],
+                        "attention_mask": cond["attention_mask"]
+                    })
+                else:
+                    cond, cond_x = None, None
 
                 trg = self.tokenizer_gen(
                     batch["text_trg"],
@@ -424,34 +430,32 @@ class DiffusionRunner:
                 self.log_metric(k, 'train', v.item())
 
             for k, v in stat_dict.items():
-                self.log_metric(k, 'train', v.item())
+                self.log_metric('statistics', k, v.item())
 
         return loss_dict, stat_dict
 
     def validate(self) -> None:
-        prev_mode = self.ddp_score_estimator.training
-
-        self.ddp_score_estimator.eval()
-        self.switch_to_ema()
-
         valid_loss: Dict[str, torch.Tensor] = dict()
         valid_count = torch.Tensor([0.0])
 
         with torch.no_grad():
             for batch in self.valid_loader:
-                cond = self.tokenizer_cond(
-                    batch["text_src"],
-                    add_special_tokens=True,
-                    padding=True,
-                    truncation=False,
-                    return_tensors="pt",
-                    return_attention_mask=True,
-                )
-                cond = dict_to_cuda(cond)
-                cond_x = self.encoder_cond(**{
-                    "input_ids": cond["input_ids"],
-                    "attention_mask": cond["attention_mask"]
-                })
+                if self.config.is_conditional:
+                    cond = self.tokenizer_cond(
+                        batch["text_src"],
+                        add_special_tokens=True,
+                        padding=True,
+                        truncation=False,
+                        return_tensors="pt",
+                        return_attention_mask=True,
+                    )
+                    cond = dict_to_cuda(cond)
+                    cond_x = self.encoder_cond(**{
+                        "input_ids": cond["input_ids"],
+                        "attention_mask": cond["attention_mask"]
+                    })
+                else:
+                    cond, cond_x = None, None
 
                 trg = self.tokenizer_gen(
                     batch["text_trg"],
@@ -485,9 +489,6 @@ class DiffusionRunner:
         for k, v in valid_loss.items():
             self.log_metric(k, 'valid_loader', v)
 
-        self.switch_back_from_ema()
-        self.ddp_score_estimator.train(prev_mode)
-
     def calc_score(
             self,
             model,
@@ -520,13 +521,17 @@ class DiffusionRunner:
 
     def calc_loss(
             self,
-            clean_x,
-            cond_x,
-            trg=None,
-            cond=None,
+            clean_x: Tensor,
+            cond_x: Tensor,
+            trg: Optional[Dict] = None,
+            cond: Optional[Dict] = None,
             eps: float = 1e-5,
     ) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         mask = None  # X["input_mask"]
+        if cond is None:
+            cond_mask = None
+        else:
+            cond_mask = cond.get("attention_mask", None)
 
         # Noizing
         batch_size = clean_x.size(0)
@@ -546,7 +551,7 @@ class DiffusionRunner:
                 with torch.no_grad():
                     x_0_self_cond = self.ddp_score_estimator(
                         x_t=x_t_next, time_t=t_next, cond=cond_x,
-                        attention_mask=mask, cond_mask=cond.get("attention_mask", None),
+                        attention_mask=mask, cond_mask=cond_mask,
                         x_0_self_cond=x_0_self_cond
                     ).detach()
 
@@ -557,29 +562,23 @@ class DiffusionRunner:
                 x_t=x_t,
                 t=t,
                 cond=cond_x,
-                cond_mask=cond.get("attention_mask", None),
+                cond_mask=cond_mask,
                 attention_mask=mask,
                 x_0_self_cond=x_0_self_cond,
             )
 
         # MSE losses
-        x_0, eps_theta, score = scores["x_0"], scores['eps_theta'], scores["score"]
-
+        x_0 = scores["x_0"]
         loss_x_0 = mse_loss(clean_x, x_0, mask)
-        loss_eps = mse_loss(noise, eps_theta, mask)
-        loss_score = mse_loss(score_clean, score, mask)
 
         # Decoder reconstruction
-        logits = self.pred_logits(pred_embeddings=x_0, input_ids=trg["input_ids"])
+        logits = self.pred_logits(pred_embeddings=x_0)
         ce_loss = recon_loss(logits, trg["input_ids"], mask)
 
         loss = loss_x_0
         loss_dict = {
             'loss': loss,
-            'total_loss': loss,
-            'loss_eps': loss_eps,
             'loss_x_0': loss_x_0,
-            'loss_score': loss_score,
             'loss_ce': ce_loss,
             'accuracy': bert_acc(targets=trg["input_ids"], outputs=logits, mask=mask)
         }
@@ -605,14 +604,15 @@ class DiffusionRunner:
         return loss_dict, stat_dict
     
     @torch.no_grad()
-    def generate_text_conditional(self, num_texts):
+    def generate_text(self, num_texts):
         self.set_valid_data_generator()
 
         result_dict = {
-            "COND": [],
             "GEN": [],
             "GT": []
         }
+        if self.config.is_conditional:
+            result_dict["COND"] = []
 
         for batch in self.valid_loader:
             tmp_batch_size = int(min(len(batch["text_src"]), num_texts - len(result_dict["GEN"])))
@@ -620,48 +620,52 @@ class DiffusionRunner:
             for key in batch:
                 batch[key] = batch[key][:tmp_batch_size]
 
-            cond = self.tokenizer_cond(
-                batch["text_src"],
-                add_special_tokens=True,
-                padding=True,
-                truncation=False,
-                return_tensors="pt",
-                return_attention_mask=True,
-                return_token_type_ids=False,
-            )
-            cond = dict_to_cuda(cond)
+            if cond is None:
+                cond = None
+            else:
+                cond = self.tokenizer_cond(
+                    batch["text_src"],
+                    add_special_tokens=True,
+                    padding=True,
+                    truncation=False,
+                    return_tensors="pt",
+                    return_attention_mask=True,
+                    return_token_type_ids=False,
+                )
+                cond = dict_to_cuda(cond)
            
             gen_text = self.generate_text_batch(
                 batch_size=tmp_batch_size,
                 cond=cond,
                 attention_mask=None,
             )[0]
-            
-            cond_text = self.tokenizer_cond.batch_decode(cond["input_ids"], skip_special_tokens=True)
-            gt_text = batch["text_src"]
-        
-            result_dict["COND"] += cond_text
-            result_dict["GT"] += gt_text
+    
             result_dict["GEN"] += gen_text
+            result_dict["GT"] += batch["text_trg"]
+            if self.config.is_conditional:
+                result_dict["COND"] += batch["text_src"]
 
             if len(result_dict["GEN"]) >= num_texts:
                 break
-
         return result_dict
 
-
     @torch.no_grad()
-    def generate_text_batch(self, batch_size, cond=None, way="sde", attention_mask=None):
+    def generate_text_batch(self, batch_size, cond=None, attention_mask=None):
         if attention_mask is not None:
             attention_mask = attention_mask.cuda()
 
-        cond_x = self.encoder_cond(**{"input_ids": cond["input_ids"], "attention_mask": cond["attention_mask"]})
+        if cond is None:
+            cond_x = None
+            cond_mask = None
+        else:
+            cond_x = self.encoder_cond(input_ids=cond["input_ids"], attention_mask=cond["attention_mask"])
+            cond_mask = cond["attention_mask"]
 
         pred_embeddings = self.pred_embeddings(
             batch_size,
             attention_mask=attention_mask,
             cond_x=cond_x,
-            cond_mask=cond["attention_mask"]
+            cond_mask=cond_mask
         )
 
         output = self.pred_logits(pred_embeddings)
@@ -677,15 +681,11 @@ class DiffusionRunner:
                 id += 1
             tokens_list.append(seq[0: id])
 
-        # with open("output.txt", "w") as file:
-        #     for t in self.tokenizer_gen.batch_decode(tokens):
-        #         print(t, file=file)
-
         text = self.tokenizer_gen.batch_decode(tokens_list, skip_special_tokens=True)
         return text, pred_embeddings
 
     @torch.no_grad()
-    def pred_logits(self, pred_embeddings, input_ids=None):
+    def pred_logits(self, pred_embeddings):
         pred_embeddings = self.gen_enc_normalizer.denormalize(pred_embeddings)
         output = self.decoder(pred_embeddings)
         return output
@@ -707,14 +707,9 @@ class DiffusionRunner:
         with torch.no_grad():
             x = self.dynamic.prior_sampling(shape).to(self.device)
             x_0_self_cond = torch.zeros_like(x, dtype=x.dtype)
-            eps_t = 0.01
+            eps_t = self.config.generation.t_min
 
-            if self.config.timesteps == "linear":
-                timesteps = torch.linspace(self.dynamic.T, eps_t, self.dynamic.N + 1, device=self.device)
-            elif self.config.timesteps == "quad":
-                deg = 2
-                timesteps = torch.linspace(1, 0, self.dynamic.N + 1, device=self.device) ** deg * (
-                        self.dynamic.T - eps_t) + eps_t
+            timesteps = torch.linspace(self.dynamic.T, eps_t, self.dynamic.N + 1, device=self.device)
 
             for idx in tqdm(range(self.dynamic.N)):
                 t = timesteps[idx]
@@ -736,163 +731,4 @@ class DiffusionRunner:
 
             pred_embeddings = x_mean
 
-        return pred_embeddings
-
-    @torch.no_grad()
-    def estimate(self):
-        self.score_estimator.eval()
-        self.switch_to_ema()
-
-        num_texts = int(self.config.validation.num_gen_texts / dist.get_world_size())
-        if (self.config.validation.num_gen_texts % dist.get_world_size()) > dist.get_rank():
-            num_texts += 1
-        
-        seed = self.config.seed + dist.get_rank()
-        set_seed(seed)
-        result_dict = self.generate_text_conditional(num_texts)
-        
-        for key in result_dict:
-            result_dict[key] = gather_texts(result_dict[key])
-
-        if dist.get_rank() == 0:
-            texts_path = "./generated_texts"
-            text_list = []
-            N = self.config.validation.num_text_to_est
-            for i in range(len(result_dict["GEN"])):
-                if result_dict["GEN"][i] and result_dict["COND"][i]:
-                    text_list.append(
-                        {
-                            "COND": result_dict["COND"][i], 
-                            "GT": result_dict["GT"][i],
-                            "GEN": result_dict["GEN"][i],
-                            "JOINT": f'{result_dict["COND"][i]} {result_dict["GEN"][i]}'
-                        }
-                    )
-                if len(text_list) >= N:
-                    break
-            
-            if not os.path.exists(self.config.validation.texts_path):
-                os.makedirs(self.config.validation.texts_path)
-
-            prefix_folder = os.path.join(self.config.validation.texts_path, self.config.training.checkpoints_prefix)
-            if not os.path.exists(prefix_folder):
-                os.makedirs(prefix_folder)
-
-            file_name = f"{self.step}-N={self.config.dynamic.N}-len={len(text_list)}.json"
-            save_path = os.path.join(prefix_folder, file_name)
-            json.dump(text_list, open(save_path, "w"), indent=4)
-
-            train_references = []
-            with open(self.config.data.train_path, "r") as file:
-                for l in file:
-                    train_references.append(l.strip())
-
-            valid_references = []
-            with open(self.config.data.valid_path, "r") as file:
-                for l in file:
-                    valid_references.append(l.strip())
-            valid_references = valid_references[:N]
-
-            references = [d["GT"] for d in text_list]
-            predictions = [d["GEN"] for d in text_list]
-            prompts = [d["COND"] for d in text_list]
-            joint_texts = [d["JOINT"] for d in text_list]
-            
-            ppl = compute_conditional_perplexity(all_prompts_list=prompts, all_joint_texts_list=joint_texts)
-            div = compute_diversity(all_texts_list=predictions)['diversity']
-            mem = compute_memorization(all_texts_list=predictions, human_references=train_references)
-            try:
-                mauve = compute_mauve(all_texts_list=predictions, human_references=references)
-            except Exception:
-                mauve = 0.
-
-            self.log_metric(metric_name="GPT2-large ppl", loader_name="", value=ppl)
-            self.log_metric(metric_name="Diversity", loader_name="", value=div)
-            self.log_metric(metric_name="Memorization", loader_name="", value=mem)
-            self.log_metric(metric_name="Mauve", loader_name="", value=mauve)
-
-            print(f"GPT2-large ppl: {ppl:0.5f}")
-            print(f"Diversity: {div:0.5f}")
-            print(f"Memorization: {mem:0.5f}")
-            print(f"Mauve: {mauve:0.5f}")
-
-        self.switch_back_from_ema()
-        self.score_estimator.train()
-
-
-    @torch.no_grad()
-    def pred_embeddings_classifier_guidance(
-            self,
-            batch_size,
-            cond_X=None,
-            cond_mask=None,
-            attention_mask=None,
-    ):
-        def q_x_t_rev(x_t, x_0, t):
-            dt = 1 / self.dynamic.N
-            alpha_t = self.dynamic.marginal_params(t)["mu"] ** 2
-            alpha_t_1 = self.dynamic.marginal_params(t - dt)["mu"] ** 2
-            beta_t = 1 - alpha_t / alpha_t_1
-
-            mu = torch.sqrt(alpha_t_1) * beta_t / (1 - alpha_t) * x_0 + \
-                 torch.sqrt(1 - beta_t) * (1 - alpha_t_1) / (1 - alpha_t) * x_t
-            std = torch.sqrt((1 - alpha_t_1) / (1 - alpha_t) * beta_t)
-            return mu, std
-
-        cond_null = self.tokenizer_cond.encode_plus(
-            text="",
-            add_special_tokens=True,
-            padding="max_length",
-            truncation=True,
-            max_length=self.config.data.max_sequence_len,
-            return_tensors="pt",
-        )
-        cond_null = dict_to_cuda(cond_null)
-        cond_null["input_ids"] = cond_null["input_ids"].repeat(batch_size, 1)
-        cond_null["attention_mask"] = cond_null["attention_mask"].repeat(batch_size, 1)
-
-        cond_null_X = self.encoder_cond(**{
-            "input_ids": cond_null["input_ids"],
-            "attention_mask": cond_null["attention_mask"]
-        })
-        cond_null_mask = cond_null["attention_mask"]
-
-
-        shape = (
-            batch_size,
-            self.config.data.max_sequence_len,
-            self.encoder_gen.config.hidden_size
-        )
-        scale = self.config.classifier_guidance_scale
-
-        with torch.no_grad():
-            x_t = self.dynamic.prior_sampling(shape).to(self.device)
-            x_0_self_cond = torch.zeros_like(x_t, dtype=x_t.dtype)
-
-            n = 2
-            eps_t = n / self.dynamic.N 
-            timesteps = torch.linspace(self.dynamic.T, eps_t, self.dynamic.N - n + 1, device=self.device)
-            for i in tqdm(range(self.dynamic.N  - n + 1)):
-                t = timesteps[i]
-                vec_t = torch.ones(shape[0], device=t.device) * t
-                # print(f"{t:0.3f}: {torch.mean(torch.norm(x_t, dim=-1)):0.3f}")
-
-                x_0_null = self.calc_score(
-                    self.score_estimator, x_t, vec_t,
-                    cond=cond_null_X, cond_mask=cond_null_mask, attention_mask=attention_mask,
-                    x_0_self_cond=x_0_self_cond,
-                )["x_0"]
-
-                x_0_cond = self.calc_score(
-                    self.score_estimator, x_t, vec_t,
-                    cond=cond_X, cond_mask=cond_mask, attention_mask=attention_mask,
-                    x_0_self_cond=x_0_self_cond,
-                )["x_0"]
-
-                x_0 = x_0_cond + scale * (x_0_cond - x_0_null)
-                mu, std = q_x_t_rev(x_t, x_0, vec_t)
-                x_t = mu + std * torch.randn_like(x_t)
-                x_0_self_cond = x_0
-
-            pred_embeddings = mu
         return pred_embeddings

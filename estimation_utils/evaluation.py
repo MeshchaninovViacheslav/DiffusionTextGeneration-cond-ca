@@ -9,14 +9,14 @@ from transformers import AutoTokenizer
 
 def compute_perplexity(all_texts_list, model_id='gpt2-large'):
     torch.cuda.empty_cache() 
-    perplexity = load("/home/vmeshchaninov/nlp_models/metrics/perplexity/", module_type="metric")
+    perplexity = load("/home/vmeshchaninov/nlp_models/metrics/perplexity/", module_type="metric", model_id=model_id)
     results = perplexity.compute(predictions=all_texts_list, model_id=model_id, device='cuda')
     return results['mean_perplexity']
 
 
 def compute_conditional_perplexity(all_joint_texts_list, all_prompts_list, model_id='gpt2-large'):
     torch.cuda.empty_cache() 
-    perplexity = load("perplexity", module_type="metric", model_id=model_id)
+    perplexity = load("/home/vmeshchaninov/nlp_models/metrics/perplexity/", module_type="metric", model_id=model_id)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     existing_special_tokens = list(tokenizer.special_tokens_map_extended.values())
     tokenizer.add_special_tokens({"pad_token": existing_special_tokens[0]})
@@ -123,7 +123,7 @@ def compute_mauve(all_texts_list, human_references, model_id='gpt2-large'):
     return results.mauve
 
 
-def compute_rouge(all_texts_list, human_references, model_id='gpt2-large'):
+def compute_rouge(all_texts_list, human_references):
     torch.cuda.empty_cache() 
 
     rouge = load('rouge')

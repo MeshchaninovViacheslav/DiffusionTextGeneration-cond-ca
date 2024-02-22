@@ -5,7 +5,7 @@ import math
 
 
 class PerceiverAttention(nn.Module):
-    def __init__(self, embedding_dim, hidden_size, n_heads, num_latents, dropout_p=0.1):
+    def __init__(self, embedding_dim, hidden_size, n_heads, dropout_p=0.1):
         super().__init__()
         assert hidden_size % n_heads == 0
 
@@ -24,35 +24,33 @@ class PerceiverAttention(nn.Module):
         self.attn_dropout = nn.Dropout(dropout_p) 
         self.proj_dropout = nn.Dropout(dropout_p)
 
-        mask_weights = torch.ones(num_latents)
-        self.register_buffer("mask", mask_weights)
-        
-
     def forward(self, x, latents, mask_x, mask_latent):
-        batch_size, seq_len, hidden_size = x.size() # batch size, sequence length, embedding dimensionality
+        batch_size, seq_len, hidden_size = latents.size() # batch size, sequence length, embedding dimensionality
 
         # calculate query, key, values for all heads in batch and split batch into three parts for q, k, v
         # move head forward to be the batch dim
-        
         q = self.to_Q(latents)
         kv_input = torch.cat((x, latents), dim = 1)
+        kv_mask = torch.cat((mask_x, mask_latent), dim=1)
         k, v = self.to_KV(kv_input).split(self.hidden_size, dim=2) 
 
         # Reshape [batch_size, seq_len, hidden_size] -> [batch_size, seq_len, self.n_head, hidden_size // self.n_head]
         # Transpose [batch_size, seq_len, self.n_head, hidden_size // self.n_head] -> [batch_size, self.n_head, seq_len, hidden_size // self.n_head]
         # in order to calculate attention over different heads
-        q = q.view(batch_size, seq_len, self.n_heads, hidden_size // self.n_heads).transpose(1, 2) 
-        k = k.view(batch_size, seq_len, self.n_heads, hidden_size // self.n_heads).transpose(1, 2) 
-        v = v.view(batch_size, seq_len, self.n_heads, hidden_size // self.n_heads).transpose(1, 2) 
+        q = q.view(batch_size, q.shape[1], self.n_heads, hidden_size // self.n_heads).transpose(1, 2) 
+        k = k.view(batch_size, k.shape[1], self.n_heads, hidden_size // self.n_heads).transpose(1, 2) 
+        v = v.view(batch_size, v.shape[1], self.n_heads, hidden_size // self.n_heads).transpose(1, 2) 
 
         # Compute Attention scores
         # [batch_size, self.n_head, seq_len_q, seq_len_k]
         attention_scores = (q @ k.transpose(-2, -1)) / math.sqrt(k.size(-1))
         
         # Apply masking to attention scores, fill -inf to attention scores where mask is false 
-        mask = mask_latent.repeat(mask_x.shape[0], 1) * mask_x[..., None]
-        mask = mask.view(1, 1, mask.shape[0], mask.shape[1])
-        attention_scores = attention_scores.masked_fill(mask == 0, float('-inf'))
+        mask = kv_mask.view(kv_mask.shape[0], 1, kv_mask.shape[1]).repeat(1, mask_latent.shape[1], 1) * mask_latent.view(mask_latent.shape[0], mask_latent.shape[1], 1)
+        mask = mask.view(mask.shape[0], 1, mask.shape[1], mask.shape[2])
+        #attention_scores = attention_scores.masked_fill(mask == 0, float('-inf'))
+        mask = (1.0 - mask) * torch.finfo(attention_scores.dtype).min
+        attention_scores = attention_scores + mask
         
         # Apply Softmax
         attention_scores = F.softmax(attention_scores, dim=-1)
@@ -134,12 +132,9 @@ class PerceiverResampler(nn.Module):
         if mask_latent is None:
             mask_latent = torch.ones((x.shape[0], self.num_latents), dtype=x.dtype)
         
-        latents = self.latents.view(1, self.num_latents, self.embedding_dim).repeat(x.shape[0])
+        latents = self.latents.view(1, self.num_latents, self.embedding_dim).repeat(x.shape[0], 1, 1)
 
-        for attn, ff in self.layers:
-            latents = attn(x, latents, mask_x, mask_latent) + latents
-            latents = ff(latents) + latents
+        for layer in self.layers:
+            latents = layer(x, latents, mask_x, mask_latent)
 
         return self.norm(latents)
-
-

@@ -14,8 +14,8 @@ def estimate(diffusion):
     seed = diffusion.config.seed + dist.get_rank()
     set_seed(seed)
 
-    num_texts = int(diffusion.config.validation.num_gen_texts / dist.get_world_size())
-    if (diffusion.config.validation.num_gen_texts % dist.get_world_size()) > dist.get_rank():
+    num_texts = int(diffusion.config.generation.num_gen_texts / dist.get_world_size())
+    if (diffusion.config.generation.num_gen_texts % dist.get_world_size()) > dist.get_rank():
         num_texts += 1
     
     result_dict = diffusion.generate_text(num_texts)
@@ -30,11 +30,11 @@ def estimate(diffusion):
             if result_dict["GEN"][i]:
                 text_list.append({key: result_dict[key][i] for key in result_dict})
 
-            if len(text_list) >= diffusion.config.validation.num_text_to_est:
+            if len(text_list) >= diffusion.config.generation.num_text_to_est:
                 break
         
-        os.makedirs(diffusion.config.validation.texts_path, exist_ok=True)
-        prefix_folder = os.path.join(diffusion.config.validation.texts_path, diffusion.config.training.checkpoints_prefix)
+        os.makedirs(diffusion.config.generation.texts_path, exist_ok=True)
+        prefix_folder = os.path.join(diffusion.config.generation.texts_path, diffusion.config.training.checkpoints_prefix)
         os.makedirs(prefix_folder, exist_ok=True)
         file_name = f"{diffusion.step}-N={diffusion.config.dynamic.N}-len={len(text_list)}.json"
         save_path = os.path.join(prefix_folder, file_name)
@@ -53,7 +53,7 @@ def compute_metrics(diffusion, text_list: List[Dict[str, str]]):
 
 
 def compute_metrics_uncond(diffusion, text_list: List[Dict[str, str]]):
-    dt = load_from_disk(f"{diffusion.data.dataset_path}/train/")
+    dt = load_from_disk(f"{diffusion.config.data.dataset_path}/train/")
     train_references = dt["text"]
 
     references = [d["GT"] for d in text_list]
@@ -83,7 +83,7 @@ def compute_metrics_uncond(diffusion, text_list: List[Dict[str, str]]):
 
 
 def compute_metrics_cond(diffusion, text_list: List[Dict[str, str]]):
-    dt = load_from_disk(f"{diffusion.data.dataset_path}/train/")
+    dt = load_from_disk(f"{diffusion.config.data.dataset_path}/train/")
     train_references = dt["text"]
 
     references = [d["GT"] for d in text_list]

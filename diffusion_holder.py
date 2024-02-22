@@ -32,6 +32,7 @@ from model.decoder import BertDecoder
 from utils import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, reduce_tensor, set_seed, l1_loss, smooth_l1_loss
 
 from estimation_utils.estimate import estimate
+from estimation_utils.reconstruction_loss import compute_reconstruction_loss
 
 
 class DiffusionRunner:
@@ -104,26 +105,18 @@ class DiffusionRunner:
 
         # Datasets
         self.train_datasets_iter = create_dataset(
-            dataset_name=config.data.dataset_name,
+            config=config
         )(
             split="train",
-            tokenizer_cond=self.tokenizer_cond,
-            tokenizer_gen=self.tokenizer_gen,
-            max_sequence_len=self.config.data.max_sequence_len,
-            max_context_len=self.config.data.max_context_len,
-            base_path=config.data.dataset_path,
+            config=config
         ).get_data()
         self.train_dataset = None
 
         self.valid_datasets_iter = create_dataset(
-            dataset_name=config.data.dataset_name,
+            config=config
         )(
-            split="valid",
-            tokenizer_cond=self.tokenizer_cond,
-            tokenizer_gen=self.tokenizer_gen,
-            max_sequence_len=self.config.data.max_sequence_len,
-            max_context_len=self.config.data.max_context_len,
-            base_path=config.data.dataset_path,
+            split="test",
+            config=config
         ).get_data()
         self.valid_dataset = next(self.valid_datasets_iter)
 
@@ -149,7 +142,8 @@ class DiffusionRunner:
             self.step = 0
             
             if self.load_checkpoint():
-                self.estimate()
+                estimate(self)
+                compute_reconstruction_loss(self, suffix="valid")
                 self.validate()
 
     def restore_parameters(self, device: Optional[torch.device] = None) -> None:
@@ -224,7 +218,8 @@ class DiffusionRunner:
         self.optimizer.load_state_dict(load["optimizer"])
         self.scheduler.load_state_dict(load["scheduler"])
         self.grad_scaler.load_state_dict(load["scaler"])
-        self.encoder_cond.load_state_dict(load["conditional_encoder"])
+        if self.config.is_conditional:
+            self.encoder_cond.load_state_dict(load["conditional_encoder"])
         
         self.step = load["step"]
         if dist.get_rank() == 0:
@@ -334,7 +329,7 @@ class DiffusionRunner:
     def train(self) -> None:
         self.set_valid_data_generator()
         self.train_range = trange(self.step, self.config.training.training_iters, total=self.config.training.training_iters)
-        self.train_range.update(self.step)
+        #self.train_range.update(self.step)
         self.train_range_iter = iter(self.train_range)
 
         while True:
@@ -366,10 +361,11 @@ class DiffusionRunner:
 
                 self.validate()
                 estimate(self)
+                compute_reconstruction_loss(self, suffix="valid")
 
                 self.switch_back_from_ema()
                 self.score_estimator.train()
-                self.compute_restoration_loss(suffix="valid")
+                
                 # self.compute_restoration_loss(suffix="train")
 
             self.train_range.set_description(
@@ -419,7 +415,7 @@ class DiffusionRunner:
 
         loss_dict, stat_dict = self.calc_loss(clean_x=clean_x, cond_x=cond_x, trg=trg, cond=cond)
 
-        stat_dict["grad_norm"], stat_dict["clipped_grad_norm"] = self.optimizer_step(loss_dict['total_loss'])
+        stat_dict["grad_norm"], stat_dict["clipped_grad_norm"] = self.optimizer_step(loss_dict['loss'])
         stat_dict["scale_factor"] = torch.Tensor([self.grad_scaler._scale])
 
         if self.step % 10 == 0:
@@ -615,14 +611,12 @@ class DiffusionRunner:
             result_dict["COND"] = []
 
         for batch in self.valid_loader:
-            tmp_batch_size = int(min(len(batch["text_src"]), num_texts - len(result_dict["GEN"])))
+            tmp_batch_size = int(min(len(batch["text_trg"]), num_texts - len(result_dict["GEN"])))
             
             for key in batch:
                 batch[key] = batch[key][:tmp_batch_size]
 
-            if cond is None:
-                cond = None
-            else:
+            if self.config.is_conditional:
                 cond = self.tokenizer_cond(
                     batch["text_src"],
                     add_special_tokens=True,
@@ -633,6 +627,8 @@ class DiffusionRunner:
                     return_token_type_ids=False,
                 )
                 cond = dict_to_cuda(cond)
+            else:
+                cond = None
            
             gen_text = self.generate_text_batch(
                 batch_size=tmp_batch_size,

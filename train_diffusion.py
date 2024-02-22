@@ -17,7 +17,4 @@ if __name__ == '__main__':
 
     seed = config.seed + dist.get_rank()
     set_seed(seed)
-    diffusion.train(
-        project_name=config.project_name,
-        experiment_name=config.training.checkpoints_prefix
-    )
+    diffusion.train()

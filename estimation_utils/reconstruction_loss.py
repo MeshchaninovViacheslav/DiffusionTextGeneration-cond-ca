@@ -2,7 +2,7 @@ import torch
 import wandb
 import torch.distributed as dist
 
-from util import dict_to_cuda, mse_loss
+from utils import dict_to_cuda, mse_loss, recon_loss
 
 
 @torch.no_grad()
@@ -68,7 +68,7 @@ def compute_reconstruction_loss(diffusion, suffix="valid"):
     timesteps = torch.linspace(diffusion.dynamic.T, 0.001, diffusion.dynamic.N, device=diffusion.device)
     for t in timesteps:
         vec_t = t * torch.ones(batch_size, device=diffusion.device)
-        x_t = diffusion.sde.marginal_forward(clean_x, vec_t)["x_t"]
+        x_t = diffusion.dynamic.marginal(clean_x, vec_t)["x_t"]
 
         x_0_self_cond = torch.zeros_like(clean_x, dtype=clean_x.dtype)
         x_0 = diffusion.score_estimator(
@@ -86,8 +86,8 @@ def compute_reconstruction_loss(diffusion, suffix="valid"):
             x_0_self_cond=x_0_self_cond
         )
 
-        loss_x_0_wsc = diffusion.mse_loss(clean_x, x_0, mask)
-        loss_ce = diffusion.recon_loss(diffusion.pred_logits(pred_embeddings=x_0), trg["input_ids"], mask)
+        loss_x_0_wsc = mse_loss(clean_x, x_0, mask)
+        loss_ce = recon_loss(diffusion.pred_logits(pred_embeddings=x_0), trg["input_ids"], mask)
 
         losses_dict["x_0 w/o selfcond"].append(loss_x_0_wosc.item())
         losses_dict["x_0 w selfcond"].append(loss_x_0_wsc.item())

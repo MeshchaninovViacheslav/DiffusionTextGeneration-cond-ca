@@ -75,7 +75,7 @@ def create_config():
     config.seed = 0
     config.ddp = True
     config.use_self_cond = True
-    config.project_name = "article-rocstory-conditional_exps"
+    config.project_name = "test"#"textdif-compression-1"
     config.timesteps = "linear"
     config.is_conditional = False
     config.is_eval = False

@@ -26,21 +26,10 @@ class NGramStats:
     https://github.com/tuetschek/e2e-stats/blob/master/nlg_dataset_stats.py
     """
 
-    def __init__(self, train_dataset_path):
+    def __init__(self):
         self.tokenizer = spacy.load("en_core_web_sm").tokenizer
         self.PUNCTUATION = set(string.punctuation)
         self.results = dict()
-        self.prepare_train_data(train_dataset_path)
-
-
-    def prepare_train_data(self, train_dataset_path):
-        texts = []
-        with open(train_dataset_path, "r") as file:
-            for l in file:
-                texts.append(l.strip())
-        self.train_data = self._list_tokenized_lower_nopunct(texts)
-        self.train_data_4_grams = self._ngram_freqs(self.train_data, 4)
-
 
     def compute(self, texts: List[str]) -> Dict:
         data = self._list_tokenized_lower_nopunct(texts)
@@ -68,9 +57,6 @@ class NGramStats:
             if last_ngram_freqs:
                 results[f"cond_entropy-{N}"] = self._cond_entropy(ngram_freqs, last_ngram_freqs)
             last_ngram_freqs = ngram_freqs
-
-            if N == 4:
-                results["memorization"] = self._memorization(ngram_freqs)
         
         self.results = results
         self.results["msttr"] = self._MSTTR(data)
@@ -168,11 +154,4 @@ class NGramStats:
         for N in [2, 3, 4]:
             diversity *= self.results[f"distinct-{N}"]
         return diversity
-
-    def _memorization(self, ngram_freqs: Dict):
-        sim_n_grams = 0
-        for n_gram in ngram_freqs:
-            if n_gram in self.train_data_4_grams:
-                sim_n_grams += 1
-        return sim_n_grams / len(ngram_freqs)
 

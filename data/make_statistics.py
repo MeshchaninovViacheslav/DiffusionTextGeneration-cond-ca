@@ -9,16 +9,12 @@ from model import Encoder
 from create_config import create_config
 
 
-def get_loader(config, tokenizer, batch_size):
+def get_loader(config, batch_size):
     train_dataset = next(create_dataset(
-        dataset_name=config.data.dataset_name,
+        config=config
     )(
         split="train",
-        tokenizer_cond=tokenizer,
-        tokenizer_gen=tokenizer,
-        base_path=config.data.dataset_path,
-        max_sequence_len=config.data.max_sequence_len + config.data.max_context_len,
-        max_context_len=0,
+        config=config,
     ).get_data())
 
     train_loader = DataLoader(
@@ -43,7 +39,6 @@ def compute_mean_std(
 
     train_loader = get_loader(
         config=config,
-        tokenizer=tokenizer,
         batch_size=batch_size
     )
     T = tqdm(train_loader)

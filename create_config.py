@@ -14,7 +14,7 @@ def create_config():
     config = ml_collections.ConfigDict()
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
-    optim.linear_warmup = 500
+    optim.linear_warmup = 1000
     optim.lr = 2e-4
     optim.min_lr = 2e-4
     optim.warmup_lr = 1e-8
@@ -25,8 +25,8 @@ def create_config():
 
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 100_000
-    training.checkpoint_freq = 20#10_000
-    training.eval_freq = 20#10_000
+    training.checkpoint_freq = 10_000
+    training.eval_freq = 10_000
     training.batch_size = 512
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
@@ -62,7 +62,7 @@ def create_config():
     model.conditional_encoder_train = False
     
     data = config.data = ml_collections.ConfigDict()
-    data.max_sequence_len = 64
+    data.max_sequence_len = 80
     data.max_context_len = 0
     data.dataset_name = "rocstory"
     data.dataset_path = f"/home/vmeshchaninov/nlp_models/data/{data.dataset_name}"
@@ -70,19 +70,20 @@ def create_config():
     data.enc_gen_std = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-std.pt"
 
     model.decoder_mode = "transformer"
-    model.decoder_path = f"./{training.checkpoints_folder}/decoder-{model.encoder_name_hash}-{model.decoder_mode}.pth"
+    model.decoder_path = f"{data.dataset_path}/decoder-{model.encoder_name_hash}-{model.decoder_mode}.pth"
 
     config.seed = 0
     config.ddp = True
     config.use_self_cond = True
-    config.project_name = "test"#"textdif-compression-1"
+    config.project_name = "textdif-compression-1"
     config.timesteps = "linear"
     config.is_conditional = False
     config.is_eval = False
     config.bert_config = bert_config
     config.bert_config.is_decoder = config.is_conditional
     training.checkpoints_prefix = f"{config.data.dataset_name}" + \
-                                  f"-{config.model.encoder_name_hash}"  
+                                  f"-{config.model.encoder_name_hash}" + \
+                                  f"-{config.dynamic.scheduler}" 
 
     return config
 

@@ -13,6 +13,9 @@ if __name__ == '__main__':
     if dist.get_rank() == 0:
         print(config)
 
+    seed = config.seed
+    set_seed(seed)
+
     diffusion = DiffusionRunner(config)
 
     seed = config.seed + dist.get_rank()

@@ -103,26 +103,23 @@ def train(config, encoder, decoder, tokenizer):
     total_number_params = sum(p.numel() for p in decoder.parameters() if p.requires_grad)
     print(f"Num params: {total_number_params}")
 
-    max_sequence_len = 128
     batch_size = 512
 
     train_loader, valid_loader = get_loaders(
         config=config,
-        tokenizer=tokenizer,
-        max_sequence_len=max_sequence_len,
         batch_size=batch_size
     )
 
     optimizer = torch.optim.AdamW(
         decoder.parameters(),
-        lr=5e-5,
+        lr=1e-4,
         weight_decay=0.001,
         betas=(0.9, 0.98),
     )
 
     eval_freq = 100
     step = 0
-    epochs = 10
+    epochs = 3
     for _ in range(epochs):
         decoder.train()
 

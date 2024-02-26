@@ -25,8 +25,8 @@ def create_config():
 
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 100_000
-    training.checkpoint_freq = 20#10_000
-    training.eval_freq = 20#10_000
+    training.checkpoint_freq = 10_000
+    training.eval_freq = 10_000
     training.batch_size = 512
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
@@ -64,7 +64,7 @@ def create_config():
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
     data.max_context_len = 0
-    data.dataset_name = "rocstory"
+    data.dataset_name = "ag_news"
     data.dataset_path = f"/home/vmeshchaninov/nlp_models/data/{data.dataset_name}"
     data.enc_gen_mean = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-mean.pt"
     data.enc_gen_std = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-std.pt"

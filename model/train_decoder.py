@@ -30,16 +30,12 @@ def reconstruction_loss(target, prediction_scores, mask):
     return ce_loss
 
 
-def get_loaders(config, tokenizer, max_sequence_len, batch_size):
+def get_loaders(config, batch_size):
     train_dataset = next(create_dataset(
-        dataset_name=config.data.dataset_name,
+        config=config,
     )(
         split="train",
-        tokenizer_cond=tokenizer,
-        tokenizer_gen=tokenizer,
-        base_path=config.data.dataset_path,
-        max_sequence_len=config.data.max_sequence_len + config.data.max_context_len,
-        max_context_len=0,
+        config=config,
     ).get_data())
 
     train_loader = DataLoader(
@@ -51,14 +47,10 @@ def get_loaders(config, tokenizer, max_sequence_len, batch_size):
     )
 
     valid_dataset = next(create_dataset(
-        dataset_name=config.data.dataset_name,
+        config=config,
     )(
         split="test",
-        tokenizer_cond=tokenizer,
-        tokenizer_gen=tokenizer,
-        base_path=config.data.dataset_path,
-        max_sequence_len=config.data.max_sequence_len + config.data.max_context_len,
-        max_context_len=0,
+        config=config,
     ).get_data())
 
     valid_loader = DataLoader(
@@ -116,9 +108,7 @@ def train(config, encoder, decoder, tokenizer):
 
     train_loader, valid_loader = get_loaders(
         config=config,
-        tokenizer=tokenizer,
-        max_sequence_len=max_sequence_len,
-        batch_size=batch_size
+        batch_size=batch_size,
     )
 
     optimizer = torch.optim.AdamW(

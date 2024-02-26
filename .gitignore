@@ -2,3 +2,5 @@
 *.idea*
 .txt
 .sh
+wandb/
+__pycache__*

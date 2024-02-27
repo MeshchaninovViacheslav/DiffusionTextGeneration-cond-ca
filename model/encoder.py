@@ -43,4 +43,4 @@ class Encoder(torch.nn.Module):
     
     
     def _normalize_emb(self, x):
-        return x / torch.norm(x) * np.sqrt(x.shape[-1])
+        return x / torch.norm(x)

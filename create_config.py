@@ -24,12 +24,12 @@ def create_config():
     optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 100_000
-    training.checkpoint_freq = 20#10_000
-    training.eval_freq = 20#10_000
+    training.training_iters = 200_000
+    training.checkpoint_freq = 20_000
+    training.eval_freq = 20_000
     training.batch_size = 512
     training.ode_sampling = False
-    training.checkpoints_folder = './checkpoints/'
+    training.checkpoints_folder = '/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints'
     training.checkpoint_name = ""
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -70,12 +70,12 @@ def create_config():
     data.enc_gen_std = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-std.pt"
 
     model.decoder_mode = "transformer"
-    model.decoder_path = f"./{training.checkpoints_folder}/decoder-{model.encoder_name_hash}-{model.decoder_mode}.pth"
+    model.decoder_path = f"{training.checkpoints_folder}/decoder-{model.encoder_name_hash}-{model.decoder_mode}.pth"
 
     config.seed = 0
     config.ddp = True
     config.use_self_cond = True
-    config.project_name = "test"#"textdif-compression-1"
+    config.project_name = "test"
     config.timesteps = "linear"
     config.is_conditional = False
     config.is_eval = False

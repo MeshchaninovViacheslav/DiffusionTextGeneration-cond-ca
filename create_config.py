@@ -28,8 +28,9 @@ def create_config():
     training.checkpoint_freq = 20_000
     training.eval_freq = 20_000
     training.batch_size = 512
-    training.ode_sampling = False
-    training.checkpoints_folder = '/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints'
+    training.ode_sampling = True
+    training.checkpoints_folder = './checkpoints'
+    training.teacher_folder = '/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/rocstory-bert-base-cased/200000.pth'
     training.checkpoint_name = ""
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -41,7 +42,7 @@ def create_config():
     dynamic.N = 100
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
-    dynamic.ode_sampling = False
+    dynamic.ode_sampling = True
     dynamic.coef_d = 8
 
     generation = config.generation = ml_collections.ConfigDict()

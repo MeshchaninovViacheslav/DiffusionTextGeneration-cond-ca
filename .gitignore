@@ -4,3 +4,7 @@
 .sh
 wandb/
 *__pycache__*
+*.png
+generated_texts/
+*slurm*
+hist.py

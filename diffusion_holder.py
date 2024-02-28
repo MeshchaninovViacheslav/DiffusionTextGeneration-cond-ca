@@ -145,6 +145,8 @@ class DiffusionRunner:
                 estimate(self)
                 compute_reconstruction_loss(self, suffix="valid")
                 self.validate()
+            else:
+                self.load_teacher()
 
     def restore_parameters(self, device: Optional[torch.device] = None) -> None:
         checkpoints_folder: str = self.config.training.checkpoints_folder
@@ -225,6 +227,23 @@ class DiffusionRunner:
         if dist.get_rank() == 0:
             print(f"Checkpoint is loaded {checkpoint_name}")
         return True
+
+    def load_teacher(self) -> None:
+        path = self.config.training.teacher_folder
+        load = torch.load(path, map_location="cpu")
+
+        self.ema.load_state_dict(load["ema"])
+        self.ema.cuda()
+        self.switch_to_ema()
+        self.set_optimizer()
+        self.set_scheduler()
+        self.set_grad_scaler()
+    
+        if self.config.is_conditional:
+            self.encoder_cond.load_state_dict(load["conditional_encoder"])
+        
+        if dist.get_rank() == 0:
+            print(f"Teacher checkpoint is loaded {path}")
 
     def switch_to_ema(self) -> None:
         ema = self.ema
@@ -371,7 +390,8 @@ class DiffusionRunner:
             self.train_range.set_description(
                 f"loss_x_0: {loss_dict['loss_x_0'].item():0.4f}, "
                 f"grad_norm: {stat_dict['grad_norm'].item():0.4f}, "
-                f"accuracy: {loss_dict['accuracy'].item():0.4f}"
+                f"accuracy: {loss_dict['accuracy'].item():0.4f}, "
+                f"rec: {loss_dict['loss_ce'].item():0.4f}"
             )
 
     def train_step(self, batch):

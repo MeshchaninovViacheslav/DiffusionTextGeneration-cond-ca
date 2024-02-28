@@ -13,14 +13,6 @@ from utils.util import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, r
 
 
 class DistillationRunner(DiffusionRunner):
-    # def set_solver(self):
-    #     self.dynamic = DynamicSDE(config=self.config)
-    #     self.diff_eq_solver = create_solver(self.config)(
-    #         dynamic=self.dynamic,
-    #         score_fn=partial(self.calc_score, model=self.ema),
-    #         ode_sampling=self.config.training.ode_sampling
-    #     )
-    
     def calc_loss(
                 self,
                 clean_x,

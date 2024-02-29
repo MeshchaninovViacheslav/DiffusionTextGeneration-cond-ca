@@ -78,7 +78,7 @@ class DynamicSDE(DynamicBase):
         score_output = score_fn(x_t=x_t, t=t)
         if ode_sampling:
             drift = drift_sde - (1 / 2) * beta_t[:, None, None] * score_output["score"]
-            diffusion = 0
+            diffusion = torch.zeros((1,), device=x_t.device)
         else:
             drift = drift_sde - beta_t[:, None, None] * score_output["score"]
             diffusion = diffuson_sde

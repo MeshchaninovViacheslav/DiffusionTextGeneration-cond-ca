@@ -12,6 +12,6 @@
 # Executable
 git stash
 git checkout distillation
-torchrun --nproc_per_node=1 train_diffusion.py
+torchrun --nproc_per_node=1 --master_port=31345 train_diffusion.py
 exit
 

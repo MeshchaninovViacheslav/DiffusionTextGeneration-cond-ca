@@ -14,7 +14,6 @@ if __name__ == '__main__':
         print(config)
 
     diffusion = DistillationRunner(config)
-    
     seed = config.seed + dist.get_rank()
     set_seed(seed)
     diffusion.train()

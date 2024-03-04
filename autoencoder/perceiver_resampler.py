@@ -70,8 +70,6 @@ class PerceiverAttention(nn.Module):
 class TransformerBlock(nn.Module):
     def __init__(self, embedding_dim, hidden_size, n_heads, dropout_p=0.1):
         super().__init__()
-
-        # YOUR CODE
         
         self.ln_x = nn.LayerNorm(embedding_dim)
         self.ln_latents_1 = nn.LayerNorm(embedding_dim)
@@ -105,7 +103,7 @@ class PerceiverResampler(nn.Module):
         embedding_dim,
         hidden_size,
         n_heads,
-        n_layer,
+        n_layers,
         dropout_p=0.1,
     ):
         super().__init__()
@@ -120,7 +118,7 @@ class PerceiverResampler(nn.Module):
                     hidden_size=hidden_size, 
                     n_heads=n_heads, 
                     dropout_p=dropout_p,
-                ) for _ in range(n_layer)
+                ) for _ in range(n_layers)
             ]
         )
 

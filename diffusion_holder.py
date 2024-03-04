@@ -66,7 +66,7 @@ class DiffusionRunner:
         ).eval().cuda()
 
         # Decoder
-        self.decoder = BertDecoder(model_name=config.model.encoder_name, mode=config.model.decoder_mode)
+        self.decoder = BertDecoder(model_name=config.model.encoder_name, bert_config=config.bert_config)
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 
@@ -142,9 +142,15 @@ class DiffusionRunner:
             self.step = 0
             
             if self.load_checkpoint():
-                estimate(self)
+                self.score_estimator.eval()
+                self.switch_to_ema()
+
+                estimate()
                 compute_reconstruction_loss(self, suffix="valid")
                 self.validate()
+
+                self.switch_back_from_ema()
+                self.score_estimator.train()
 
     def restore_parameters(self, device: Optional[torch.device] = None) -> None:
         checkpoints_folder: str = self.config.training.checkpoints_folder
@@ -214,7 +220,7 @@ class DiffusionRunner:
 
         self.ema.load_state_dict(load["ema"])
         self.ema.cuda()
-        self.switch_to_ema()
+        self.score_estimator.load_state_dict(load["model"])
         self.optimizer.load_state_dict(load["optimizer"])
         self.scheduler.load_state_dict(load["scheduler"])
         self.grad_scaler.load_state_dict(load["scaler"])
@@ -345,7 +351,7 @@ class DiffusionRunner:
         self.switch_to_ema()
 
     def train_epoch(self):
-        for _, batch in enumerate(self.train_loader):
+        for batch in self.train_loader:
             if self.step >= self.config.training.training_iters:
                 return
             _ = next(self.train_range_iter)
@@ -670,6 +676,12 @@ class DiffusionRunner:
         eos_id = self.tokenizer_gen.vocab[self.tokenizer_gen.sep_token]
 
         tokens = tokens.detach().cpu().tolist()
+
+        text = self.tokenizer_gen.batch_decode(tokens)
+        with open("./logs/log_smallnorm.txt", "w") as file:
+            for t in text:
+                print(t, file=file)
+
         tokens_list = []
         for seq in tokens:
             id = 0

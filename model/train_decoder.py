@@ -30,16 +30,12 @@ def reconstruction_loss(target, prediction_scores, mask):
     return ce_loss
 
 
-def get_loaders(config, tokenizer, max_sequence_len, batch_size):
+def get_loaders(config, batch_size):
     train_dataset = next(create_dataset(
-        dataset_name=config.data.dataset_name,
+        config=config,
     )(
         split="train",
-        tokenizer_cond=tokenizer,
-        tokenizer_gen=tokenizer,
-        base_path=config.data.dataset_path,
-        max_sequence_len=config.data.max_sequence_len + config.data.max_context_len,
-        max_context_len=0,
+        config=config,
     ).get_data())
 
     train_loader = DataLoader(
@@ -51,14 +47,10 @@ def get_loaders(config, tokenizer, max_sequence_len, batch_size):
     )
 
     valid_dataset = next(create_dataset(
-        dataset_name=config.data.dataset_name,
+        config=config,
     )(
         split="test",
-        tokenizer_cond=tokenizer,
-        tokenizer_gen=tokenizer,
-        base_path=config.data.dataset_path,
-        max_sequence_len=config.data.max_sequence_len + config.data.max_context_len,
-        max_context_len=0,
+        config=config,
     ).get_data())
 
     valid_loader = DataLoader(
@@ -111,26 +103,23 @@ def train(config, encoder, decoder, tokenizer):
     total_number_params = sum(p.numel() for p in decoder.parameters() if p.requires_grad)
     print(f"Num params: {total_number_params}")
 
-    max_sequence_len = 128
     batch_size = 512
 
     train_loader, valid_loader = get_loaders(
         config=config,
-        tokenizer=tokenizer,
-        max_sequence_len=max_sequence_len,
         batch_size=batch_size
     )
 
     optimizer = torch.optim.AdamW(
         decoder.parameters(),
-        lr=5e-5,
+        lr=1e-4,
         weight_decay=0.001,
         betas=(0.9, 0.98),
     )
 
     eval_freq = 100
     step = 0
-    epochs = 10
+    epochs = 4
     for _ in range(epochs):
         decoder.train()
 
@@ -199,9 +188,9 @@ def main():
     encoder = torch.nn.DataParallel(encoder).cuda()
 
 
-    decoder = BertDecoder(model_name=config.model.encoder_name, mode="transformer").train().cuda()
+    decoder = BertDecoder(model_name=config.model.encoder_name, bert_config=config.bert_config).train().cuda()
 
-    exp_name = f"{config.model.encoder_name_hash}-transformer"
+    exp_name = config.model.decoder_path.split("/")[-1].replace(".pth", "")
     wandb.init(project=config.project_name, name=exp_name, mode="online")
     train(config, encoder, decoder, tokenizer)
 

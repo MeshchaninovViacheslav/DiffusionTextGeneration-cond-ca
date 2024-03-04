@@ -38,7 +38,7 @@ class Encoder(torch.nn.Module):
         if self.is_change_sp_tokens:
             for sp_token_id in self.tokenizer.all_special_ids:
                 if sp_token_id == self.tokenizer.pad_token_id:
-                    sequence_output[input_ids == sp_token_id] = self.zero_emb
+                    sequence_output[input_ids == sp_token_id] *= 0.
                 else:
                     sequence_output[input_ids == sp_token_id] = self._normalize_emb(self.embeddings[sp_token_id]).cuda()
         

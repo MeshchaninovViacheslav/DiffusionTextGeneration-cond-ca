@@ -31,6 +31,10 @@ class DistillationRunner(DiffusionRunner):
             batch_size = clean_x.size(0)
 
             t = self.sample_time(batch_size, eps=eps)
+            # Timestep for boundary condition loss
+            t_min = torch.ones_like(t, device=self.device) * self.config.generation.t_min
+            x_t_min = self.dynamic.marginal(clean_x, t_min)['x_t']
+        
             marg_forward = self.dynamic.marginal(clean_x, t)
             x_t, noise, score_clean = marg_forward['x_t'], marg_forward['noise'], marg_forward['score']
             x_0_self_cond = torch.zeros_like(clean_x, dtype=clean_x.dtype)
@@ -47,6 +51,18 @@ class DistillationRunner(DiffusionRunner):
                         attention_mask=mask,
                         x_0_self_cond=x_0_self_cond,
                     )
+            
+            # Model prediction for boundary condition
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                    x_bound = self.calc_score(
+                        model=self.ddp_score_estimator,
+                        x_t=x_t_min,
+                        t=t_min,
+                        cond=cond_x,
+                        cond_mask=cond_mask,
+                        attention_mask=mask,
+                        x_0_self_cond=x_0_self_cond,
+                    )['x_0']                    
             
             # Consistency target prediction
             with torch.no_grad():
@@ -82,16 +98,20 @@ class DistillationRunner(DiffusionRunner):
             x_0 = scores["x_0"]
             loss_x_0 = mse_loss(x_trg, x_0, mask)
 
+            # Boundary condition loss
+            boundary_loss = mse_loss(x_bound, x_t_min, mask)
+
             # Decoder reconstruction
             logits = self.pred_logits(pred_embeddings=x_0)
             ce_loss = recon_loss(logits, trg["input_ids"], mask)
 
-            loss = loss_x_0
+            loss = loss_x_0 + 0.25 * boundary_loss
             loss_dict = {
                 'loss': loss,
                 'loss_x_0': loss_x_0,
                 'loss_ce': ce_loss,
-                'accuracy': bert_acc(targets=trg["input_ids"], outputs=logits, mask=mask)
+                'accuracy': bert_acc(targets=trg["input_ids"], outputs=logits, mask=mask),
+                'boundary': boundary_loss
             }
 
             stat_dict = {}

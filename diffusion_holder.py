@@ -397,7 +397,8 @@ class DiffusionRunner:
                 f"loss_x_0: {loss_dict['loss_x_0'].item():0.4f}, "
                 f"grad_norm: {stat_dict['grad_norm'].item():0.4f}, "
                 f"accuracy: {loss_dict['accuracy'].item():0.4f}, "
-                f"rec: {loss_dict['loss_ce'].item():0.4f}"
+                f"rec: {loss_dict['loss_ce'].item():0.4f}, "
+                f"boundary: {loss_dict['boundary']}"
             )
 
     def train_step(self, batch):

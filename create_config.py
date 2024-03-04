@@ -30,7 +30,7 @@ def create_config():
     training.batch_size = 512
     training.ode_sampling = True
     training.checkpoints_folder = './checkpoints'
-    training.teacher_folder = '/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/rocstory-bert-base-cased/200000.pth'
+    training.teacher_folder = '/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/rocstory-bert-base-cased-sd-64-lr=0.0002-cls=27, sep=27, pad=0/last.pth'
     training.checkpoint_name = ""
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -79,7 +79,7 @@ def create_config():
     config.ddp = True
     config.use_self_cond = True
 
-    config.project_name = "distill"
+    config.project_name = "test"
     config.timesteps = "linear"
     config.is_conditional = False
     config.is_eval = False

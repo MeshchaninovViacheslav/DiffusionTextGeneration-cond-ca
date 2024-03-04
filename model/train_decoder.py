@@ -83,7 +83,7 @@ def loss_step(batch, tokenizer, encoder, decoder, config, eval=False):
         }).cuda()
 
     if not eval:
-        sigma = 0.2
+        sigma = config.decoder.std_aug
         eps = torch.randn_like(latent) * sigma
         latent = latent + eps
 
@@ -103,7 +103,9 @@ def train(config, encoder, decoder, tokenizer):
     total_number_params = sum(p.numel() for p in decoder.parameters() if p.requires_grad)
     print(f"Num params: {total_number_params}")
 
-    batch_size = 512
+    batch_size = config.decoder.batch_size
+    eval_freq = config.decoder.eval_freq
+    step = 0
 
     train_loader, valid_loader = get_loaders(
         config=config,
@@ -112,15 +114,10 @@ def train(config, encoder, decoder, tokenizer):
 
     optimizer = torch.optim.AdamW(
         decoder.parameters(),
-        lr=1e-4,
-        weight_decay=0.001,
-        betas=(0.9, 0.98),
+        lr=config.decoder.lr
     )
-
-    eval_freq = 100
-    step = 0
-    epochs = 4
-    for _ in range(epochs):
+    
+    for _ in range(config.decoder.num_epochs):
         decoder.train()
 
         for batch in tqdm(train_loader):
@@ -188,7 +185,7 @@ def main():
     encoder = torch.nn.DataParallel(encoder).cuda()
 
 
-    decoder = BertDecoder(model_name=config.model.encoder_name, bert_config=config.bert_config).train().cuda()
+    decoder = BertDecoder(model_name=config.model.encoder_name, bert_config=config.decoder.base_config).train().cuda()
 
     exp_name = config.model.decoder_path.split("/")[-1].replace(".pth", "")
     wandb.init(project=config.project_name, name=exp_name, mode="online")

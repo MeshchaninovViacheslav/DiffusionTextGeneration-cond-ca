@@ -24,8 +24,8 @@ def create_config():
     optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 100_000
-    training.checkpoint_freq = 10_000
+    training.training_iters = 200_000
+    training.checkpoint_freq = 50_000
     training.eval_freq = 10_000
     training.batch_size = 512
     training.ode_sampling = False
@@ -38,7 +38,7 @@ def create_config():
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
     dynamic.scheduler = "sd"
-    dynamic.N = 100
+    dynamic.N = 50
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
@@ -50,6 +50,7 @@ def create_config():
     generation.num_gen_texts = 1100
     generation.num_text_to_est = 1000
     generation.texts_path = "./generated_texts"
+    generation.num_times_to_est = 5
 
     model = config.model = ml_collections.ConfigDict()
     model.ema_rate = 0.9999
@@ -62,7 +63,7 @@ def create_config():
     model.conditional_encoder_train = False
     
     data = config.data = ml_collections.ConfigDict()
-    data.max_sequence_len = 80
+    data.max_sequence_len = 64
     data.max_context_len = 0
     data.dataset_name = "rocstory"
     data.dataset_path = f"/home/vmeshchaninov/nlp_models/data/{data.dataset_name}"
@@ -70,7 +71,8 @@ def create_config():
     data.enc_gen_std = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-std.pt"
 
     model.decoder_mode = "transformer"
-    model.decoder_path = f"{data.dataset_path}/decoder-{model.encoder_name_hash}-{model.decoder_mode}.pth"
+    suffix = "cls=27, sep=27, pad=0"
+    model.decoder_path = f"{data.dataset_path}/decoder-{model.encoder_name_hash}-{model.decoder_mode}-{data.max_sequence_len}-{suffix}.pth"
 
     config.seed = 0
     config.ddp = True
@@ -83,7 +85,9 @@ def create_config():
     config.bert_config.is_decoder = config.is_conditional
     training.checkpoints_prefix = f"{config.data.dataset_name}" + \
                                   f"-{config.model.encoder_name_hash}" + \
-                                  f"-{config.dynamic.scheduler}" 
+                                  f"-{config.dynamic.scheduler}" + \
+                                  f"-{data.max_sequence_len}" + \
+                                  f"-lr={optim.lr}-{suffix}"
 
     return config
 

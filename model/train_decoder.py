@@ -119,7 +119,7 @@ def train(config, encoder, decoder, tokenizer):
 
     eval_freq = 100
     step = 0
-    epochs = 3
+    epochs = 4
     for _ in range(epochs):
         decoder.train()
 
@@ -190,7 +190,7 @@ def main():
 
     decoder = BertDecoder(model_name=config.model.encoder_name, mode="transformer").train().cuda()
 
-    exp_name = f"{config.model.encoder_name_hash}-transformer"
+    exp_name = config.model.decoder_path.split("/")[-1].replace(".pth", "")
     wandb.init(project=config.project_name, name=exp_name, mode="online")
     train(config, encoder, decoder, tokenizer)
 

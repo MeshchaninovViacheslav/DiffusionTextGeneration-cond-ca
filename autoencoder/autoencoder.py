@@ -7,25 +7,27 @@ from transformers import AutoModel
 from autoencoder.perceiver_resampler import PerceiverResampler
 
 class AutoEncoder(nn.Module):
-    def __init__(self,):
+    def __init__(self, config):
         super().__init__()
 
-        self.encoder = AutoModel.from_pretrained("bert-base-uncased")
+        self.encoder = AutoModel.from_pretrained(config.encoder)
         self.compressor = PerceiverResampler(
-            num_latents=32,
-            embedding_dim=768,
-            hidden_size=768,
-            n_heads=12,
-            n_layer=4,
+            num_latents=config.compressor.num_latents,
+            embedding_dim=config.compressor.embedding_dim,
+            hidden_size=config.compressor.hidden_size,
+            n_heads=config.compressor.n_heads,
+            n_layers=config.compressor.n_layers,
+            dropout_p=config.compressor.dropout_p,
         )
         self.decoder = PerceiverResampler(
-            num_latents=64,
-            embedding_dim=768,
-            hidden_size=768,
-            n_heads=12,
-            n_layer=4,
+            num_latents=config.decoder.num_latents,
+            embedding_dim=config.decoder.embedding_dim,
+            hidden_size=config.decoder.hidden_size,
+            n_heads=config.decoder.n_heads,
+            n_layers=config.decoder.n_layers,
+            dropout_p=config.decoder.dropout_p,
         )
-        self.projector = nn.Linear(768, 30522, bias=False)
+        self.projector = nn.Linear(config.projector.hidden_size, config.projector.vocab_size, bias=False)
 
     def encode(self, input_ids, attention_mask):
         return self.encoder(

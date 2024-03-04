@@ -81,7 +81,7 @@ def create_config():
     config.timesteps = "linear"
     config.is_conditional = False
     config.is_eval = False
-    config.bert_config = bert_config
+    config.bert_config = create_se_config()
     config.bert_config.is_decoder = config.is_conditional
     training.checkpoints_prefix = f"{config.data.dataset_name}" + \
                                   f"-{config.model.encoder_name_hash}" + \
@@ -91,22 +91,25 @@ def create_config():
 
     return config
 
-bert_config = BertConfig(**{
-    "hidden_size": 768,
-    "hidden_act": "gelu",
-    "initializer_range": 0.02,
-    "vocab_size": 30522,
-    "hidden_dropout_prob": 0.1,
-    "num_attention_heads": 12,
-    "type_vocab_size": 2,
-    "max_position_embeddings": 512,
-    "num_hidden_layers": 12,
-    "intermediate_size": 3072,
-    "attention_probs_dropout_prob": 0.1,
-    "layer_norm_eps": 1e-12,
-    "model_type": "bert",
-    "pad_token_id": 0,
-    "position_embedding_type": "absolute",
-    "transformers_version": "4.6.0.dev0",
-    "is_decoder": True,
-})
+
+def create_se_config():
+    bert_config = BertConfig(**{
+        "hidden_size": 768,
+        "hidden_act": "gelu",
+        "initializer_range": 0.02,
+        "vocab_size": 30522,
+        "hidden_dropout_prob": 0.1,
+        "num_attention_heads": 12,
+        "type_vocab_size": 2,
+        "max_position_embeddings": 512,
+        "num_hidden_layers": 12,
+        "intermediate_size": 3072,
+        "attention_probs_dropout_prob": 0.1,
+        "layer_norm_eps": 1e-12,
+        "model_type": "bert",
+        "pad_token_id": 0,
+        "position_embedding_type": "absolute",
+        "transformers_version": "4.6.0.dev0",
+        "is_decoder": True,
+    })
+    return bert_config

@@ -68,7 +68,7 @@ def create_config():
     data.max_sequence_len = 64
     data.max_context_len = 0
     data.dataset_name = "wikipedia"
-    data.dataset_path = f"/home/vmeshchaninov/nlp_models/data/{data.dataset_name}"
+    data.dataset_path = f"./data/{data.dataset_name}"
     data.enc_gen_mean = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-mean.pt"
     data.enc_gen_std = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-std.pt"
 

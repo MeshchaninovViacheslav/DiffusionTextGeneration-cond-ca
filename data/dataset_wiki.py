@@ -1,3 +1,4 @@
+import os
 import torch
 import numpy as np
 from random import random
@@ -5,9 +6,10 @@ import torch.distributed as dist
 from typing import List
 import datasets
 from datasets import Dataset, load_from_disk
+from itertools import cycle
 
 
-class DatasetDDP:
+class DatasetWikiDDP:
     def __init__(self, config, split):
         self.split = split
         self.config = config
@@ -15,6 +17,15 @@ class DatasetDDP:
         self.device_id = dist.get_rank() if torch.distributed.is_initialized() else 0
         self.total_device_number = dist.get_world_size() if torch.distributed.is_initialized() else 1
         self.epoch = 0
+        self.files = self.get_files()
+        self.iter_files = cycle(self.files)
+
+    def get_files(self):
+        path = f"{self.base_path}/{self.split}/"
+        files = list(os.listdir(path))
+        files = [t for t in files if ".arrow" in t]
+        files = sorted(files, key = lambda f: int(f.split("-")[1]))
+        return files
 
     def spilt_data_across_gpu(self, dt: List[str]):
         if self.split == "train":
@@ -32,8 +43,9 @@ class DatasetDDP:
         return Dataset.from_dict(dt[indexes])
 
     def load_data(self):
-        path = f"{self.base_path}/{self.split}/"
-        dt = load_from_disk(path)
+        file = next(self.iter_files)
+        path = f"{self.base_path}/{self.split}/{file}"
+        dt = Dataset.from_file(path)
         dt = self.spilt_data_across_gpu(dt)
 
         self.dt = dt.map(
@@ -77,17 +89,9 @@ class DatasetDDP:
             "text_trg": batch["text_trg"],
         }
         return output
-    
-    def splitOnChars(self, text, chars):
-        answer = []
-        start = 0
-        for i, char in enumerate(text):
-            if char in chars:
-                answer.append(text[start:i + 1])
-                start = i + 1
-        answer.append(text[i + 1:])
-        return answer
 
     def get_data(self):
         while True:
             yield self.load_data()
+
+

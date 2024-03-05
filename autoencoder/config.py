@@ -41,19 +41,20 @@ def create_config():
     optim.lr = 1e-4
     optim.batch_size = 512
     optim.eval_freq = 1000
-    optim.num_epochs = 1
     optim.clip_norm = 1.
     optim.batch_size_per_gpu = 0
+    optim.num_steps = 100_000
+    optim.checkpoint_freq = 50_000
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
     data.dataset_name = "wikipedia"
-    data.dataset_path = f"/home/vmeshchaninov/nlp_models/data/{data.dataset_name}"
+    data.dataset_path = f"./data/{data.dataset_name}"
 
-    config.exp_name = "train-test"
+    config.exp_name = "recon-withpad-64"
     config.project_name = "compression_network-autoencoder"
     config.checkpoints_folder = "./autoencoder/checkpoints"
-    config.save_path = f"{config.checkpoints_folder}/withpad-64.pth"
+    config.save_path = f"{config.checkpoints_folder}/{config.exp_name}"
     config.is_conditional = False
     config.seed = 0
 

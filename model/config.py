@@ -3,8 +3,9 @@ from transformers import AutoConfig
 
 def create_decoder_config():
     decoder = ml_collections.ConfigDict()
-    decoder.num_hidden_layers = 3
+
     decoder.base_config = AutoConfig.from_pretrained("bert-base-uncased")
+    decoder.base_config.num_hidden_layers = 3
 
     decoder.batch_size = 512
     decoder.lr = 1e-4

@@ -66,7 +66,7 @@ class DiffusionRunner:
         ).eval().cuda()
 
         # Decoder
-        self.decoder = BertDecoder(model_name=config.model.encoder_name, bert_config=config.decoder.base_config)
+        self.decoder = BertDecoder(encoder_name=config.model.encoder_name, base_config=config.decoder.base_config)
         self.restore_decoder()
         self.decoder = self.decoder.cuda().eval()
 

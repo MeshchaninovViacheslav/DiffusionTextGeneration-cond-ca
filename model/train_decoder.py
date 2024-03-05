@@ -185,7 +185,7 @@ def main():
     encoder = torch.nn.DataParallel(encoder).cuda()
 
 
-    decoder = BertDecoder(model_name=config.model.encoder_name, bert_config=config.decoder.base_config).train().cuda()
+    decoder = BertDecoder(encoder_name=config.model.encoder_name, base_config=config.decoder.base_config).train().cuda()
 
     exp_name = config.model.decoder_path.split("/")[-1].replace(".pth", "")
     wandb.init(project=config.project_name, name=exp_name, mode="online")

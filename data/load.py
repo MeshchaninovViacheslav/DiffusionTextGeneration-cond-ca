@@ -32,7 +32,6 @@ def download_wikipedia(base_path):
     dt = dt.train_test_split(test_size=0.001, seed=0)
     dt.save_to_disk(
         base_path,
-        max_shard_size="10GB",
     )
 
 

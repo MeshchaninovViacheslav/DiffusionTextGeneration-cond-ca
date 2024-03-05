@@ -677,10 +677,10 @@ class DiffusionRunner:
 
         tokens = tokens.detach().cpu().tolist()
 
-        text = self.tokenizer_gen.batch_decode(tokens)
-        with open("./logs/log_smallnorm.txt", "w") as file:
-            for t in text:
-                print(t, file=file)
+        # text = self.tokenizer_gen.batch_decode(tokens)
+        # with open("./logs/log_smallnorm.txt", "w") as file:
+        #     for t in text:
+        #         print(t, file=file)
 
         tokens_list = []
         for seq in tokens:

@@ -43,8 +43,8 @@ def create_config():
     optim.eval_freq = 1000
     optim.clip_norm = 1.
     optim.batch_size_per_gpu = 0
-    optim.num_steps = 100_000
-    optim.checkpoint_freq = 50_000
+    optim.num_steps = 20_000
+    optim.checkpoint_freq = 20_000
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64

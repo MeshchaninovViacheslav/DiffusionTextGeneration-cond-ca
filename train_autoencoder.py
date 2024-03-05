@@ -98,7 +98,7 @@ def save_checkpoint(model, config, step):
     if dist.get_rank() == 0:
         os.makedirs(config.checkpoints_folder, exist_ok=True)
         model.eval()
-        save_pth = f"{config.save_path}-{step:06d}.pth" 
+        save_path = f"{config.save_path}-{step:06d}.pth" 
         torch.save(
             {
                 "autoencoder": model.state_dict(),

@@ -83,7 +83,7 @@ def compute_diversity(all_texts_list):
         for tokens in token_list:
             ngram_sets[n].update(ngrams(tokens, n))
             ngram_counts[n] += len(list(ngrams(tokens, n)))
-        metrics[f'{n}gram_repitition'] = (1-len(ngram_sets[n])/ngram_counts[n])
+        metrics[f'{n}gram_repitition'] = (1-len(ngram_sets[n])/(ngram_counts[n] + 1e-10))
     diversity = 1
     for val in metrics.values():
         diversity *= (1-val)
@@ -106,7 +106,7 @@ def compute_memorization(all_texts_list, human_references, n=4):
             if four_gram in unique_four_grams:
                 duplicate += 1
 
-    return duplicate / total
+    return duplicate / (total + 1)
 
 
 def compute_mauve(all_texts_list, human_references, model_id='gpt2-large'):

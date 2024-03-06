@@ -4,15 +4,14 @@ from transformers import AutoConfig, AutoModel
     
 
 class BertDecoder(nn.Module):
-    def __init__(self, model_name, bert_config, mode='mlm'):
+    def __init__(self, encoder_name, base_config):
         super().__init__()
-        config = AutoConfig.from_pretrained(model_name)
-        bert_config.vocab_size = config.vocab_size
-        bert_config.hidden_size = config.hidden_size
-        bert_config.num_hidden_layers = 3
-        self.bert = AutoModel.from_config(bert_config).encoder
-        self.fc = nn.Linear(config.hidden_size, config.vocab_size)
-        self.net = lambda x: self.fc(self.bert(x).last_hidden_state)
+        encoder_config = AutoConfig.from_pretrained(encoder_name)
+        base_config.vocab_size = encoder_config.vocab_size
+        base_config.hidden_size = encoder_config.hidden_size
+        
+        self.bert = AutoModel.from_config(base_config).encoder
+        self.fc = nn.Linear(base_config.hidden_size, base_config.vocab_size)
 
     def forward(self, x):
-        return self.net(x)
+        return self.fc(self.bert(x).last_hidden_state)

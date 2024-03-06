@@ -22,7 +22,7 @@ class Encoder(torch.nn.Module):
         self.enc_normalizer = enc_normalizer
         self.is_change_sp_tokens = is_change_sp_tokens
         self.tokenizer = AutoTokenizer.from_pretrained(encoder_name)
-        
+        self.register_buffer("zero_emb", torch.zeros((self.encoder.config.hidden_size)))
 
     def forward(
             self,

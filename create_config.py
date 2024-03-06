@@ -2,6 +2,8 @@ import argparse
 import ml_collections
 from transformers import BertConfig
 
+from model.config import create_decoder_config
+
 def parse_option(config):
     parser = argparse.ArgumentParser("MMTD")
     if config.ddp:
@@ -65,7 +67,7 @@ def create_config():
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
     data.max_context_len = 0
-    data.dataset_name = "rocstory"
+    data.dataset_name = "wikipedia"
     data.dataset_path = f"/home/vmeshchaninov/nlp_models/data/{data.dataset_name}"
     data.enc_gen_mean = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-mean.pt"
     data.enc_gen_std = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-std.pt"
@@ -83,6 +85,7 @@ def create_config():
     config.is_eval = False
     config.bert_config = create_se_config()
     config.bert_config.is_decoder = config.is_conditional
+    config.decoder = create_decoder_config()
     training.checkpoints_prefix = f"{config.data.dataset_name}" + \
                                   f"-{config.model.encoder_name_hash}" + \
                                   f"-{config.dynamic.scheduler}" + \

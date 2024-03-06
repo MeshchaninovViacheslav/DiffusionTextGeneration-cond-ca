@@ -3,7 +3,10 @@ import numpy as np
 from random import random
 import torch.distributed as dist
 from typing import List
-from datasets import Dataset, load_from_disk
+import datasets
+from datasets import Dataset, load_from_disk, enable_progress_bars
+
+enable_progress_bars()
 
 
 class DatasetDDP:

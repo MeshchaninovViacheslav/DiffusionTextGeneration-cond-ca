@@ -8,6 +8,10 @@ $\textbf{TODO}: \text{Add requirements file}$
 
 ```
 conda activate fap2_env
+
+pip install -r requierements.txt
+pip install mauve-text
+python -m spacy download en
 ```
 
 Try not to install any additional libs to this env, if you need something, please notify me.

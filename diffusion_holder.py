@@ -25,9 +25,7 @@ from utils.ema_model import ExponentialMovingAverage
 from data import create_dataset
 
 from model.score_estimator_cond import ScoreEstimatorEMB
-from model import Encoder
-from model.enc_normalizer import EncNormalizer
-from model.decoder import BertDecoder
+from autoencoder.autoencoder import AutoEncoder
 
 from utils import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, reduce_tensor, set_seed, l1_loss, smooth_l1_loss
 
@@ -43,38 +41,18 @@ class DiffusionRunner:
     ):
         self.config = config
 
-        # Condition Encoder
-        self.tokenizer_cond = AutoTokenizer.from_pretrained(config.model.conditional_encoder_name)
-        self.encoder_cond = Encoder(
-            config.model.conditional_encoder_name,
-            enc_normalizer=None,
-            is_change_sp_tokens=False,
-        ).cuda()
-        if not config.model.conditional_encoder_train:
-            self.encoder_cond.eval()
-
-        # Diffusion Encoder
+        # Diffusion AutoEncoder
         self.tokenizer_gen = AutoTokenizer.from_pretrained(config.model.encoder_name)
-        self.gen_enc_normalizer = EncNormalizer(
-            enc_mean_path=self.config.data.enc_gen_mean,
-            enc_std_path=self.config.data.enc_gen_std,
-        )
-        self.encoder_gen = Encoder(
-            config.model.encoder_name,
-            enc_normalizer=self.gen_enc_normalizer,
-            is_change_sp_tokens=True,
-        ).eval().cuda()
-
-        # Decoder
-        self.decoder = BertDecoder(encoder_name=config.model.encoder_name, base_config=config.decoder.base_config)
-        self.restore_decoder()
-        self.decoder = self.decoder.cuda().eval()
+        self.autoencoder = AutoEncoder(config=config.autoencoder)
+        self.restore_autoencoder()
+        self.autoencoder.eval()
+        self.autoencoder.cuda()
 
         # Score estimator
         self.bert_config = config.bert_config
         self.bert_config.use_self_cond = config.use_self_cond
         self.score_estimator = ScoreEstimatorEMB(
-            input_size=self.encoder_gen.encoder.config.hidden_size,
+            input_size=self.config.autoencoder.compressor.latent_dim,
             config=self.config.bert_config
         ).cuda()
 
@@ -89,10 +67,8 @@ class DiffusionRunner:
         # Number of parameters
         self.config.params_number = ConfigDict()
         self.config.params_number.score_estimator = sum(p.numel() for p in self.score_estimator.parameters() if p.requires_grad)
-        self.config.params_number.decoder = sum(p.numel() for p in self.decoder.parameters())
-        self.config.params_number.conditional_encoder = sum(p.numel() for p in self.encoder_cond.parameters())
-        self.config.params_number.generative_encoder = sum(p.numel() for p in self.encoder_gen.parameters())
-
+        self.config.params_number.autoencoder = sum(p.numel() for p in self.autoencoder.parameters())
+        
         self.device = next(self.score_estimator.parameters()).device
 
         # Dynamic
@@ -144,8 +120,8 @@ class DiffusionRunner:
             if self.load_checkpoint():
                 self.score_estimator.eval()
                 self.switch_to_ema()
-
-                estimate()
+                
+                estimate(self)
                 compute_reconstruction_loss(self, suffix="valid")
                 self.validate()
 
@@ -163,8 +139,8 @@ class DiffusionRunner:
         ema_ckpt = torch.load(checkpoints_folder + '/' + prefix + '.pth')["ema"]
         self.ema.load_state_dict(ema_ckpt)
 
-    def restore_decoder(self):
-        self.decoder.load_state_dict(torch.load(self.config.model.decoder_path)["decoder"])
+    def restore_autoencoder(self):
+        self.autoencoder.load_state_dict(torch.load(self.config.model.autoencoder_path)["autoencoder"])
 
     def save_checkpoint(self, last: bool = False) -> None:
         if not dist.get_rank() == 0:
@@ -190,7 +166,7 @@ class DiffusionRunner:
             "scheduler": self.scheduler.state_dict(),
             "scaler": self.grad_scaler.state_dict(),
             "step": self.step,
-            "decoder": self.decoder.state_dict(),
+            "autoencoder": self.autoencoder.state_dict(),
         }
         if self.config.is_conditional:
             state_dict["conditional_encoder"] = self.encoder_cond.state_dict()
@@ -291,7 +267,6 @@ class DiffusionRunner:
             num_workers=10,
             pin_memory=False,
         )
-        
 
     def log_metric(self, metric_name: str, loader_name: str, value: Union[float, torch.Tensor, wandb.Image]):
         if dist.get_rank() == 0:
@@ -334,8 +309,7 @@ class DiffusionRunner:
     
     def train(self) -> None:
         self.set_valid_data_generator()
-        self.train_range = trange(self.step, self.config.training.training_iters, total=self.config.training.training_iters)
-        #self.train_range.update(self.step)
+        self.train_range = trange(self.step + 1, self.config.training.training_iters + 1)
         self.train_range_iter = iter(self.train_range)
 
         while True:
@@ -414,10 +388,14 @@ class DiffusionRunner:
                     return_token_type_ids=False,
                 )
                 trg = dict_to_cuda(trg)
-                clean_x = self.encoder_gen(**{
-                    "input_ids": trg["input_ids"], 
-                    "attention_mask": trg["attention_mask"]
-                })
+                encodings = self.autoencoder.encode(
+                    input_ids=trg["input_ids"], 
+                    attention_mask=trg["attention_mask"]
+                )
+                clean_x = self.autoencoder.compress(
+                    encodings=encodings, 
+                    attention_mask=trg["attention_mask"]
+                )
 
         loss_dict, stat_dict = self.calc_loss(clean_x=clean_x, cond_x=cond_x, trg=trg, cond=cond)
 
@@ -469,10 +447,14 @@ class DiffusionRunner:
                     return_attention_mask=True,
                 )
                 trg = dict_to_cuda(trg)
-                clean_x = self.encoder_gen(**{
-                    "input_ids": trg["input_ids"], 
-                    "attention_mask": trg["attention_mask"]
-                }) 
+                encodings = self.autoencoder.encode(
+                    input_ids=trg["input_ids"], 
+                    attention_mask=trg["attention_mask"]
+                )
+                clean_x = self.autoencoder.compress(
+                    encodings=encodings, 
+                    attention_mask=trg["attention_mask"]
+                )
 
                 loss_dict, _ = self.calc_loss(clean_x=clean_x, cond_x=cond_x, trg=trg, cond=cond)
                 for k, v in loss_dict.items():
@@ -594,15 +576,6 @@ class DiffusionRunner:
         for key in x_0_dict:
             stat_dict[f"x_0_{key}"] = x_0_dict[key]
 
-        mask = trg["attention_mask"]
-        clean_x_dict_SPT = get_stat(clean_x, mask)
-        for key in clean_x_dict_SPT:
-            stat_dict[f"clean_x_woSPT_{key}"] = clean_x_dict_SPT[key]
-
-        x_0_dict_SPT = get_stat(x_0, mask)
-        for key in x_0_dict_SPT:
-            stat_dict[f"x_0_woSPT_{key}"] = x_0_dict_SPT[key]
-
         return loss_dict, stat_dict
     
     @torch.no_grad()
@@ -694,9 +667,12 @@ class DiffusionRunner:
 
     @torch.no_grad()
     def pred_logits(self, pred_embeddings):
-        pred_embeddings = self.gen_enc_normalizer.denormalize(pred_embeddings)
-        output = self.decoder(pred_embeddings)
-        return output
+        recon_x = self.autoencoder.reconstruct(
+            latents=pred_embeddings,
+            attention_mask=None
+        )
+        logits = self.autoencoder.projector(recon_x)
+        return logits
 
     @torch.no_grad()
     def pred_embeddings(
@@ -708,8 +684,8 @@ class DiffusionRunner:
         self.score_estimator.eval()
         shape = (
             batch_size,
-            self.config.data.max_sequence_len,
-            self.encoder_gen.encoder.config.hidden_size
+            self.config.autoencoder.compressor.num_latents,
+            self.config.autoencoder.compressor.latent_dim
         )
 
         with torch.no_grad():

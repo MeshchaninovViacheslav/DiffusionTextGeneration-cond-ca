@@ -72,6 +72,7 @@ def compute_metrics_uncond(diffusion, text_list: List[Dict[str, str]]) -> Dict[s
     ppl = compute_perplexity(all_texts_list=predictions)
     div = compute_diversity(all_texts_list=predictions)['diversity']
     mem = compute_memorization(all_texts_list=predictions, human_references=train_references)
+    mauve = compute_mauve(all_texts_list=predictions, human_references=references)
     try:
         mauve = compute_mauve(all_texts_list=predictions, human_references=references)
     except Exception:
@@ -86,10 +87,10 @@ def compute_metrics_uncond(diffusion, text_list: List[Dict[str, str]]) -> Dict[s
     for key in metric_div.results:
         diffusion.log_metric(metric_name=f"diversity metrics", loader_name=key, value=metric_div.results[key])
 
-    # print(f"GPT2-large ppl: {ppl:0.5f}")
-    # print(f"Diversity: {div:0.5f}")
-    # print(f"Memorization: {mem:0.5f}")
-    # print(f"Mauve: {mauve:0.5f}")
+    print(f"GPT2-large ppl: {ppl:0.5f}")
+    print(f"Diversity: {div:0.5f}")
+    print(f"Memorization: {mem:0.5f}")
+    print(f"Mauve: {mauve:0.5f}")
 
     result = {
         "GPT2-large ppl": ppl,

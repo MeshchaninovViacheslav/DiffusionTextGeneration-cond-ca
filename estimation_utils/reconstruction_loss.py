@@ -48,10 +48,14 @@ def compute_reconstruction_loss(diffusion, suffix="valid"):
         return_token_type_ids=False,
     )
     trg = dict_to_cuda(trg)
-    clean_x = diffusion.encoder_gen(**{
-        "input_ids": trg["input_ids"], 
-        "attention_mask": trg["attention_mask"]
-    })
+    encodings = diffusion.autoencoder.encode(
+        input_ids=trg["input_ids"], 
+        attention_mask=trg["attention_mask"]
+    )
+    clean_x = diffusion.autoencoder.compress(
+        encodings=encodings, 
+        attention_mask=trg["attention_mask"]
+    )
 
 
     batch_size = clean_x.shape[0]

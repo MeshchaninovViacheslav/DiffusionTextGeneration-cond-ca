@@ -84,10 +84,12 @@ class AutoEncoder(nn.Module):
         self.decoder.train()
         self.compressor.train()
         self.projector.train()
+        return self
 
     def eval(self):
         self.encoder.eval()
         self.decoder.eval()
         self.compressor.eval()
         self.projector.eval()
+        return self
     

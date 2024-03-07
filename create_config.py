@@ -3,6 +3,7 @@ import ml_collections
 from transformers import BertConfig
 
 from model.config import create_decoder_config
+from autoencoder.config import create_config as create_autoencoder_config
 
 def parse_option(config):
     parser = argparse.ArgumentParser("MMTD")
@@ -14,11 +15,14 @@ def parse_option(config):
 
 def create_config():
     config = ml_collections.ConfigDict()
+
+    config.autoencoder = create_autoencoder_config()
+    
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
     optim.linear_warmup = 1000
-    optim.lr = 2e-4
-    optim.min_lr = 2e-4
+    optim.lr = 4e-4
+    optim.min_lr = 1e-4
     optim.warmup_lr = 1e-8
     optim.weight_decay = 0.01
     optim.beta_1 = 0.9
@@ -26,10 +30,10 @@ def create_config():
     optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 200_000
+    training.training_iters = 400_000
     training.checkpoint_freq = 50_000
     training.eval_freq = 10_000
-    training.batch_size = 512
+    training.batch_size = 1024
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
     training.checkpoint_name = ""
@@ -40,7 +44,7 @@ def create_config():
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
     dynamic.scheduler = "sd"
-    dynamic.N = 50
+    dynamic.N = 100
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
@@ -63,33 +67,34 @@ def create_config():
     model.encoder_name_hash = model.encoder_name.replace("/", "-")
     model.conditional_encoder_name_hash = model.conditional_encoder_name.replace("/", "-")
     model.conditional_encoder_train = False
+    model.autoencoder_path = "./autoencoder/checkpoints/recon-withpad-64-020000.pth"
     
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
     data.max_context_len = 0
-    data.dataset_name = "wikipedia"
+    data.dataset_name = "rocstory"
     data.dataset_path = f"./data/{data.dataset_name}"
     data.enc_gen_mean = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-mean.pt"
     data.enc_gen_std = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-std.pt"
 
     model.decoder_mode = "transformer"
-    suffix = "cls=27, sep=27, pad=0"
+    suffix = "compressed"
     model.decoder_path = f"{data.dataset_path}/decoder-{model.encoder_name_hash}-{model.decoder_mode}-{data.max_sequence_len}-{suffix}.pth"
 
     config.seed = 0
     config.ddp = True
     config.use_self_cond = True
-    config.project_name = "textdif-compression-1"
+    config.project_name = "textdif-compression-2"
     config.timesteps = "linear"
     config.is_conditional = False
     config.is_eval = False
     config.bert_config = create_se_config()
     config.bert_config.is_decoder = config.is_conditional
     config.decoder = create_decoder_config()
-    training.checkpoints_prefix = f"{config.data.dataset_name}" + \
-                                  f"-{config.model.encoder_name_hash}" + \
-                                  f"-{config.dynamic.scheduler}" + \
+    training.checkpoints_prefix = f"{data.dataset_name}" + \
+                                  f"-{dynamic.scheduler}-{dynamic.coef_d}" + \
                                   f"-{data.max_sequence_len}" + \
+                                  f"-{training.batch_size}" + \
                                   f"-lr={optim.lr}-{suffix}"
 
     return config

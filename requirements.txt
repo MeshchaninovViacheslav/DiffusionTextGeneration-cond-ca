@@ -1,0 +1,32 @@
+# This file may be used to create an environment using:
+# $ conda create --name <env> --file <this file>
+# or 
+# $ conda create -n <env>
+# $ pip install -r requirements.txt
+argparse==1.4.0
+datasets==2.16.1
+joblib==1.2.0
+matplotlib==3.7.1
+mauve-text==0.3.0
+ml-collections==0.1.1
+nltk==3.8.1
+numpy==1.24.3
+omegaconf==2.3.0
+pandas==2.0.1
+pillow==9.5.0
+psutil==5.9.5
+pydantic==1.10.9
+scikit-image==0.21.0
+scikit-learn==1.3.2
+scipy==1.11.1
+seaborn==0.12.2
+timm==0.6.13
+torch==2.0.0
+torch-ema==0.3
+torchvision==0.15.1
+tqdm==4.65.0
+transformers==4.37.0
+triton==2.0.0
+typing==3.7.4.3
+wandb==0.15.0
+spacy==3.7.2

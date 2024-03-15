@@ -147,7 +147,7 @@ class DiffusionRunner:
 
                 estimate(self)
                 compute_reconstruction_loss(self, suffix="valid")
-                self.validate()
+                # self.validate()
             else:
                 self.load_teacher()
 
@@ -384,7 +384,7 @@ class DiffusionRunner:
                 self.score_estimator.eval()
                 self.switch_to_ema()
 
-                self.validate()
+                # self.validate()
                 estimate(self)
                 compute_reconstruction_loss(self, suffix="valid")
 

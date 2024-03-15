@@ -80,7 +80,7 @@ class DistillationRunner(DiffusionRunner):
                         cond_mask=cond_mask,
                         attention_mask=mask,
                         x_0_self_cond=x_0_self_cond,
-                    )["x_mean"]
+                    )["x_mean"].detach()
 
                     x_trg = self.calc_score(
                         model=self.ddp_score_estimator,
@@ -90,7 +90,7 @@ class DistillationRunner(DiffusionRunner):
                         cond_mask=cond_mask,
                         attention_mask=mask,
                         x_0_self_cond=x_0_self_cond
-                    )['x_0']
+                    )['x_0'].detach()
                     self.switch_back_from_ema()
 
 

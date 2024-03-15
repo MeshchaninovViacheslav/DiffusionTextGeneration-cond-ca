@@ -26,13 +26,13 @@ def create_config():
     optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 200_000
+    training.training_iters = 800_000
     training.checkpoint_freq = 50_000
-    training.eval_freq = 10_000
+    training.eval_freq = 5_000
     training.batch_size = 512
     training.ode_sampling = True
     training.checkpoints_folder = './checkpoints'
-    training.teacher_folder = '/home/vmeshchaninov/DiffusionTextGeneration-cond-ca/checkpoints/rocstory-bert-base-cased-sd-64-lr=0.0002-cls=27, sep=27, pad=0/last.pth'
+    training.teacher_folder = '/home/vmeshchaninov/shared_folder/checkpoints/rocstory-bert-base-cased-sd-64-lr=0.0002-cls=27, sep=27, pad=0/150000.pth'
     training.checkpoint_name = ""
 
     validation = config.validation = ml_collections.ConfigDict()

@@ -48,27 +48,26 @@ class PerceiverAttention(nn.Module):
 
         # normalization
         self.ln_x = nn.LayerNorm(embedding_dim)
-        self.ln_latents = nn.LayerNorm(embedding_dim)
+        self.ln_latents = nn.LayerNorm(latent_dim)
 
         # initialize key, query, value matrix in one batch for optimization
-        if self.latent_dim != self.embedding_dim:
-            self.latent_proj = nn.Linear(self.latent_dim, self.embedding_dim, bias = False)
-
-        self.to_Q = nn.Linear(embedding_dim, hidden_size, bias = False)
+        self.to_Q = nn.Linear(latent_dim, hidden_size, bias = False)
         self.to_KV = nn.Linear(embedding_dim, hidden_size * 2, bias = False)
+        if self.latent_dim != self.embedding_dim:
+            self.latent_to_KV = nn.Linear(latent_dim, hidden_size * 2, bias = False)
 
         self.query_norm = RMSNorm(self.dim_head) if qk_norm else nn.Identity()
         self.key_norm = RMSNorm(self.dim_head) if qk_norm else nn.Identity()
         
         # output projection
-        self.projector = nn.Linear(hidden_size, embedding_dim, bias = False) 
+        self.projector = nn.Linear(hidden_size, latent_dim, bias = False) 
         
         # regularization using dropout
         self.attn_dropout = nn.Dropout(dropout_p) 
         self.proj_dropout = nn.Dropout(dropout_p)
 
     def forward(self, x, latents, mask_x, mask_latent):
-        batch_size, seq_len, hidden_size = latents.size() # batch size, sequence length, embedding dimensionality
+        batch_size, seq_len = latents.size()[:2] # batch size, sequence length
 
         # normalization
         x = self.ln_x(x)
@@ -76,20 +75,23 @@ class PerceiverAttention(nn.Module):
 
         # calculate query, key, values for all heads in batch and split batch into three parts for q, k, v
         # move head forward to be the batch dim
-        if self.latent_dim != self.embedding_dim:
-            latents = self.latent_proj(latents)
-
         q = self.to_Q(latents)
-        kv_input = torch.cat((x, latents), dim = 1)
+        if self.latent_dim != self.embedding_dim:
+            latents = self.latent_to_KV(latents)
+            x = self.to_KV(x)
+            kv_input = torch.cat((x, latents), dim = 1)
+        else:
+            kv_input = torch.cat((x, latents), dim = 1)
+            kv_input = self.to_KV(kv_input)
+        k, v = kv_input.split(self.hidden_size, dim=2)     
         kv_mask = torch.cat((mask_x, mask_latent), dim=1)
-        k, v = self.to_KV(kv_input).split(self.hidden_size, dim=2) 
 
         # Reshape [batch_size, seq_len, hidden_size] -> [batch_size, seq_len, self.n_head, hidden_size // self.n_head]
         # Transpose [batch_size, seq_len, self.n_head, hidden_size // self.n_head] -> [batch_size, self.n_head, seq_len, hidden_size // self.n_head]
         # in order to calculate attention over different heads
-        q = q.view(batch_size, q.shape[1], self.n_heads, hidden_size // self.n_heads).transpose(1, 2) 
-        k = k.view(batch_size, k.shape[1], self.n_heads, hidden_size // self.n_heads).transpose(1, 2) 
-        v = v.view(batch_size, v.shape[1], self.n_heads, hidden_size // self.n_heads).transpose(1, 2) 
+        q = q.view(batch_size, q.shape[1], self.n_heads, self.hidden_size // self.n_heads).transpose(1, 2) 
+        k = k.view(batch_size, k.shape[1], self.n_heads, self.hidden_size // self.n_heads).transpose(1, 2) 
+        v = v.view(batch_size, v.shape[1], self.n_heads, self.hidden_size // self.n_heads).transpose(1, 2) 
 
         q = self.query_norm(q)
         k = self.query_norm(k)
@@ -113,7 +115,7 @@ class PerceiverAttention(nn.Module):
 
         # Calculate attention and resize to [batch_size, seq_len, hidden_size]
         y = attention_scores @ v
-        y = y.transpose(1, 2).contiguous().view(batch_size, seq_len, hidden_size) 
+        y = y.transpose(1, 2).contiguous().view(batch_size, seq_len, self.hidden_size) 
 
         # Apply output projection & dropout
         y = self.proj_dropout(self.projector(y))
@@ -167,6 +169,7 @@ class PerceiverResampler(nn.Module):
         hidden_size,
         n_heads,
         n_layers,
+        max_seq_len,
         dropout_p=0.1,
         ff_mult=4,
         qk_norm=True,
@@ -180,6 +183,8 @@ class PerceiverResampler(nn.Module):
         self.latent_normalize = latent_normalize
         self.latents = nn.Parameter(torch.randn(num_latents, latent_dim))
         nn.init.normal_(self.latents, std = std_init)
+
+        self.pos_emb = AbsolutePositionalEmbedding(embedding_dim, max_seq_len)
 
         self.layers = nn.ModuleList(
             [
@@ -202,8 +207,9 @@ class PerceiverResampler(nn.Module):
             mask_x = torch.ones((x.shape[0], x.shape[1]), dtype=x.dtype, device=x.device)
         if mask_latent is None:
             mask_latent = torch.ones((x.shape[0], self.num_latents), dtype=x.dtype, device=x.device)
-        
-        latents = self.latents.view(1, self.num_latents, self.embedding_dim).repeat(x.shape[0], 1, 1)
+
+        x = x + self.pos_emb(x)
+        latents = self.latents.view(1, self.num_latents, self.latent_dim).repeat(x.shape[0], 1, 1)
 
         for layer in self.layers:
             latents = layer(x, latents, mask_x, mask_latent)

@@ -98,7 +98,8 @@ def save_checkpoint(model, config, step):
     if dist.get_rank() == 0:
         os.makedirs(config.checkpoints_folder, exist_ok=True)
         model.eval()
-        save_path = f"{config.save_path}-{step:06d}.pth" 
+        save_path = f"{config.save_path}-{step:06d}.pth"
+        
         torch.save(
             {
                 "autoencoder": model.state_dict(),
@@ -117,11 +118,13 @@ def train(config, autoencoder, tokenizer):
     )
 
     total_number_params = sum(p.numel() for p in autoencoder.parameters() if p.requires_grad)
-    print(f"Num params: {total_number_params}")
+    if dist.get_rank() == 0:
+        print(f"Num params: {total_number_params}")
 
     batch_size = config.optim.batch_size_per_gpu
     eval_freq = config.optim.eval_freq
-    total_step = 0
+    total_step = 1
+    total_acc = None
 
     train_dataset, valid_dataset = get_datasets(config=config)
 
@@ -131,7 +134,7 @@ def train(config, autoencoder, tokenizer):
                list(autoencoder.projector.parameters()),
         lr=config.optim.lr
     )
-    train_range = iter(trange(1, config.optim.num_steps + 1))
+    train_range = iter(trange(total_step, config.optim.num_steps + 1))
 
     while True: 
         autoencoder.train()

@@ -1,4 +1,5 @@
 import os
+import time
 import json
 import torch.distributed as dist
 from typing import Dict, List
@@ -12,6 +13,8 @@ from .diversity_metrics import NGramStats
 
 def estimate(diffusion):
     result_metrics = dict()
+    set_seed(diffusion.config.seed + dist.get_rank())
+    
     for _ in range(diffusion.config.generation.num_times_to_est):
         num_texts = int(diffusion.config.generation.num_gen_texts / dist.get_world_size())
         if (diffusion.config.generation.num_gen_texts % dist.get_world_size()) > dist.get_rank():
@@ -52,6 +55,7 @@ def estimate(diffusion):
         print(f"{key}: mean = {mean:0.5f}, std = {std: 0.5f}")
         diffusion.log_metric(metric_name=key, loader_name="mean", value=mean)
         diffusion.log_metric(metric_name=key, loader_name="std", value=std)
+    set_seed((round(time.time() * 1000)) % (2 ** 32 - 1))    
 
 
 def compute_metrics(diffusion, text_list: List[Dict[str, str]]):

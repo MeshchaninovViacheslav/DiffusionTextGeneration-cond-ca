@@ -14,6 +14,7 @@ def create_config():
     compressor.hidden_size = 768
     compressor.n_heads = 12
     compressor.n_layers = 3
+    compressor.max_seq_len = 64
     compressor.dropout_p = 0.1
     compressor.ff_mult = 4
     compressor.qk_norm = True
@@ -27,11 +28,12 @@ def create_config():
     decoder.hidden_size = 768
     decoder.n_heads = 12
     decoder.n_layers = 3
+    decoder.max_seq_len = 32
     decoder.dropout_p = 0.1
     decoder.ff_mult = 4
     decoder.qk_norm = True
     decoder.std_init = 0.02
-    decoder.latent_normalize = False
+    decoder.latent_normalize = True
 
     projector = config.projector = ml_collections.ConfigDict()
     projector.hidden_size = 768
@@ -40,18 +42,18 @@ def create_config():
     optim = config.optim = ml_collections.ConfigDict()
     optim.lr = 1e-4
     optim.batch_size = 512
-    optim.eval_freq = 1000
+    optim.eval_freq = 5000
     optim.clip_norm = 1.
     optim.batch_size_per_gpu = 0
-    optim.num_steps = 20_000
-    optim.checkpoint_freq = 20_000
+    optim.num_steps = 30_000
+    optim.checkpoint_freq = 10_000
 
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
     data.dataset_name = "wikipedia"
     data.dataset_path = f"./data/{data.dataset_name}"
 
-    config.exp_name = "recon-withpad-64"
+    config.exp_name = f"recon-withpad-{compressor.num_latents}-{compressor.latent_dim}-{decoder.num_latents}-{decoder.latent_dim}"
     config.project_name = "compression_network-autoencoder"
     config.checkpoints_folder = "./autoencoder/checkpoints"
     config.save_path = f"{config.checkpoints_folder}/{config.exp_name}"

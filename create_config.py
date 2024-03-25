@@ -16,7 +16,12 @@ def parse_option(config):
 def create_config():
     config = ml_collections.ConfigDict()
 
-    config.autoencoder = create_autoencoder_config()
+    autoencoder = config.autoencoder = create_autoencoder_config()
+    autoencoder.compressor.num_latents = 32
+    autoencoder.compressor.latent_dim = 768
+    autoencoder.decoder.num_latents = 64
+    autoencoder.decoder.latent_dim = 768
+    autoencoder.exp_name = f"recon-withpad-{autoencoder.compressor.num_latents}-{autoencoder.compressor.latent_dim}-{autoencoder.decoder.num_latents}-{autoencoder.decoder.latent_dim}"
     
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
@@ -30,10 +35,10 @@ def create_config():
     optim.eps = 1e-6
 
     training = config.training = ml_collections.ConfigDict()
-    training.training_iters = 400_000
+    training.training_iters = 200_000
     training.checkpoint_freq = 50_000
     training.eval_freq = 10_000
-    training.batch_size = 1024
+    training.batch_size = 512 * 2
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
     training.checkpoint_name = ""
@@ -44,7 +49,7 @@ def create_config():
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
     dynamic.scheduler = "sd"
-    dynamic.N = 100
+    dynamic.N = 50
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
@@ -67,7 +72,6 @@ def create_config():
     model.encoder_name_hash = model.encoder_name.replace("/", "-")
     model.conditional_encoder_name_hash = model.conditional_encoder_name.replace("/", "-")
     model.conditional_encoder_train = False
-    model.autoencoder_path = "./autoencoder/checkpoints/recon-withpad-64-020000.pth"
     
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 64
@@ -78,13 +82,13 @@ def create_config():
     data.enc_gen_std = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-std.pt"
 
     model.decoder_mode = "transformer"
-    suffix = "compressed"
+    suffix = "compressed-our"
     model.decoder_path = f"{data.dataset_path}/decoder-{model.encoder_name_hash}-{model.decoder_mode}-{data.max_sequence_len}-{suffix}.pth"
 
     config.seed = 0
     config.ddp = True
     config.use_self_cond = True
-    config.project_name = "textdif-compression-2"
+    config.project_name = "textdif-compression-3"
     config.timesteps = "linear"
     config.is_conditional = False
     config.is_eval = False
@@ -93,7 +97,7 @@ def create_config():
     config.decoder = create_decoder_config()
     training.checkpoints_prefix = f"{data.dataset_name}" + \
                                   f"-{dynamic.scheduler}-{dynamic.coef_d}" + \
-                                  f"-{data.max_sequence_len}" + \
+                                  f"-{autoencoder.compressor.num_latents}-{autoencoder.compressor.latent_dim}-{autoencoder.decoder.num_latents}-{autoencoder.decoder.latent_dim}" + \
                                   f"-{training.batch_size}" + \
                                   f"-lr={optim.lr}-{suffix}"
 

@@ -25,6 +25,7 @@ from utils.ema_model import ExponentialMovingAverage
 from data import create_dataset
 
 from model.score_estimator_cond import ScoreEstimatorEMB
+from model.score_estimator_ld import DiffusionTransformer
 from autoencoder.autoencoder import AutoEncoder
 
 from utils import mse_loss, get_stat, recon_loss, bert_acc, dict_to_cuda, reduce_tensor, set_seed, l1_loss, smooth_l1_loss
@@ -55,6 +56,13 @@ class DiffusionRunner:
             input_size=self.config.autoencoder.compressor.latent_dim,
             config=self.config.bert_config
         ).cuda()
+        # self.score_estimator = DiffusionTransformer(
+        #     tx_dim=768,
+        #     tx_depth=12,
+        #     heads=12,
+        #     latent_dim=self.config.autoencoder.compressor.latent_dim,
+        #     max_seq_len=self.config.autoencoder.compressor.num_latents,
+        # ).cuda()
 
         self.ddp_score_estimator = self.score_estimator
         if self.config.ddp:
@@ -62,6 +70,7 @@ class DiffusionRunner:
                 self.score_estimator,
                 device_ids=[dist.get_rank()],
                 broadcast_buffers=False,
+                find_unused_parameters=True
             )
 
         # Number of parameters
@@ -105,7 +114,7 @@ class DiffusionRunner:
             )
 
         # Checkpoint loading
-        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), config.model.ema_rate)
+        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), self.config.model.ema_rate)
 
         if eval:
             self.restore_parameters(self.device)
@@ -118,12 +127,12 @@ class DiffusionRunner:
             self.step = 0
             
             if self.load_checkpoint():
-                self.score_estimator.eval()
                 self.switch_to_ema()
-                
+                self.score_estimator.eval()
+
+                self.validate()
                 estimate(self)
                 compute_reconstruction_loss(self, suffix="valid")
-                self.validate()
 
                 self.switch_back_from_ema()
                 self.score_estimator.train()
@@ -140,7 +149,20 @@ class DiffusionRunner:
         self.ema.load_state_dict(ema_ckpt)
 
     def restore_autoencoder(self):
-        self.autoencoder.load_state_dict(torch.load(self.config.model.autoencoder_path)["autoencoder"])
+        autoencoder_folder = self.config.autoencoder.checkpoints_folder
+
+        if not os.path.exists(autoencoder_folder):
+            return False
+
+        checkpoint_names = list(os.listdir(autoencoder_folder))
+        checkpoint_names = [t for t in checkpoint_names if t.startswith(self.config.autoencoder.exp_name)]
+        checkpoint_names = [t.replace(".pth", "") for t in checkpoint_names]
+        
+        assert checkpoint_names, "No autoencoders"
+        
+        name = sorted(checkpoint_names, key=lambda t: int(t.split("-")[-1]))[-1]
+        name = f"{autoencoder_folder}/{name}.pth"
+        self.autoencoder.load_state_dict(torch.load(name)["autoencoder"])
 
     def save_checkpoint(self, last: bool = False) -> None:
         if not dist.get_rank() == 0:
@@ -193,10 +215,12 @@ class DiffusionRunner:
         checkpoint_name = f"{prefix_folder}/{name}.pth"
 
         load = torch.load(checkpoint_name, map_location="cpu")
-
+        
+        self.score_estimator.load_state_dict(load["model"])
+        
         self.ema.load_state_dict(load["ema"])
         self.ema.cuda()
-        self.score_estimator.load_state_dict(load["model"])
+        
         self.optimizer.load_state_dict(load["optimizer"])
         self.scheduler.load_state_dict(load["scheduler"])
         self.grad_scaler.load_state_dict(load["scaler"])
@@ -277,8 +301,13 @@ class DiffusionRunner:
         self.grad_scaler.scale(loss).backward()
         self.grad_scaler.unscale_(self.optimizer)
 
+        # for name, t in self.score_estimator.named_parameters():
+        #     if t.requires_grad:
+        #         if t.grad is None:
+        #             print(name)
+        
         grad_norm = torch.sqrt(
-            sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters() if t.requires_grad]))
+            sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters() if t.requires_grad and t.grad is not None]))
 
         if self.grad_clip_norm is not None:
             torch.nn.utils.clip_grad_norm_(
@@ -287,7 +316,7 @@ class DiffusionRunner:
             )
 
         clipped_grad_norm = torch.sqrt(
-            sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters() if t.requires_grad]))
+            sum([torch.sum(t.grad ** 2) for t in self.score_estimator.parameters() if t.requires_grad and t.grad is not None]))
 
         self.log_metric('lr', 'train', self.optimizer.param_groups[0]['lr'])
         self.grad_scaler.step(self.optimizer)
@@ -308,7 +337,6 @@ class DiffusionRunner:
         return torch.cuda.FloatTensor(batch_size).uniform_() * (self.dynamic.T - eps) + eps
     
     def train(self) -> None:
-        self.set_valid_data_generator()
         self.train_range = trange(self.step + 1, self.config.training.training_iters + 1)
         self.train_range_iter = iter(self.train_range)
 
@@ -417,6 +445,7 @@ class DiffusionRunner:
     def validate(self) -> None:
         valid_loss: Dict[str, torch.Tensor] = dict()
         valid_count = torch.Tensor([0.0])
+        self.set_valid_data_generator()
 
         with torch.no_grad():
             for batch in self.valid_loader:

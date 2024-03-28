@@ -253,9 +253,10 @@ class DiffusionRunner:
         self.set_grad_scaler()
     
         # Initializing the teacher model
-        self.teacher.load_state_dict(load["model"])
         self.teacher_ema = ExponentialMovingAverage(self.teacher.parameters(),
                                                     self.config.model.ema_rate)
+        self.teacher_ema.load_state_dict(load["ema"])
+        self.teacher_ema.copy_to(self.teacher.parameters())
         self.teacher_ema.cuda()
 
         if self.config.is_conditional:

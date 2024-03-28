@@ -81,7 +81,7 @@ class DistillationRunner(DiffusionRunner):
                 )["x_mean"].detach()
 
                 x_trg = self.calc_score(
-                    model=self.teacher,
+                    model=self.ddp_score_estimator,
                     x_t=x_t_1,
                     t=next_t,
                     cond=cond_x,

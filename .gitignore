@@ -8,4 +8,5 @@ wandb/
 generated_texts/
 *slurm*
 hist.py
-*sbatch*
+*.sbatch
+sbatch_out/

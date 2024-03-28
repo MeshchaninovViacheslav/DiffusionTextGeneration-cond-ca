@@ -82,7 +82,7 @@ def create_config():
     config.use_self_cond = True
 
     config.project_name = "dist"
-    config.exp_name = "learning_teacher_no_boundary"
+    config.exp_name = "frozen_teacher_no_boundary"
     config.timesteps = "linear"
     config.is_conditional = False
     config.is_eval = False

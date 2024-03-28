@@ -32,7 +32,7 @@ def create_config():
     training.batch_size = 512
     training.ode_sampling = True
     training.checkpoints_folder = './checkpoints'
-    training.teacher_folder = '/home/vmeshchaninov/shared_folder/checkpoints/rocstory-bert-base-cased-sd-64-lr=0.0002-cls=27, sep=27, pad=0/150000.pth'
+    training.teacher_folder = '/home/echimbulatov/shared_folder/checkpoints/rocstory-bert-base-cased-sd-64-lr=0.0002-cls=27, sep=27, pad=0/150000.pth'
     training.checkpoint_name = ""
 
     validation = config.validation = ml_collections.ConfigDict()
@@ -69,7 +69,7 @@ def create_config():
     data.max_sequence_len = 64
     data.max_context_len = 0
     data.dataset_name = "rocstory"
-    data.dataset_path = f"/home/vmeshchaninov/nlp_models/data/{data.dataset_name}"
+    data.dataset_path = f"/home/echimbulatov/shared_folder/data/{data.dataset_name}"
     data.enc_gen_mean = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-mean.pt"
     data.enc_gen_std = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-std.pt"
 
@@ -81,7 +81,8 @@ def create_config():
     config.ddp = True
     config.use_self_cond = True
 
-    config.project_name = "test"
+    config.project_name = "dist"
+    config.exp_name = "learning_teacher_no_boundary"
     config.timesteps = "linear"
     config.is_conditional = False
     config.is_eval = False

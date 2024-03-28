@@ -85,6 +85,12 @@ class DiffusionRunner:
                 device_ids=[dist.get_rank()],
                 broadcast_buffers=False,
             )
+        
+        # Teacher model
+        self.teacher = ScoreEstimatorEMB(
+            input_size=self.encoder_gen.encoder.config.hidden_size,
+            config=self.config.bert_config
+        ).cuda()
 
         # Number of parameters
         self.config.params_number = ConfigDict()
@@ -100,6 +106,12 @@ class DiffusionRunner:
         self.diff_eq_solver = create_solver(config)(
             dynamic=self.dynamic,
             score_fn=partial(self.calc_score, model=self.ddp_score_estimator),
+            ode_sampling=config.training.ode_sampling
+        )
+        self.teacher_solver = create_solver(config)(
+            dynamic=self.dynamic,
+            score_fn=partial(self.calc_score,
+                             model=self.teacher),
             ode_sampling=config.training.ode_sampling
         )
 
@@ -129,18 +141,12 @@ class DiffusionRunner:
             )
 
         # Checkpoint loading
-        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(), config.model.ema_rate)
-
         if eval:
             self.restore_parameters(self.device)
             self.switch_to_ema()
             self.score_estimator.eval()
         else:
-            self.set_optimizer()
-            self.set_scheduler()
-            self.set_grad_scaler()
             self.step = 0
-            
             if self.load_checkpoint():
                 self.score_estimator.eval()
                 self.switch_to_ema()
@@ -150,8 +156,7 @@ class DiffusionRunner:
                 # self.validate()
             else:
                 self.load_teacher()
-
-                self.switch_back_from_ema()
+                estimate(self)
                 self.score_estimator.train()
 
     def restore_parameters(self, device: Optional[torch.device] = None) -> None:
@@ -238,13 +243,21 @@ class DiffusionRunner:
         path = self.config.training.teacher_folder
         load = torch.load(path, map_location="cpu")
 
-        self.ema.load_state_dict(load["ema"])
+        # Initializing the student
+        self.score_estimator.load_state_dict(load["model"])
+        self.ema = ExponentialMovingAverage(self.score_estimator.parameters(),
+                                            self.config.model.ema_rate)
         self.ema.cuda()
-        self.switch_to_ema()
         self.set_optimizer()
         self.set_scheduler()
         self.set_grad_scaler()
     
+        # Initializing the teacher model
+        self.teacher.load_state_dict(load["model"])
+        self.teacher_ema = ExponentialMovingAverage(self.teacher.parameters(),
+                                                    self.config.model.ema_rate)
+        self.teacher_ema.cuda()
+
         if self.config.is_conditional:
             self.encoder_cond.load_state_dict(load["conditional_encoder"])
         
@@ -345,6 +358,7 @@ class DiffusionRunner:
         self.grad_scaler.update(new_scale=scale)
 
         self.ema.update(self.score_estimator.parameters())
+        self.teacher_ema.update(self.score_estimator.parameters())
         self.scheduler.step_update(self.step)
         return grad_norm, clipped_grad_norm
 

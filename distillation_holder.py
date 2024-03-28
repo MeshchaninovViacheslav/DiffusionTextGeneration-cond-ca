@@ -53,7 +53,7 @@ class DistillationRunner(DiffusionRunner):
                     )
             
             # Model prediction for boundary condition
-            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16), torch.no_grad():
                     x_bound = self.calc_score(
                         model=self.ddp_score_estimator,
                         x_t=x_t_min,
@@ -65,35 +65,31 @@ class DistillationRunner(DiffusionRunner):
                     )['x_0']                    
             
             # Consistency target prediction
-            with torch.no_grad():
-                with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                    self.switch_to_ema()
-                    next_t = t - (self.dynamic.T - self.config.generation.t_min) / (self.dynamic.N + 1)
-                    # Making sure t > 0
-                    next_t[next_t < 0] = t[next_t < 0]
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16), torch.no_grad():
+                next_t = t - (self.dynamic.T - self.config.generation.t_min) / (self.dynamic.N + 1)
+                # Making sure t > 0
+                next_t[next_t < 0] = t[next_t < 0]
 
-                    x_t_1 = self.diff_eq_solver.step(
-                        x_t=x_t, 
-                        t=t, 
-                        next_t=next_t,
-                        cond=cond_x,
-                        cond_mask=cond_mask,
-                        attention_mask=mask,
-                        x_0_self_cond=x_0_self_cond,
-                    )["x_mean"].detach()
+                x_t_1 = self.teacher_solver.step(
+                    x_t=x_t, 
+                    t=t, 
+                    next_t=next_t,
+                    cond=cond_x,
+                    cond_mask=cond_mask,
+                    attention_mask=mask,
+                    x_0_self_cond=x_0_self_cond,
+                )["x_mean"].detach()
 
-                    x_trg = self.calc_score(
-                        model=self.ddp_score_estimator,
-                        x_t=x_t_1,
-                        t=next_t,
-                        cond=cond_x,
-                        cond_mask=cond_mask,
-                        attention_mask=mask,
-                        x_0_self_cond=x_0_self_cond
-                    )['x_0'].detach()
-                    self.switch_back_from_ema()
-
-
+                x_trg = self.calc_score(
+                    model=self.teacher,
+                    x_t=x_t_1,
+                    t=next_t,
+                    cond=cond_x,
+                    cond_mask=cond_mask,
+                    attention_mask=mask,
+                    x_0_self_cond=x_0_self_cond
+                )['x_0'].detach()
+        
             # MSE losses
             x_0 = scores["x_0"]
             loss_x_0 = mse_loss(x_trg, x_0, mask)
@@ -105,7 +101,9 @@ class DistillationRunner(DiffusionRunner):
             logits = self.pred_logits(pred_embeddings=x_0)
             ce_loss = recon_loss(logits, trg["input_ids"], mask)
 
-            loss = loss_x_0 + 0.25 * boundary_loss
+
+            loss = loss_x_0 #+ 0.25 * boundary_loss
+
             loss_dict = {
                 'loss': loss,
                 'loss_x_0': loss_x_0,

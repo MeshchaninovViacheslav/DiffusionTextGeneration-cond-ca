@@ -149,10 +149,12 @@ class DiffusionRunner:
             self.step = 0
             if self.load_checkpoint():
                 self.score_estimator.eval()
-                self.switch_to_ema()
+                # self.switch_to_ema()
 
                 estimate(self)
                 compute_reconstruction_loss(self, suffix="valid")
+                self.load_teacher()
+                self.score_estimator.train()
                 # self.validate()
             else:
                 self.load_teacher()
@@ -359,7 +361,7 @@ class DiffusionRunner:
         self.grad_scaler.update(new_scale=scale)
 
         self.ema.update(self.score_estimator.parameters())
-        self.teacher_ema.update(self.score_estimator.parameters())
+        # self.teacher_ema.update(self.score_estimator.parameters())
         self.scheduler.step_update(self.step)
         return grad_norm, clipped_grad_norm
 

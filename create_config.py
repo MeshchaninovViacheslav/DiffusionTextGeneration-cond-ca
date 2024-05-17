@@ -17,7 +17,7 @@ def create_config():
     optim = config.optim = ml_collections.ConfigDict()
     optim.grad_clip_norm = 1.
     optim.linear_warmup = 1000
-    optim.lr = 2e-4
+    optim.lr = 4e-4
     optim.min_lr = 2e-4
     optim.warmup_lr = 1e-8
     optim.weight_decay = 0.01
@@ -28,10 +28,10 @@ def create_config():
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 800_000
     training.checkpoint_freq = 50_000
-    training.eval_freq = 5_000
+    training.eval_freq = 50_000
     training.batch_size = 512
     training.ode_sampling = True
-    training.checkpoints_folder = './checkpoints'
+    training.checkpoints_folder = 'checkpoints'
     training.teacher_folder = '/home/echimbulatov/shared_folder/checkpoints/rocstory-bert-base-cased-sd-64-lr=0.0002-cls=27, sep=27, pad=0/150000.pth'
     training.checkpoint_name = ""
 
@@ -49,7 +49,7 @@ def create_config():
 
     generation = config.generation = ml_collections.ConfigDict()
     generation.batch_size = 512
-    generation.t_min = 0.01
+    generation.t_min = 0.001
     generation.num_gen_texts = 1100
     generation.num_text_to_est = 1000
     generation.texts_path = "./generated_texts"
@@ -82,14 +82,15 @@ def create_config():
     config.use_self_cond = True
 
     config.project_name = "dist"
-    config.exp_name = "frozen_teacher_no_boundary"
+    config.exp_name = "frozen_teacher_bc_no_clip_disc_time"
     config.timesteps = "linear"
     config.is_conditional = False
     config.is_eval = False
     config.bert_config = create_se_config()
     config.bert_config.is_decoder = config.is_conditional
     config.decoder = create_decoder_config()
-    training.checkpoints_prefix = f"{config.data.dataset_name}" + \
+    training.checkpoints_prefix = f"{config.exp_name}" + \
+                                  f"{config.data.dataset_name}" + \
                                   f"-{config.model.encoder_name_hash}" + \
                                   f"-{config.dynamic.scheduler}" + \
                                   f"-{data.max_sequence_len}" + \

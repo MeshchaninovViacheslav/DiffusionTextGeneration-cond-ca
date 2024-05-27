@@ -37,7 +37,6 @@ class DatasetDDP:
         path = f"{self.base_path}/{self.split}/"
         dt = load_from_disk(path)
         dt = self.spilt_data_across_gpu(dt)
-
         self.dt = dt.map(
             self.batch_preprocessing,
             batched=True,

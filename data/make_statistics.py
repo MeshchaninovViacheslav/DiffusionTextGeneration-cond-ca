@@ -78,7 +78,7 @@ def compute_mean_std(
     mean = sum_ / num
     std = torch.sqrt(sqr_sum_ / num - mean ** 2)
 
-    os.makedirs(config.data.dataset_path, exist_ok=True)
+    os.makedirs(config.data.dataset_path + '/statistics', exist_ok=True)
     torch.save(mean, config.data.enc_gen_mean)
     torch.save(std, config.data.enc_gen_std)
 

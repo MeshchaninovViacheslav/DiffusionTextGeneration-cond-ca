@@ -10,7 +10,7 @@ def create_decoder_config():
     decoder.batch_size = 512
     decoder.lr = 1e-4
     decoder.eval_freq = 100
-    decoder.num_epochs = 4
+    decoder.num_epochs = 1
     decoder.std_aug = 0.2
 
     return decoder

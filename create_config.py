@@ -44,7 +44,7 @@ def create_config():
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
     dynamic.ode_sampling = False
-    dynamic.coef_d = 8
+    dynamic.coef_d = 9
 
     generation = config.generation = ml_collections.ConfigDict()
     generation.batch_size = 512

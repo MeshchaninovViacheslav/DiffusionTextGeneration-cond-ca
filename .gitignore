@@ -8,5 +8,4 @@ generated_texts/
 .ipynb_checkpoints/
 sbatch_out/
 Untitled.ipynb
-train.sbatch 
 stats.py

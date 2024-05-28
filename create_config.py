@@ -67,14 +67,13 @@ def create_config():
     data = config.data = ml_collections.ConfigDict()
     data.max_sequence_len = 128
     data.max_context_len = 0
-    data.dataset_name = "wikipedia_mean_128_tokens"
+    data.dataset_name = "wikipedia"
     data.dataset_path = f"/home/echimbulatov/data/{data.dataset_name}"
     data.enc_gen_mean = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-mean.pt"
     data.enc_gen_std = f"{data.dataset_path}/statistics/encodings-{model.encoder_name_hash}-std.pt"
 
     model.decoder_mode = "transformer"
-    suffix = "cls=27, sep=27, pad=0"
-    model.decoder_path = f"{data.dataset_path}/decoder-{model.encoder_name_hash}-{model.decoder_mode}-{data.max_sequence_len}-{suffix}.pth"
+    model.decoder_path = f"{data.dataset_path}/decoder-{model.encoder_name_hash}-{model.decoder_mode}-{data.max_sequence_len}.pth"
 
     config.seed = 0
     config.ddp = True
@@ -89,7 +88,7 @@ def create_config():
                                   f"-{config.model.encoder_name_hash}" + \
                                   f"-{config.dynamic.scheduler}" + \
                                   f"-{data.max_sequence_len}" + \
-                                  f"-lr={optim.lr}-{suffix}"
+                                  f"-lr={optim.lr}"
 
     return config
 

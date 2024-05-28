@@ -4,7 +4,7 @@
 #SBATCH --gpus=8
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=10
-#SBATCH --time=1-0:0
+#SBATCH --time=0-13:0
 #SBATCH --mail-user=egor.chimbulatov@yandex.ru
 #SBATCH --mail-type=ALL
 #SBATCH --output="sbatch_out/wiki_basic"%j.out

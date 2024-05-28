@@ -7,7 +7,7 @@
 #SBATCH --time=1-0:0
 #SBATCH --mail-user=egor.chimbulatov@yandex.ru
 #SBATCH --mail-type=ALL
-#SBATCH --output="sbatch_out/decoder_wiki"%j.out
+#SBATCH --output="sbatch_out/wiki_basic"%j.out
 #SBATCH --constraint="type_e"
 
 python stats.py

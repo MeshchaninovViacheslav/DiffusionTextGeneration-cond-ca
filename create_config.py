@@ -28,7 +28,7 @@ def create_config():
     training = config.training = ml_collections.ConfigDict()
     training.training_iters = 200_000
     training.checkpoint_freq = 50_000
-    training.eval_freq = 10_000
+    training.eval_freq = 1000_000
     training.batch_size = 512
     training.ode_sampling = False
     training.checkpoints_folder = './checkpoints/'
@@ -39,7 +39,7 @@ def create_config():
 
     dynamic = config.dynamic = ml_collections.ConfigDict()
     dynamic.solver = 'euler'
-    dynamic.scheduler = "sd"
+    dynamic.scheduler = "sqrt"
     dynamic.N = 50
     dynamic.beta_min = 0.1
     dynamic.beta_max = 20
@@ -80,7 +80,6 @@ def create_config():
     config.ddp = True
     config.use_self_cond = True
     config.project_name = "emnlp"
-    config.timesteps = "linear"
     config.is_conditional = False
     config.is_eval = False
     config.bert_config = create_se_config()

@@ -10,6 +10,8 @@ def create_scheduler(config):
         return SD(config.dynamic.coef_d)
     elif config.dynamic.scheduler == "cosine":
         return CosineIDDPM()
+    elif config.dynamic.scheduler == "sqrt":
+        return Sqrt(s=config.generation.t_min, num_steps=config.dynamic.N)
 
 
 
@@ -41,6 +43,23 @@ class Linear(Scheduler):
         alpha = torch.exp(log_mean_coeff)
         std = torch.sqrt(1. - torch.exp(log_gamma_coeff))
         return alpha, std
+
+class Sqrt(Scheduler):
+    def __init__(self, s, num_steps):
+        self.s = s
+        self.steps = num_steps
+
+    def beta_t(self, t):
+        step = (1. - self.s) / self.steps
+        t_1 = torch.clip(t - step, min=self.s)
+        beta_t = 1 - (1. - torch.sqrt(t + self.s)) / (1. - torch.sqrt(t_1 + self.s))
+        return beta_t
+    
+    def params(self, t):
+        t = t[:, None, None]
+        alpha_t = 1 - torch.sqrt(t + self.s)
+        std_t = torch.sqrt(1 - alpha_t ** 2)
+        return alpha_t, std_t
 
 
 class SD(Scheduler):
